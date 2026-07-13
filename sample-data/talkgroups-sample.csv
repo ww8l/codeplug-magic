@@ -1,0 +1,8 @@
+Number,Alias,Type,Notes
+3108,Colorado,Group,Statewide CO
+3169,Midwest,Group,Regional
+310,TAC 310,Group,Calling/QSO move
+311,TAC 311,Group,
+9990,Parrot,Private,Echo test
+,MissingNumber,Group,this row is skipped
+abc,BadNumber,Group,this row is skipped
