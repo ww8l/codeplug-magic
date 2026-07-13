@@ -1,0 +1,11 @@
+Frequency,Input Freq,PL,TSQ,Location,State,Call,Operational Status,Use,DMR,DMR Color Code,D-Star,System Fusion,NXDN,P25,Notes,County,Landmark,ARES,RACES,SKYWARN,Lat,Long
+146.940,146.340,100.0,100.0,Colorado Springs,Colorado,W0CPH,On Air,Open,No,,No,No,No,No,PPRAA club repeater,El Paso,Cheyenne Mountain,Yes,Yes,Yes,38.7445,-104.8463
+147.345,147.945,107.2,,Colorado Springs,Colorado,W0TLM,On Air,Open,No,,No,Yes,No,No,Wide area coverage,El Paso,,No,No,Yes,38.8339,-104.8214
+449.625,444.625,141.3,141.3,Monument,Colorado,K0FF,On Air,Members,No,,No,No,No,No,Members only autopatch,El Paso,Mt Herman,No,No,No,39.0917,-104.8722
+145.310,144.710,,,Denver,Colorado,W0ARK,On Air,Open,No,,Yes,No,No,No,D-STAR gateway,Denver,Lookout Mountain,Yes,No,No,39.7392,-105.2386
+443.450,448.450,131.8,,Denver,Colorado,WW0DEN,On Air,Open,Yes,1,No,No,No,No,Colorado DMR network TG 8,Denver,,No,No,No,39.7392,-104.9903
+927.4875,902.4875,,,Boulder,Colorado,N0BLD,Off Air,Open,No,,No,No,No,No,33cm machine - intermittent,Boulder,Flagstaff Mtn,No,No,No,40.0150,-105.2705
+224.940,223.340,103.5,,Pueblo,Colorado,K0PUB,On Air,Open,No,,No,No,No,No,1.25m repeater,Pueblo,,No,No,Yes,38.2544,-104.6091
+146.685,146.085,88.5,88.5,Castle Rock,Colorado,W0CR,On Air,Open,No,,No,No,No,No,Linked system,Douglas,,Yes,Yes,No,39.3722,-104.8561
+147.225,147.825,123.0,,Fort Collins,Colorado,W0ETX,Unknown,Open,No,,No,Yes,No,No,Fusion + analog,Larimer,Horsetooth,No,No,Yes,40.5853,-105.0844
+448.875,443.875,,,Aurora,Colorado,K0AUR,On Air,Closed,No,,No,No,No,No,Private repeater,Arapahoe,,No,No,No,39.7294,-104.8319

@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+/* Class-based dark mode: toggled by adding `.dark` on <html>.
+   Default (no class) follows the ThemeProvider which seeds from the
+   system preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Design tokens for a dense, professional desktop tool. */
+@theme {
+  --color-surface: #ffffff;
+  --color-surface-muted: #f4f5f7;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono",
+    Menlo, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+/* Slim, unobtrusive scrollbars suited to a data-dense desktop app. */
+* {
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgb(148 163 184 / 0.4);
+  border-radius: 9999px;
+}

@@ -1,0 +1,733 @@
+use sqlx::{Acquire, QueryBuilder};
+use tauri::State;
+
+use crate::db::AppState;
+use crate::error::MapErrString;
+use crate::models::{Channel, ChannelFilter, ChannelInput, CityCentroid};
+use crate::util::{derive_band, derive_duplex, gen_name_long, gen_name_short};
+
+/// Normalize a search term for matching against frequency text. If the term
+/// looks like a decimal number (e.g. "445.050"), strip trailing zeros and any
+/// trailing decimal point so it matches the stored "445.05". Non-numeric terms
+/// (text searches) are returned unchanged.
+fn normalize_freq_term(term: &str) -> String {
+    // Only normalize when the term is a plain decimal number with a fractional
+    // part — that's the case where a trailing zero would break the match.
+    let is_decimal =
+        term.contains('.') && term.chars().all(|c| c.is_ascii_digit() || c == '.');
+    if !is_decimal {
+        return term.to_string();
+    }
+    let trimmed = term.trim_end_matches('0');
+    trimmed.trim_end_matches('.').to_string()
+}
+
+const CHANNEL_COLUMNS: &str = "id, rb_name, name_long, name_short, callsign, rx_freq, tx_freq, offset, duplex, band, mode, tone_mode, ctcss_uplink, ctcss_downlink, dcs_code, dcs_rx_code, dcs_polarity, cross_mode, power, dmr_color_code, dmr_timeslot, dmr_talkgroup, dstar_capable, ysf_capable, nxdn_capable, p25_capable, p25_nac, m17_capable, m17_can, tetra_capable, allstar_node, echolink_node, irlp_node, wires_node, ares, races, skywarn, canwarn, use_type, operational_status, service_type, city, county, state, country, latitude, longitude, notes, source, repeaterbook_id, rb_ctcss_uplink, rb_ctcss_downlink, rb_operational_status, rb_notes, ctcss_uplink_overridden, ctcss_downlink_overridden, operational_status_overridden, notes_overridden, has_overrides, last_rb_update, last_user_edit, created_at";
+
+#[tauri::command]
+pub async fn list_channels(
+    state: State<'_, AppState>,
+    filter: Option<ChannelFilter>,
+) -> Result<Vec<Channel>, String> {
+    let filter = filter.unwrap_or_default();
+    let mut qb: QueryBuilder<sqlx::Sqlite> =
+        QueryBuilder::new(format!("SELECT {CHANNEL_COLUMNS} FROM channels WHERE 1=1"));
+
+    if let Some(band) = filter.band.filter(|s| !s.is_empty()) {
+        qb.push(" AND band = ").push_bind(band);
+    }
+    if let Some(mode) = filter.mode.filter(|s| !s.is_empty()) {
+        qb.push(" AND mode = ").push_bind(mode);
+    }
+    if let Some(st) = filter.state.filter(|s| !s.is_empty()) {
+        qb.push(" AND state = ").push_bind(st);
+    }
+    if let Some(status) = filter.operational_status.filter(|s| !s.is_empty()) {
+        qb.push(" AND operational_status = ").push_bind(status);
+    }
+    if let Some(src) = filter.source.filter(|s| !s.is_empty()) {
+        qb.push(" AND source = ").push_bind(src);
+    }
+    if let Some(search) = filter.search.filter(|s| !s.trim().is_empty()) {
+        let term = search.trim();
+        let pat = format!("%{}%", term);
+        // Frequencies are stored as f64 MHz, so CAST(445.05 AS TEXT) is "445.05"
+        // with no trailing zeros. Users often type the full "445.050", so strip
+        // trailing zeros from the typed term before matching against frequencies.
+        let freq_pat = format!("%{}%", normalize_freq_term(term));
+        // Match text fields plus the RX/TX frequency (cast to text so partial
+        // numeric searches like "447.275" or "275" work).
+        qb.push(" AND (name_long LIKE ")
+            .push_bind(pat.clone())
+            .push(" OR name_short LIKE ")
+            .push_bind(pat.clone())
+            .push(" OR callsign LIKE ")
+            .push_bind(pat.clone())
+            .push(" OR city LIKE ")
+            .push_bind(pat.clone())
+            .push(" OR CAST(rx_freq AS TEXT) LIKE ")
+            .push_bind(freq_pat.clone())
+            .push(" OR CAST(tx_freq AS TEXT) LIKE ")
+            .push_bind(freq_pat)
+            .push(")");
+    }
+
+    qb.push(" ORDER BY state, city, rx_freq");
+
+    qb.build_query_as::<Channel>()
+        .fetch_all(&state.pool)
+        .await
+        .estr()
+}
+
+/// Distinct cities (with representative coordinates) for the "distance from"
+/// origin picker. Averages the coordinates of all repeaters in each city.
+#[tauri::command]
+pub async fn list_cities(state: State<'_, AppState>) -> Result<Vec<CityCentroid>, String> {
+    fetch_centroids(&state.pool).await
+}
+
+/// City centroids (averaged coordinates per town) from repeaters that already
+/// have coordinates. Shared by `list_cities` and the bulk backfill.
+async fn fetch_centroids(pool: &sqlx::SqlitePool) -> Result<Vec<CityCentroid>, String> {
+    sqlx::query_as::<_, CityCentroid>(
+        r#"
+        SELECT city,
+               state,
+               AVG(latitude) AS latitude,
+               AVG(longitude) AS longitude,
+               COUNT(*) AS count
+        FROM channels
+        WHERE city IS NOT NULL AND city <> ''
+          AND latitude IS NOT NULL AND longitude IS NOT NULL
+        GROUP BY LOWER(city), LOWER(COALESCE(state, ''))
+        ORDER BY city
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .estr()
+}
+
+/// A single lat/lon pair returned to the frontend for auto-filling coordinates.
+#[derive(serde::Serialize)]
+pub struct GeoPoint {
+    pub latitude: f64,
+    pub longitude: f64,
+}
+
+#[derive(serde::Deserialize)]
+struct NominatimResult {
+    lat: String,
+    lon: String,
+}
+
+/// Build an HTTP client whose User-Agent identifies us — Nominatim's usage
+/// policy requires it.
+fn geocoder_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .user_agent("WW8LCodeplugMagic/1.0 (amateur-radio codeplug editor)")
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))
+}
+
+/// One Nominatim lookup. Returns the best match's coordinates, or `None` if the
+/// service found nothing. Shared by the single-field geocoder and the bulk
+/// backfill so both behave identically.
+async fn geocode_nominatim(
+    client: &reqwest::Client,
+    city: &str,
+    state: Option<&str>,
+    country: Option<&str>,
+) -> Result<Option<GeoPoint>, String> {
+    // Structured query: city (+ optional state/country) narrows the match.
+    let mut query: Vec<(&str, String)> = vec![
+        ("format", "jsonv2".into()),
+        ("limit", "1".into()),
+        ("city", city.to_string()),
+    ];
+    if let Some(s) = state.map(str::trim).filter(|s| !s.is_empty()) {
+        query.push(("state", s.to_string()));
+    }
+    if let Some(c) = country.map(str::trim).filter(|c| !c.is_empty()) {
+        query.push(("country", c.to_string()));
+    }
+
+    let resp = client
+        .get("https://nominatim.openstreetmap.org/search")
+        .query(&query)
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach the geocoder: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("Geocoder returned HTTP {}", resp.status()));
+    }
+    let results: Vec<NominatimResult> = resp
+        .json()
+        .await
+        .map_err(|e| format!("Could not parse geocoder response: {e}"))?;
+
+    let Some(first) = results.first() else {
+        return Ok(None);
+    };
+    let latitude = first
+        .lat
+        .parse::<f64>()
+        .map_err(|_| "Geocoder returned a bad latitude".to_string())?;
+    let longitude = first
+        .lon
+        .parse::<f64>()
+        .map_err(|_| "Geocoder returned a bad longitude".to_string())?;
+    Ok(Some(GeoPoint {
+        latitude,
+        longitude,
+    }))
+}
+
+/// Geocode a town via OpenStreetMap's Nominatim service. Returns the best
+/// match's coordinates, or `None` if nothing was found. This is the online
+/// fallback used when a manually entered channel's city isn't already present
+/// in the local data (whose centroids `list_cities` serves instantly offline).
+#[tauri::command]
+pub async fn geocode_city(
+    city: String,
+    state: Option<String>,
+    country: Option<String>,
+) -> Result<Option<GeoPoint>, String> {
+    let city = city.trim();
+    if city.is_empty() {
+        return Ok(None);
+    }
+    let client = geocoder_client()?;
+    geocode_nominatim(&client, city, state.as_deref(), country.as_deref()).await
+}
+
+/// Outcome of a bulk coordinate backfill, for a summary toast.
+#[derive(serde::Serialize)]
+pub struct BackfillResult {
+    /// Channels that had a city but no coordinates — the work set.
+    pub scanned: usize,
+    /// Filled from a centroid of the user's own repeaters (offline).
+    pub from_data: usize,
+    /// Filled from OpenStreetMap.
+    pub from_online: usize,
+    /// City present but neither source could locate it.
+    pub not_found: usize,
+    /// A lookup errored (e.g. the geocoder was unreachable).
+    pub failed: usize,
+}
+
+/// Find a matching centroid among the user's own repeaters: exact city, and
+/// exact state when the channel has one. When several towns share a name, the
+/// one backed by the most repeaters wins — mirrors the create-form auto-fill.
+fn match_centroid<'a>(
+    centroids: &'a [CityCentroid],
+    city: &str,
+    state: Option<&str>,
+) -> Option<&'a CityCentroid> {
+    let want_city = city.trim().to_lowercase();
+    let want_state = state.unwrap_or("").trim().to_lowercase();
+    centroids
+        .iter()
+        .filter(|c| {
+            c.city.to_lowercase() == want_city
+                && (want_state.is_empty()
+                    || c.state.as_deref().unwrap_or("").to_lowercase() == want_state)
+        })
+        .max_by_key(|c| c.count)
+}
+
+/// Backfill coordinates for every channel that has a city but no lat/lon.
+/// Prefers an offline centroid from the user's own repeaters; otherwise falls
+/// back to the online geocoder (throttled to respect Nominatim's usage policy).
+/// Never touches channels that already have coordinates.
+#[tauri::command]
+pub async fn backfill_channel_coordinates(
+    state: State<'_, AppState>,
+) -> Result<BackfillResult, String> {
+    backfill_impl(&state.pool).await
+}
+
+async fn backfill_impl(pool: &sqlx::SqlitePool) -> Result<BackfillResult, String> {
+    // Offline centroids from repeaters that already have coordinates.
+    let centroids = fetch_centroids(pool).await?;
+
+    // The work set: a city to geocode, but no coordinates yet.
+    let targets: Vec<(i64, String, Option<String>, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT id, city, state, country
+        FROM channels
+        WHERE city IS NOT NULL AND TRIM(city) <> ''
+          AND (latitude IS NULL OR longitude IS NULL)
+        ORDER BY id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .estr()?;
+
+    let mut result = BackfillResult {
+        scanned: targets.len(),
+        from_data: 0,
+        from_online: 0,
+        not_found: 0,
+        failed: 0,
+    };
+    let client = geocoder_client()?;
+    let mut did_online = false;
+
+    for (id, city, st, country) in targets {
+        // 1) Offline centroid from the user's own data — instant, no network.
+        if let Some(hit) = match_centroid(&centroids, &city, st.as_deref()) {
+            let (lat, lon) = (hit.latitude, hit.longitude);
+            if update_coords(pool, id, lat, lon).await.is_ok() {
+                result.from_data += 1;
+            } else {
+                result.failed += 1;
+            }
+            continue;
+        }
+
+        // 2) Online geocoder. Space requests ~1s apart per Nominatim's policy.
+        if did_online {
+            tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        }
+        did_online = true;
+        match geocode_nominatim(&client, &city, st.as_deref(), country.as_deref()).await {
+            Ok(Some(pt)) => {
+                if update_coords(pool, id, pt.latitude, pt.longitude)
+                    .await
+                    .is_ok()
+                {
+                    result.from_online += 1;
+                } else {
+                    result.failed += 1;
+                }
+            }
+            Ok(None) => result.not_found += 1,
+            Err(_) => result.failed += 1,
+        }
+    }
+
+    Ok(result)
+}
+
+/// Write just the coordinates onto one channel.
+async fn update_coords(
+    pool: &sqlx::SqlitePool,
+    id: i64,
+    lat: f64,
+    lon: f64,
+) -> Result<(), String> {
+    sqlx::query("UPDATE channels SET latitude = ?1, longitude = ?2 WHERE id = ?3")
+        .bind(lat)
+        .bind(lon)
+        .bind(id)
+        .execute(pool)
+        .await
+        .estr()
+        .map(|_| ())
+}
+
+#[tauri::command]
+pub async fn get_channel(state: State<'_, AppState>, id: i64) -> Result<Channel, String> {
+    sqlx::query_as::<_, Channel>(&format!(
+        "SELECT {CHANNEL_COLUMNS} FROM channels WHERE id = ?1"
+    ))
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await
+    .estr()
+}
+
+#[tauri::command]
+pub async fn create_channel(
+    state: State<'_, AppState>,
+    input: ChannelInput,
+) -> Result<Channel, String> {
+    let band = derive_band(input.rx_freq);
+    let (duplex, offset) = derive_duplex(input.rx_freq, input.tx_freq);
+
+    // Auto-generate names if the user did not supply them.
+    let callsign = input.callsign.clone().unwrap_or_default();
+    let city = input.city.clone().unwrap_or_default();
+    let name_long = input
+        .name_long
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| gen_name_long(&callsign, &city));
+    let name_short = input
+        .name_short
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| gen_name_short(&callsign));
+
+    // Manual channels carry whatever provenance the user typed; blank → "manual".
+    let source = input
+        .source
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "manual".to_string());
+
+    let id = sqlx::query(
+        r#"
+        INSERT INTO channels (
+            name_long, name_short, callsign, rx_freq, tx_freq, offset, duplex,
+            band, mode, tone_mode, ctcss_uplink, ctcss_downlink, dcs_code,
+            dmr_color_code, dmr_timeslot, dmr_talkgroup,
+            dstar_capable, ysf_capable, nxdn_capable, p25_capable, p25_nac,
+            m17_capable, m17_can, use_type, operational_status, service_type,
+            city, county, state, country, latitude, longitude, notes,
+            dcs_rx_code, dcs_polarity, cross_mode, power,
+            source, last_user_edit
+        ) VALUES (
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7,
+            ?8, ?9, ?10, ?11, ?12, ?13,
+            ?14, ?15, ?16,
+            ?17, ?18, ?19, ?20, ?21,
+            ?22, ?23, ?24, ?25, ?26,
+            ?27, ?28, ?29, ?30, ?31, ?32, ?33,
+            ?34, ?35, ?36, ?37,
+            ?38, CURRENT_TIMESTAMP
+        )
+        "#,
+    )
+    .bind(&name_long)
+    .bind(&name_short)
+    .bind(&input.callsign)
+    .bind(input.rx_freq)
+    .bind(input.tx_freq)
+    .bind(offset)
+    .bind(&duplex)
+    .bind(band)
+    .bind(&input.mode)
+    .bind(&input.tone_mode)
+    .bind(input.ctcss_uplink)
+    .bind(input.ctcss_downlink)
+    .bind(&input.dcs_code)
+    .bind(input.dmr_color_code)
+    .bind(input.dmr_timeslot)
+    .bind(input.dmr_talkgroup)
+    .bind(input.dstar_capable)
+    .bind(input.ysf_capable)
+    .bind(input.nxdn_capable)
+    .bind(input.p25_capable)
+    .bind(&input.p25_nac)
+    .bind(input.m17_capable)
+    .bind(input.m17_can)
+    .bind(&input.use_type)
+    .bind(&input.operational_status)
+    .bind(&input.service_type)
+    .bind(&input.city)
+    .bind(&input.county)
+    .bind(&input.state)
+    .bind(input.country.clone().unwrap_or_else(|| "United States".to_string()))
+    .bind(input.latitude)
+    .bind(input.longitude)
+    .bind(&input.notes)
+    .bind(&input.dcs_rx_code)
+    .bind(&input.dcs_polarity)
+    .bind(&input.cross_mode)
+    .bind(&input.power)
+    .bind(&source)
+    .execute(&state.pool)
+    .await
+    .estr()?
+    .last_insert_rowid();
+
+    get_channel(state, id).await
+}
+
+#[tauri::command]
+pub async fn update_channel(
+    state: State<'_, AppState>,
+    id: i64,
+    input: ChannelInput,
+) -> Result<Channel, String> {
+    // Load the existing row so we can compute override flags against the
+    // RepeaterBook-supplied baseline values.
+    let existing = sqlx::query_as::<_, Channel>(&format!(
+        "SELECT {CHANNEL_COLUMNS} FROM channels WHERE id = ?1"
+    ))
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await
+    .estr()?;
+
+    let band = derive_band(input.rx_freq);
+    let (duplex, offset) = derive_duplex(input.rx_freq, input.tx_freq);
+
+    // An override exists when the user value differs from the RB baseline and
+    // a RB baseline is present. Manual channels (no rb_* values) never override.
+    let ctcss_up_over = differs_opt_f64(input.ctcss_uplink, existing.rb_ctcss_uplink);
+    let ctcss_dn_over = differs_opt_f64(input.ctcss_downlink, existing.rb_ctcss_downlink);
+    let status_over =
+        differs_opt_str(&input.operational_status, &existing.rb_operational_status);
+    let notes_over = differs_opt_str(&input.notes, &existing.rb_notes);
+    let has_overrides = ctcss_up_over || ctcss_dn_over || status_over || notes_over;
+
+    // Keep the existing provenance unless the form supplied a (non-blank) value.
+    let source = input
+        .source
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(existing.source);
+
+    sqlx::query(
+        r#"
+        UPDATE channels SET
+            name_long = ?2, name_short = ?3, callsign = ?4, rx_freq = ?5,
+            tx_freq = ?6, offset = ?7, duplex = ?8, band = ?9, mode = ?10,
+            tone_mode = ?11, ctcss_uplink = ?12, ctcss_downlink = ?13,
+            dcs_code = ?14, dmr_color_code = ?15, dmr_timeslot = ?16,
+            dmr_talkgroup = ?17, dstar_capable = ?18, ysf_capable = ?19,
+            nxdn_capable = ?20, p25_capable = ?21, p25_nac = ?22,
+            m17_capable = ?23, m17_can = ?24, use_type = ?25,
+            operational_status = ?26, service_type = ?27, city = ?28,
+            county = ?29, state = ?30, country = ?31, latitude = ?32,
+            longitude = ?33, notes = ?34,
+            ctcss_uplink_overridden = ?35, ctcss_downlink_overridden = ?36,
+            operational_status_overridden = ?37, notes_overridden = ?38,
+            has_overrides = ?39,
+            dcs_rx_code = ?40, dcs_polarity = ?41, cross_mode = ?42, power = ?43,
+            source = ?44,
+            last_user_edit = CURRENT_TIMESTAMP
+        WHERE id = ?1
+        "#,
+    )
+    .bind(id)
+    .bind(&input.name_long)
+    .bind(&input.name_short)
+    .bind(&input.callsign)
+    .bind(input.rx_freq)
+    .bind(input.tx_freq)
+    .bind(offset)
+    .bind(&duplex)
+    .bind(band)
+    .bind(&input.mode)
+    .bind(&input.tone_mode)
+    .bind(input.ctcss_uplink)
+    .bind(input.ctcss_downlink)
+    .bind(&input.dcs_code)
+    .bind(input.dmr_color_code)
+    .bind(input.dmr_timeslot)
+    .bind(input.dmr_talkgroup)
+    .bind(input.dstar_capable)
+    .bind(input.ysf_capable)
+    .bind(input.nxdn_capable)
+    .bind(input.p25_capable)
+    .bind(&input.p25_nac)
+    .bind(input.m17_capable)
+    .bind(input.m17_can)
+    .bind(&input.use_type)
+    .bind(&input.operational_status)
+    .bind(&input.service_type)
+    .bind(&input.city)
+    .bind(&input.county)
+    .bind(&input.state)
+    .bind(&input.country)
+    .bind(input.latitude)
+    .bind(input.longitude)
+    .bind(&input.notes)
+    .bind(ctcss_up_over)
+    .bind(ctcss_dn_over)
+    .bind(status_over)
+    .bind(notes_over)
+    .bind(has_overrides)
+    .bind(&input.dcs_rx_code)
+    .bind(&input.dcs_polarity)
+    .bind(&input.cross_mode)
+    .bind(&input.power)
+    .bind(&source)
+    .execute(&state.pool)
+    .await
+    .estr()?;
+
+    get_channel(state, id).await
+}
+
+#[tauri::command]
+pub async fn delete_channel(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    sqlx::query("DELETE FROM channels WHERE id = ?1")
+        .bind(id)
+        .execute(&state.pool)
+        .await
+        .estr()?;
+    Ok(())
+}
+
+/// Delete many channels at once (e.g. to redo an import). Returns how many rows
+/// were removed.
+#[tauri::command]
+pub async fn delete_channels(
+    state: State<'_, AppState>,
+    ids: Vec<i64>,
+) -> Result<u64, String> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let mut conn = state.pool.acquire().await.estr()?;
+    let mut tx = conn.begin().await.estr()?;
+    let mut deleted = 0u64;
+    for id in &ids {
+        deleted += sqlx::query("DELETE FROM channels WHERE id = ?1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .estr()?
+            .rows_affected();
+    }
+    tx.commit().await.estr()?;
+    Ok(deleted)
+}
+
+/// Revert a single overridable field back to its RepeaterBook value and clear
+/// the corresponding override flag. `field` is one of: ctcss_uplink,
+/// ctcss_downlink, operational_status, notes.
+#[tauri::command]
+pub async fn accept_rb_value(
+    state: State<'_, AppState>,
+    id: i64,
+    field: String,
+) -> Result<Channel, String> {
+    let sql = match field.as_str() {
+        "ctcss_uplink" => {
+            "UPDATE channels SET ctcss_uplink = rb_ctcss_uplink, ctcss_uplink_overridden = 0 WHERE id = ?1"
+        }
+        "ctcss_downlink" => {
+            "UPDATE channels SET ctcss_downlink = rb_ctcss_downlink, ctcss_downlink_overridden = 0 WHERE id = ?1"
+        }
+        "operational_status" => {
+            "UPDATE channels SET operational_status = rb_operational_status, operational_status_overridden = 0 WHERE id = ?1"
+        }
+        "notes" => "UPDATE channels SET notes = rb_notes, notes_overridden = 0 WHERE id = ?1",
+        other => return Err(format!("Unknown overridable field: {other}")),
+    };
+
+    sqlx::query(sql).bind(id).execute(&state.pool).await.estr()?;
+
+    // Recompute the aggregate has_overrides flag.
+    sqlx::query(
+        "UPDATE channels SET has_overrides = (ctcss_uplink_overridden OR ctcss_downlink_overridden OR operational_status_overridden OR notes_overridden) WHERE id = ?1",
+    )
+    .bind(id)
+    .execute(&state.pool)
+    .await
+    .estr()?;
+
+    get_channel(state, id).await
+}
+
+fn differs_opt_f64(a: Option<f64>, baseline: Option<f64>) -> bool {
+    match (a, baseline) {
+        (Some(x), Some(y)) => (x - y).abs() > f64::EPSILON,
+        _ => false,
+    }
+}
+
+fn differs_opt_str(a: &Option<String>, baseline: &Option<String>) -> bool {
+    match (a, baseline) {
+        (Some(x), Some(y)) => x != y,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn freq_term_strips_trailing_zeros() {
+        // The user types the full frequency; we match the stored "445.05".
+        assert_eq!(normalize_freq_term("445.050"), "445.05");
+        assert_eq!(normalize_freq_term("146.520"), "146.52");
+        assert_eq!(normalize_freq_term("445.0500"), "445.05");
+        // Whole numbers expressed with a fractional part collapse cleanly.
+        assert_eq!(normalize_freq_term("445.00"), "445");
+        assert_eq!(normalize_freq_term("445."), "445");
+    }
+
+    #[test]
+    fn freq_term_leaves_other_searches_alone() {
+        // No fractional part: nothing to strip.
+        assert_eq!(normalize_freq_term("275"), "275");
+        // Non-numeric text searches pass through untouched.
+        assert_eq!(normalize_freq_term("W7ABC"), "W7ABC");
+        assert_eq!(normalize_freq_term("Seattle"), "Seattle");
+        // A meaningful trailing digit is preserved.
+        assert_eq!(normalize_freq_term("447.275"), "447.275");
+    }
+
+    #[test]
+    fn centroid_match_respects_state_and_prefers_most_repeaters() {
+        let centroids = vec![
+            CityCentroid {
+                city: "Springfield".into(),
+                state: Some("IL".into()),
+                latitude: 39.8,
+                longitude: -89.6,
+                count: 5,
+            },
+            CityCentroid {
+                city: "Springfield".into(),
+                state: Some("MO".into()),
+                latitude: 37.2,
+                longitude: -93.3,
+                count: 12,
+            },
+        ];
+        // Exact state wins even when it has fewer repeaters.
+        let il = match_centroid(&centroids, "springfield", Some("IL")).unwrap();
+        assert_eq!(il.state.as_deref(), Some("IL"));
+        // No state given → the town backed by the most repeaters wins.
+        let best = match_centroid(&centroids, "Springfield", None).unwrap();
+        assert_eq!(best.state.as_deref(), Some("MO"));
+        // A state we don't have → no local match (would fall through to online).
+        assert!(match_centroid(&centroids, "Springfield", Some("TX")).is_none());
+    }
+
+    /// End-to-end offline path: a channel with coordinates seeds a centroid, and
+    /// backfill fills a coordinate-less channel in the same town from it — no
+    /// network, and channels that already have coordinates are left untouched.
+    #[tokio::test]
+    async fn backfill_fills_from_local_centroid() {
+        let dir = std::env::temp_dir().join(format!("cpm_backfill_{}", std::process::id()));
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        // A located repeater in Denver, CO → seeds the centroid.
+        sqlx::query(
+            "INSERT INTO channels (rx_freq, city, state, latitude, longitude)
+             VALUES (447.0, 'Denver', 'CO', 39.74, -104.99)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // A second Denver repeater with NO coordinates → the backfill target.
+        let target = sqlx::query(
+            "INSERT INTO channels (rx_freq, city, state) VALUES (448.0, 'Denver', 'CO')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_rowid();
+
+        let res = backfill_impl(&pool).await.expect("backfill");
+        assert_eq!(res.scanned, 1, "only the coordinate-less channel is scanned");
+        assert_eq!(res.from_data, 1);
+        assert_eq!(res.from_online, 0, "local hit must not touch the network");
+
+        let (lat, lon): (Option<f64>, Option<f64>) =
+            sqlx::query_as("SELECT latitude, longitude FROM channels WHERE id = ?1")
+                .bind(target)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(lat, Some(39.74));
+        assert_eq!(lon, Some(-104.99));
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&db_path);
+    }
+}

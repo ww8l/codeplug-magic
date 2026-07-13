@@ -1,0 +1,36 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Rust / Tauri build artifacts
+src-tauri/target/
+src-tauri/gen/
+
+# Local development scratch & internal notes (not contributor-facing)
+# RE scratch: raw radio binary dumps, golden fixtures, findings notes
+scratchpad/
+# local Claude Code settings — reference real machine paths/username
+.claude/
+# internal cross-session dev journal, stays local
+PROJECT_STATE.md

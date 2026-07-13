@@ -1,0 +1,180 @@
+pub mod commands;
+mod db;
+mod error;
+mod models;
+mod seed;
+mod util;
+
+use db::AppState;
+use tauri::Manager;
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            // Database lives in the platform app-data directory.
+            let data_dir = app
+                .path()
+                .app_data_dir()
+                .expect("failed to resolve app data dir");
+            let db_path = data_dir.join(db::DB_FILENAME);
+
+            // Block on pool init during setup so commands always have state.
+            let pool = tauri::async_runtime::block_on(db::init_pool(&db_path))
+                .expect("failed to initialize database");
+
+            app.manage(AppState { pool });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            // dashboard
+            commands::dashboard::get_dashboard_stats,
+            commands::dashboard::get_recent_codeplugs,
+            // channels
+            commands::channels::list_channels,
+            commands::channels::list_cities,
+            commands::channels::geocode_city,
+            commands::channels::backfill_channel_coordinates,
+            commands::channels::get_channel,
+            commands::channels::create_channel,
+            commands::channels::update_channel,
+            commands::channels::delete_channel,
+            commands::channels::delete_channels,
+            commands::channels::accept_rb_value,
+            // csv / json import
+            commands::import::preview_csv_import,
+            commands::import::import_csv,
+            commands::import::preview_json_import,
+            commands::import::import_json,
+            // native channel backup (export / re-import selected channels)
+            commands::channel_io::export_channels,
+            commands::channel_io::is_channel_backup,
+            commands::channel_io::preview_channel_import,
+            commands::channel_io::import_channels,
+            // channel lists
+            commands::lists::list_channel_lists,
+            commands::lists::create_channel_list,
+            commands::lists::update_channel_list,
+            commands::lists::delete_channel_list,
+            commands::lists::get_channel_list_channels,
+            commands::lists::add_channel_to_list,
+            commands::lists::add_channels_to_list,
+            commands::lists::remove_channel_from_list,
+            commands::lists::reorder_channel_list,
+            // scan lists
+            commands::lists::list_scan_lists,
+            commands::lists::create_scan_list,
+            commands::lists::update_scan_list,
+            commands::lists::delete_scan_list,
+            commands::lists::get_scan_list_channels,
+            commands::lists::add_channel_to_scan_list,
+            commands::lists::add_channels_to_scan_list,
+            commands::lists::remove_channel_from_scan_list,
+            commands::lists::reorder_scan_list,
+            // talkgroups
+            commands::talkgroups::list_talkgroups,
+            commands::talkgroups::create_talkgroup,
+            commands::talkgroups::update_talkgroup,
+            commands::talkgroups::delete_talkgroup,
+            commands::talkgroups::get_repeater_talkgroups,
+            commands::talkgroups::assign_talkgroup,
+            commands::talkgroups::remove_talkgroup_assignment,
+            commands::talkgroups::reorder_repeater_talkgroups,
+            commands::talkgroups::preview_talkgroup_import,
+            commands::talkgroups::import_talkgroups,
+            commands::talkgroups::export_talkgroups,
+            commands::talkgroups::is_talkgroup_backup,
+            commands::talkgroups::preview_talkgroup_backup,
+            commands::talkgroups::import_talkgroup_backup,
+            // dmr users (DMR-ID -> callsign/name lookup library)
+            commands::dmr_users::refresh_dmr_users,
+            commands::dmr_users::dmr_users_status,
+            commands::dmr_users::list_dmr_users,
+            commands::dmr_users::list_dmr_user_countries,
+            commands::dmr_users::list_dmr_continents,
+            commands::dmr_users::preview_dmr_export,
+            commands::dmr_users::export_dmr_users,
+            // radio models & profiles
+            commands::profiles::list_radio_models,
+            commands::profiles::get_radio_model,
+            commands::profiles::list_radio_profiles,
+            commands::profiles::get_radio_profile,
+            commands::profiles::create_radio_profile,
+            commands::profiles::update_radio_profile,
+            commands::profiles::delete_radio_profile,
+            // codeplugs
+            commands::codeplugs::list_codeplugs,
+            commands::codeplugs::get_codeplug,
+            commands::codeplugs::create_codeplug,
+            commands::codeplugs::update_codeplug,
+            commands::codeplugs::delete_codeplug,
+            commands::codeplugs::get_codeplug_channel_lists,
+            commands::codeplugs::add_channel_list_to_codeplug,
+            commands::codeplugs::remove_channel_list_from_codeplug,
+            commands::codeplugs::reorder_codeplug_channel_lists,
+            commands::codeplugs::get_codeplug_scan_lists,
+            commands::codeplugs::add_scan_list_to_codeplug,
+            commands::codeplugs::remove_scan_list_from_codeplug,
+            commands::codeplugs::get_codeplug_channel_scan_lists,
+            commands::codeplugs::set_channel_scan_list,
+            commands::codeplugs::clear_channel_scan_list,
+            // export
+            commands::export::export_preview,
+            commands::export::generate_codeplug,
+            // direct radio programming (UV-5R)
+            commands::program::list_serial_ports,
+            commands::program::identify_radio,
+            commands::program::download_image,
+            commands::program::program_codeplug,
+            commands::program::read_radio_settings,
+            commands::program::restore_image,
+            commands::program::backups_dir,
+            // direct radio programming (TIDRADIO TD-H3)
+            commands::tdh3::identify_tdh3,
+            commands::tdh3::download_tdh3_image,
+            commands::tdh3::program_tdh3_codeplug,
+            commands::tdh3::read_tdh3_settings_for_profile,
+            commands::tdh3::write_tdh3_settings,
+            commands::tdh3::apply_tdh3_profile,
+            commands::tdh3::save_tdh3_settings_to_profile,
+            // direct radio programming (AnyTone AT-D890UV) — Stage 1: read-only
+            commands::anytone::identify_anytone,
+            commands::anytone::download_anytone_image,
+            // radio download → library import (channels / zones→lists / contacts→TGs)
+            commands::import::import_anytone_download,
+            // non-channel settings read: General Settings decode into profile shape
+            commands::anytone_settings::read_anytone_settings_for_profile,
+            // Stage 3 write validation: round-trip no-op (gated, mandatory backup)
+            commands::anytone::roundtrip_write_anytone,
+            // Stage 3 SAFE first write test: committing whole-bank no-op (gated)
+            commands::anytone::commit_noop_bank_anytone,
+            // Stage 3 batch channel write: app-model edits → bank RMW (gated, backup)
+            commands::anytone::write_channels_anytone,
+            // Stage 3b zone/contact writes: absolute patches → window RMW (gated, backup)
+            commands::anytone::write_zones_anytone,
+            commands::anytone::write_contacts_anytone,
+            // Stage 3 persistence test: write-field / fresh-read / restore (gated)
+            commands::anytone::write_timeslot_anytone,
+            commands::anytone::read_slot_anytone,
+            commands::anytone::restore_slot_anytone,
+            // Integrity-structure investigation: deterministic dump + diff (read-only)
+            commands::anytone::dump_anytone_raw,
+            commands::anytone::diff_anytone_dumps,
+            // "Program radio" from the DB: full-replace channel set (gated, backup)
+            commands::anytone_program::program_anytone_preview,
+            commands::anytone_program::program_anytone_codeplug,
+            commands::anytone_program::program_anytone_settings,
+            commands::anytone_program::program_anytone_callsign_db,
+            commands::anytone_program::verify_anytone_program,
+            commands::anytone_program::restore_anytone_backup,
+            commands::anytone_program::latest_anytone_program,
+            // whole-database master backup & restore
+            commands::backup::export_database,
+            commands::backup::import_database,
+            commands::backup::is_database_backup,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

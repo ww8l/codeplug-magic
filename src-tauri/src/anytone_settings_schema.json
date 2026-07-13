@@ -1,0 +1,2446 @@
+[
+  {
+    "key": "__sec_radio_id",
+    "label": "Radio ID",
+    "type": "section"
+  },
+  {
+    "key": "dmr-id",
+    "label": "DMR ID",
+    "type": "integer",
+    "min": 1,
+    "max": 16777215,
+    "default": 0
+  },
+  {
+    "key": "radio-name",
+    "label": "Radio Name",
+    "type": "text",
+    "max_length": 16,
+    "default": ""
+  },
+  {
+    "key": "__sec_1",
+    "label": "Power-On & Boot",
+    "type": "section"
+  },
+  {
+    "key": "boot-display",
+    "label": "Boot Display",
+    "type": "select",
+    "options": [
+      "Default",
+      "Custom Text",
+      "Custom Image"
+    ],
+    "default": "Default"
+  },
+  {
+    "key": "boot-text-line-1",
+    "label": "Boot text line 1",
+    "type": "text",
+    "max_length": 14,
+    "default": ""
+  },
+  {
+    "key": "boot-text-line-2",
+    "label": "Boot text line 2",
+    "type": "text",
+    "max_length": 14,
+    "default": ""
+  },
+  {
+    "key": "enable-boot-password",
+    "label": "Enable Boot Password",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "boot-password",
+    "label": "Boot password",
+    "type": "text",
+    "max_length": 8,
+    "default": ""
+  },
+  {
+    "key": "power-on-volume-type",
+    "label": "Power On Volume Type",
+    "type": "select",
+    "options": [
+      "Preset",
+      "Minimum"
+    ],
+    "default": "Preset"
+  },
+  {
+    "key": "power-on-volume",
+    "label": "Power On Volume",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "enable-startup-tone",
+    "label": "Enable Startup Tone",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "boot-zone-a",
+    "label": "Boot Zone A",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "boot-zone-b",
+    "label": "Boot Zone B",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "enable-default-boot-channel",
+    "label": "Enable default boot channel",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "default-boot-channel-vfo-a",
+    "label": "Default boot channel VFO A",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 255
+  },
+  {
+    "key": "default-boot-channel-vfo-b",
+    "label": "Default boot channel VFO B",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 255
+  },
+  {
+    "key": "__sec_2",
+    "label": "Display",
+    "type": "section"
+  },
+  {
+    "key": "language",
+    "label": "Language",
+    "type": "select",
+    "options": [
+      "English",
+      "Chinese",
+      "Russian"
+    ],
+    "default": "English"
+  },
+  {
+    "key": "units",
+    "label": "Units",
+    "type": "select",
+    "options": [
+      "Metric",
+      "Archaic"
+    ],
+    "default": "Metric"
+  },
+  {
+    "key": "ui-mode",
+    "label": "UI Mode",
+    "type": "select",
+    "options": [
+      "Amateur",
+      "Professional"
+    ],
+    "default": "Amateur"
+  },
+  {
+    "key": "display-mode",
+    "label": "Display Mode",
+    "type": "select",
+    "options": [
+      "Channel",
+      "Frequency"
+    ],
+    "default": "Channel"
+  },
+  {
+    "key": "backlight-duration",
+    "label": "Backlight duration",
+    "type": "select",
+    "options": [
+      "Infinite",
+      "5s",
+      "10s",
+      "15s",
+      "20s",
+      "25s",
+      "30s",
+      "1min",
+      "2min",
+      "3min",
+      "4min",
+      "5min",
+      "15min",
+      "30min",
+      "45min",
+      "1h"
+    ],
+    "default": "Infinite"
+  },
+  {
+    "key": "display-brightness",
+    "label": "Display Brightness",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "main-vfo",
+    "label": "Main VFO",
+    "type": "select",
+    "options": [
+      "A",
+      "B"
+    ],
+    "default": "A"
+  },
+  {
+    "key": "channel-number-mode",
+    "label": "Channel number mode",
+    "type": "select",
+    "options": [
+      "Total",
+      "Within Zone"
+    ],
+    "default": "Total"
+  },
+  {
+    "key": "work-mode-a",
+    "label": "Work Mode A",
+    "type": "select",
+    "options": [
+      "Channel",
+      "VFO"
+    ],
+    "default": "Channel"
+  },
+  {
+    "key": "work-mode-b",
+    "label": "Work Mode B",
+    "type": "select",
+    "options": [
+      "Channel",
+      "VFO"
+    ],
+    "default": "Channel"
+  },
+  {
+    "key": "menu-exit-time",
+    "label": "Menu exit time",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 5
+  },
+  {
+    "key": "show-last-caller",
+    "label": "Show last caller",
+    "type": "select",
+    "options": [
+      "Off",
+      "DMR ID",
+      "Callsign",
+      "Both"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "__sec_3",
+    "label": "Programmable Keys",
+    "type": "section"
+  },
+  {
+    "key": "pf1-short-press-function",
+    "label": "PF1 Short Press Function",
+    "type": "select",
+    "options": [
+      "Alarm",
+      "APRS Scan",
+      "APRS Settings",
+      "APRS Type Switch",
+      "Bluetooth",
+      "Call",
+      "CDT Scan",
+      "Channel Name",
+      "Channel Ranging",
+      "Channel Settings",
+      "Channel Type Switch",
+      "CTCSS/DCS Settings",
+      "Dial",
+      "Dim Shut",
+      "DMR Encryption",
+      "DMR Monitor",
+      "FM APRS Info",
+      "FM Broadcast",
+      "FM Squelch",
+      "Frequency Step",
+      "Frequency Sync",
+      "GPS",
+      "GPS Information",
+      "GPS Roaming",
+      "Hot Key 1",
+      "Hot Key 2",
+      "Hot Key 3",
+      "Hot Key 4",
+      "Hot Key 5",
+      "Hot Key 6",
+      "Last Call Reply",
+      "Main Channel Toggle",
+      "MaxVolume",
+      "Mic Sound Quality",
+      "Monitor",
+      "Mute timing",
+      "NOAA Monitor",
+      "Nuisance Delete",
+      "Off",
+      "Power",
+      "Priority Zone",
+      "Ranging",
+      "Record",
+      "Record Switch",
+      "Repeater",
+      "Reverse",
+      "Roaming",
+      "RX NR",
+      "Satellite Predicting",
+      "Scan",
+      "Send TBST",
+      "Set Timed Roaming",
+      "Slot Switch",
+      "SMS",
+      "Sub Channel PTT",
+      "Sub Channel Toggle",
+      "Talk Around",
+      "TX NR",
+      "VFO Scan",
+      "VFO/Channel",
+      "Voltage",
+      "VOX",
+      "Work Alone",
+      "Zone Select"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "pf1-long-press-function",
+    "label": "PF1 Long Press Function",
+    "type": "select",
+    "options": [
+      "Alarm",
+      "APRS Scan",
+      "APRS Settings",
+      "APRS Type Switch",
+      "Bluetooth",
+      "Call",
+      "CDT Scan",
+      "Channel Name",
+      "Channel Ranging",
+      "Channel Type Switch",
+      "CTCSS/DCS Settings",
+      "Dial",
+      "Dim Shut",
+      "DMR Encryption",
+      "DMR Monitor",
+      "FM APRS Info",
+      "FM Broadcast",
+      "FM Squelch",
+      "GPS",
+      "GPS Information",
+      "GPS Roaming",
+      "Hot Key 1",
+      "Hot Key 2",
+      "Hot Key 3",
+      "Hot Key 4",
+      "Hot Key 5",
+      "Hot Key 6",
+      "Last Call Reply",
+      "Main Channel Toggle",
+      "MaxVolume",
+      "Mic Sound Quality",
+      "Monitor",
+      "Mute timing",
+      "Nuisance Delete",
+      "Off",
+      "Power",
+      "Priority Zone",
+      "Ranging",
+      "Record",
+      "Record Switch",
+      "Reverse",
+      "Roaming",
+      "Satellite Predicting",
+      "Scan",
+      "Set Timed Roaming",
+      "Slot Switch",
+      "SMS",
+      "Sub Channel PTT",
+      "Sub Channel Toggle",
+      "Talk Around",
+      "VFO Scan",
+      "VFO/Channel",
+      "Voltage",
+      "VOX",
+      "Work Alone",
+      "Zone Select"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "pf2-short-press-function",
+    "label": "PF2 Short Press Function",
+    "type": "select",
+    "options": [
+      "Alarm",
+      "APRS Scan",
+      "APRS Settings",
+      "APRS Type Switch",
+      "Bluetooth",
+      "Call",
+      "CDT Scan",
+      "Channel Name",
+      "Channel Ranging",
+      "Channel Settings",
+      "Channel Type Switch",
+      "CTCSS/DCS Settings",
+      "Dial",
+      "Dim Shut",
+      "DMR Encryption",
+      "DMR Monitor",
+      "FM APRS Info",
+      "FM Broadcast",
+      "FM Squelch",
+      "Frequency Step",
+      "Frequency Sync",
+      "GPS",
+      "GPS Information",
+      "GPS Roaming",
+      "Hot Key 1",
+      "Hot Key 2",
+      "Hot Key 3",
+      "Hot Key 4",
+      "Hot Key 5",
+      "Hot Key 6",
+      "Last Call Reply",
+      "Main Channel Toggle",
+      "MaxVolume",
+      "Mic Sound Quality",
+      "Monitor",
+      "Mute timing",
+      "NOAA Monitor",
+      "Nuisance Delete",
+      "Off",
+      "Power",
+      "Priority Zone",
+      "Ranging",
+      "Record",
+      "Record Switch",
+      "Repeater",
+      "Reverse",
+      "Roaming",
+      "RX NR",
+      "Satellite Predicting",
+      "Scan",
+      "Send TBST",
+      "Set Timed Roaming",
+      "Slot Switch",
+      "SMS",
+      "Sub Channel PTT",
+      "Sub Channel Toggle",
+      "Talk Around",
+      "TX NR",
+      "VFO Scan",
+      "VFO/Channel",
+      "Voltage",
+      "VOX",
+      "Work Alone",
+      "Zone Select"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "pf2-long-press-function",
+    "label": "PF2 Long Press Function",
+    "type": "select",
+    "options": [
+      "Alarm",
+      "APRS Scan",
+      "APRS Settings",
+      "APRS Type Switch",
+      "Bluetooth",
+      "Call",
+      "CDT Scan",
+      "Channel Name",
+      "Channel Ranging",
+      "Channel Type Switch",
+      "CTCSS/DCS Settings",
+      "Dial",
+      "Dim Shut",
+      "DMR Encryption",
+      "DMR Monitor",
+      "FM APRS Info",
+      "FM Broadcast",
+      "FM Squelch",
+      "GPS",
+      "GPS Information",
+      "GPS Roaming",
+      "Hot Key 1",
+      "Hot Key 2",
+      "Hot Key 3",
+      "Hot Key 4",
+      "Hot Key 5",
+      "Hot Key 6",
+      "Last Call Reply",
+      "Main Channel Toggle",
+      "MaxVolume",
+      "Mic Sound Quality",
+      "Monitor",
+      "Mute timing",
+      "Nuisance Delete",
+      "Off",
+      "Power",
+      "Priority Zone",
+      "Ranging",
+      "Record",
+      "Record Switch",
+      "Reverse",
+      "Roaming",
+      "Satellite Predicting",
+      "Scan",
+      "Set Timed Roaming",
+      "Slot Switch",
+      "SMS",
+      "Sub Channel PTT",
+      "Sub Channel Toggle",
+      "Talk Around",
+      "VFO Scan",
+      "VFO/Channel",
+      "Voltage",
+      "VOX",
+      "Work Alone",
+      "Zone Select"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "pf3-short-press-function",
+    "label": "PF3 Short Press Function",
+    "type": "select",
+    "options": [
+      "Alarm",
+      "APRS Scan",
+      "APRS Settings",
+      "APRS Type Switch",
+      "Bluetooth",
+      "Call",
+      "CDT Scan",
+      "Channel Name",
+      "Channel Ranging",
+      "Channel Settings",
+      "Channel Type Switch",
+      "CTCSS/DCS Settings",
+      "Dial",
+      "Dim Shut",
+      "DMR Encryption",
+      "DMR Monitor",
+      "FM APRS Info",
+      "FM Broadcast",
+      "FM Squelch",
+      "Frequency Step",
+      "Frequency Sync",
+      "GPS",
+      "GPS Information",
+      "GPS Roaming",
+      "Hot Key 1",
+      "Hot Key 2",
+      "Hot Key 3",
+      "Hot Key 4",
+      "Hot Key 5",
+      "Hot Key 6",
+      "Last Call Reply",
+      "Main Channel Toggle",
+      "MaxVolume",
+      "Mic Sound Quality",
+      "Monitor",
+      "Mute timing",
+      "NOAA Monitor",
+      "Nuisance Delete",
+      "Off",
+      "Power",
+      "Priority Zone",
+      "Ranging",
+      "Record",
+      "Record Switch",
+      "Repeater",
+      "Reverse",
+      "Roaming",
+      "RX NR",
+      "Satellite Predicting",
+      "Scan",
+      "Send TBST",
+      "Set Timed Roaming",
+      "Slot Switch",
+      "SMS",
+      "Sub Channel PTT",
+      "Sub Channel Toggle",
+      "Talk Around",
+      "TX NR",
+      "VFO Scan",
+      "VFO/Channel",
+      "Voltage",
+      "VOX",
+      "Work Alone",
+      "Zone Select"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "pf3-long-press-function",
+    "label": "PF3 Long Press Function",
+    "type": "select",
+    "options": [
+      "Alarm",
+      "APRS Scan",
+      "APRS Settings",
+      "APRS Type Switch",
+      "Bluetooth",
+      "Call",
+      "CDT Scan",
+      "Channel Name",
+      "Channel Ranging",
+      "Channel Type Switch",
+      "CTCSS/DCS Settings",
+      "Dial",
+      "Dim Shut",
+      "DMR Encryption",
+      "DMR Monitor",
+      "FM APRS Info",
+      "FM Broadcast",
+      "FM Squelch",
+      "GPS",
+      "GPS Information",
+      "GPS Roaming",
+      "Hot Key 1",
+      "Hot Key 2",
+      "Hot Key 3",
+      "Hot Key 4",
+      "Hot Key 5",
+      "Hot Key 6",
+      "Last Call Reply",
+      "Main Channel Toggle",
+      "MaxVolume",
+      "Mic Sound Quality",
+      "Monitor",
+      "Mute timing",
+      "Nuisance Delete",
+      "Off",
+      "Power",
+      "Priority Zone",
+      "Ranging",
+      "Record",
+      "Record Switch",
+      "Reverse",
+      "Roaming",
+      "Satellite Predicting",
+      "Scan",
+      "Set Timed Roaming",
+      "Slot Switch",
+      "SMS",
+      "Sub Channel PTT",
+      "Sub Channel Toggle",
+      "Talk Around",
+      "VFO Scan",
+      "VFO/Channel",
+      "Voltage",
+      "VOX",
+      "Work Alone",
+      "Zone Select"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "p1-short-press-function",
+    "label": "P1 Short Press Function",
+    "type": "select",
+    "options": [
+      "Alarm",
+      "APRS Scan",
+      "APRS Settings",
+      "APRS Type Switch",
+      "Bluetooth",
+      "Call",
+      "CDT Scan",
+      "Channel Name",
+      "Channel Ranging",
+      "Channel Type Switch",
+      "CTCSS/DCS Settings",
+      "Dial",
+      "Dim Shut",
+      "DMR Encryption",
+      "DMR Monitor",
+      "FM APRS Info",
+      "FM Broadcast",
+      "FM Squelch",
+      "GPS",
+      "GPS Information",
+      "GPS Roaming",
+      "Hot Key 1",
+      "Hot Key 2",
+      "Hot Key 3",
+      "Hot Key 4",
+      "Hot Key 5",
+      "Hot Key 6",
+      "Last Call Reply",
+      "Main Channel Toggle",
+      "MaxVolume",
+      "Mic Sound Quality",
+      "Monitor",
+      "Mute timing",
+      "Nuisance Delete",
+      "Off",
+      "Power",
+      "Priority Zone",
+      "Ranging",
+      "Record",
+      "Record Switch",
+      "Reverse",
+      "Roaming",
+      "Satellite Predicting",
+      "Scan",
+      "Set Timed Roaming",
+      "Slot Switch",
+      "SMS",
+      "Sub Channel PTT",
+      "Sub Channel Toggle",
+      "Talk Around",
+      "VFO Scan",
+      "VFO/Channel",
+      "Voltage",
+      "VOX",
+      "Work Alone",
+      "Zone Select"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "p1-long-press-function",
+    "label": "P1 Long Press Function",
+    "type": "select",
+    "options": [
+      "Alarm",
+      "APRS Scan",
+      "APRS Settings",
+      "APRS Type Switch",
+      "Bluetooth",
+      "Call",
+      "CDT Scan",
+      "Channel Name",
+      "Channel Ranging",
+      "Channel Type Switch",
+      "CTCSS/DCS Settings",
+      "Dial",
+      "Dim Shut",
+      "DMR Encryption",
+      "DMR Monitor",
+      "FM APRS Info",
+      "FM Broadcast",
+      "FM Squelch",
+      "GPS",
+      "GPS Information",
+      "GPS Roaming",
+      "Hot Key 1",
+      "Hot Key 2",
+      "Hot Key 3",
+      "Hot Key 4",
+      "Hot Key 5",
+      "Hot Key 6",
+      "Last Call Reply",
+      "Main Channel Toggle",
+      "MaxVolume",
+      "Mic Sound Quality",
+      "Monitor",
+      "Mute timing",
+      "Nuisance Delete",
+      "Off",
+      "Power",
+      "Priority Zone",
+      "Ranging",
+      "Record",
+      "Record Switch",
+      "Reverse",
+      "Roaming",
+      "Satellite Predicting",
+      "Scan",
+      "Set Timed Roaming",
+      "Slot Switch",
+      "SMS",
+      "Sub Channel PTT",
+      "Sub Channel Toggle",
+      "Talk Around",
+      "VFO Scan",
+      "VFO/Channel",
+      "Voltage",
+      "VOX",
+      "Work Alone",
+      "Zone Select"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "p2-short-press-function",
+    "label": "P2 Short Press Function",
+    "type": "select",
+    "options": [
+      "Alarm",
+      "APRS Scan",
+      "APRS Settings",
+      "APRS Type Switch",
+      "Bluetooth",
+      "Call",
+      "CDT Scan",
+      "Channel Name",
+      "Channel Ranging",
+      "Channel Type Switch",
+      "CTCSS/DCS Settings",
+      "Dial",
+      "Dim Shut",
+      "DMR Encryption",
+      "DMR Monitor",
+      "FM APRS Info",
+      "FM Broadcast",
+      "FM Squelch",
+      "GPS",
+      "GPS Information",
+      "GPS Roaming",
+      "Hot Key 1",
+      "Hot Key 2",
+      "Hot Key 3",
+      "Hot Key 4",
+      "Hot Key 5",
+      "Hot Key 6",
+      "Last Call Reply",
+      "Main Channel Toggle",
+      "MaxVolume",
+      "Mic Sound Quality",
+      "Monitor",
+      "Mute timing",
+      "Nuisance Delete",
+      "Off",
+      "Power",
+      "Priority Zone",
+      "Ranging",
+      "Record",
+      "Record Switch",
+      "Reverse",
+      "Roaming",
+      "Satellite Predicting",
+      "Scan",
+      "Set Timed Roaming",
+      "Slot Switch",
+      "SMS",
+      "Sub Channel PTT",
+      "Sub Channel Toggle",
+      "Talk Around",
+      "VFO Scan",
+      "VFO/Channel",
+      "Voltage",
+      "VOX",
+      "Work Alone",
+      "Zone Select"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "p2-long-press-function",
+    "label": "P2 Long Press Function",
+    "type": "select",
+    "options": [
+      "Alarm",
+      "APRS Scan",
+      "APRS Settings",
+      "APRS Type Switch",
+      "Bluetooth",
+      "Call",
+      "CDT Scan",
+      "Channel Name",
+      "Channel Ranging",
+      "Channel Type Switch",
+      "CTCSS/DCS Settings",
+      "Dial",
+      "Dim Shut",
+      "DMR Encryption",
+      "DMR Monitor",
+      "FM APRS Info",
+      "FM Broadcast",
+      "FM Squelch",
+      "GPS",
+      "GPS Information",
+      "GPS Roaming",
+      "Hot Key 1",
+      "Hot Key 2",
+      "Hot Key 3",
+      "Hot Key 4",
+      "Hot Key 5",
+      "Hot Key 6",
+      "Last Call Reply",
+      "Main Channel Toggle",
+      "MaxVolume",
+      "Mic Sound Quality",
+      "Monitor",
+      "Mute timing",
+      "Nuisance Delete",
+      "Off",
+      "Power",
+      "Priority Zone",
+      "Ranging",
+      "Record",
+      "Record Switch",
+      "Reverse",
+      "Roaming",
+      "Satellite Predicting",
+      "Scan",
+      "Set Timed Roaming",
+      "Slot Switch",
+      "SMS",
+      "Sub Channel PTT",
+      "Sub Channel Toggle",
+      "Talk Around",
+      "VFO Scan",
+      "VFO/Channel",
+      "Voltage",
+      "VOX",
+      "Work Alone",
+      "Zone Select"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "long-press-duration",
+    "label": "Long Press Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "show-volume-bar",
+    "label": "Show volume bar",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "__sec_4",
+    "label": "Transmit",
+    "type": "section"
+  },
+  {
+    "key": "tot",
+    "label": "Transmit Timeout",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "tot-predict",
+    "label": "TOT Predict",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "tx-power-control",
+    "label": "TX Power Control",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "squelch-level-vfo-a",
+    "label": "Squelch Level VFO A",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 1
+  },
+  {
+    "key": "squelch-level-vfo-b",
+    "label": "Squelch Level VFO B",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 1
+  },
+  {
+    "key": "frequency-step-size",
+    "label": "Frequency step size",
+    "type": "select",
+    "options": [
+      "2.5 kHz",
+      "5 kHz",
+      "6.25 kHz",
+      "8.33 kHz",
+      "10 kHz",
+      "12.5 kHz",
+      "20 kHz",
+      "25 kHz",
+      "30 kHz",
+      "50 kHz"
+    ],
+    "default": "2.5 kHz"
+  },
+  {
+    "key": "analog-mic-gain",
+    "label": "Analog Mic Gain",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "dmr-mic-gain",
+    "label": "DMR mic gain",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "__sec_5",
+    "label": "Audio & Alerts",
+    "type": "section"
+  },
+  {
+    "key": "max-speaker-volume",
+    "label": "Max speaker volume",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "max-head-phone-volume",
+    "label": "Max head-phone volume",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "enable-key-tone",
+    "label": "Enable key tone",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "key-tone-volume",
+    "label": "Key tone volume",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "talk-permit-tone",
+    "label": "Talk permit tone",
+    "type": "select",
+    "options": [
+      "None",
+      "DMR",
+      "FM",
+      "Both"
+    ],
+    "default": "None"
+  },
+  {
+    "key": "tbst",
+    "label": "TBST",
+    "type": "select",
+    "options": [
+      "1000 Hz",
+      "1450 Hz",
+      "1750 Hz",
+      "2100 Hz"
+    ],
+    "default": "1000 Hz"
+  },
+  {
+    "key": "enable-sms-alert",
+    "label": "Enable SMS Alert",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "enable-call-alert",
+    "label": "Enable Call Alert",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "dmr-channel-free-tone",
+    "label": "DMR channel free tone",
+    "type": "select",
+    "options": [
+      "Off",
+      "Type 1",
+      "Type 2",
+      "Type 3"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "enable-dmr-call-reset-tone",
+    "label": "Enable DMR call reset tone",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "enable-enhanced-audio",
+    "label": "Enable enhanced audio",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "__sec_6",
+    "label": "DMR",
+    "type": "section"
+  },
+  {
+    "key": "group-call-hang-time",
+    "label": "Group call hang time",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "private-call-hang-time",
+    "label": "Private call hang time",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "manual-dial-grp-hold-time",
+    "label": "Manual Dial Grp Hold Time",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "manual-dial-prv-hold-time",
+    "label": "Manual Dial Prv Hold Time",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "dmr-monitor-mode",
+    "label": "DMR monitor mode",
+    "type": "select",
+    "options": [
+      "Off",
+      "Single slot",
+      "Double slot"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "enable-dmr-monitor-slot-hold",
+    "label": "Enable DMR monitor slot hold",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "dmr-monitor-match-cc",
+    "label": "DMR monitor match CC",
+    "type": "select",
+    "options": [
+      "Any",
+      "Same"
+    ],
+    "default": "Any"
+  },
+  {
+    "key": "dmr-monitor-match-id",
+    "label": "DMR monitor match id",
+    "type": "select",
+    "options": [
+      "Any",
+      "Same"
+    ],
+    "default": "Any"
+  },
+  {
+    "key": "encryption-type",
+    "label": "Encryption Type",
+    "type": "select",
+    "options": [
+      "Common",
+      "AES/ARC4"
+    ],
+    "default": "Common"
+  },
+  {
+    "key": "enable-filter-own-id",
+    "label": "Enable filter own Id",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "preamble-duration",
+    "label": "Preamble duration",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 5
+  },
+  {
+    "key": "enable-answer-sub-channel",
+    "label": "Enable answer sub channel",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "__sec_7",
+    "label": "VOX, Scan & Power Save",
+    "type": "section"
+  },
+  {
+    "key": "vox-sensitivity",
+    "label": "VOX sensitivity",
+    "type": "select",
+    "options": [
+      "Off",
+      "1",
+      "2",
+      "3"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "vox-delay",
+    "label": "VOX Delay",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "vox-source",
+    "label": "VOX Source",
+    "type": "select",
+    "options": [
+      "Internal",
+      "External",
+      "Both"
+    ],
+    "default": "Internal"
+  },
+  {
+    "key": "vfo-scan-type",
+    "label": "VFO Scan Type",
+    "type": "select",
+    "options": [
+      "Fixed Time",
+      "Carrier",
+      "Stop"
+    ],
+    "default": "Fixed Time"
+  },
+  {
+    "key": "power-save-mode",
+    "label": "Power save mode",
+    "type": "select",
+    "options": [
+      "Off",
+      "1:1 (50%)",
+      "1:2 (66%)"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "ste-type",
+    "label": "STE type",
+    "type": "select",
+    "options": [
+      "Off",
+      "Silent",
+      "120 deg",
+      "180 deg",
+      "240 deg"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "ste-frequency",
+    "label": "STE Frequency",
+    "type": "select",
+    "options": [
+      "Off",
+      "55.2 Hz",
+      "259.2 Hz"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "__sec_8",
+    "label": "GPS & Ranging",
+    "type": "section"
+  },
+  {
+    "key": "enable-gps",
+    "label": "Enable GPS",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "gps-mode",
+    "label": "GPS Mode",
+    "type": "select",
+    "options": [
+      "GPS",
+      "BDS",
+      "GPS+BDS",
+      "GLONASS",
+      "GPS+GLONASS",
+      "BDS+GLONASS",
+      "All"
+    ],
+    "default": "GPS"
+  },
+  {
+    "key": "enable-gps-roaming",
+    "label": "Enable GPS Roaming",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "ranging-interval",
+    "label": "Ranging interval",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 5
+  },
+  {
+    "key": "time-zone",
+    "label": "Time Zone",
+    "type": "integer",
+    "min": 0,
+    "max": 50,
+    "default": 0
+  },
+  {
+    "key": "fixed-location",
+    "label": "Fixed Location",
+    "type": "integer",
+    "min": 0,
+    "max": 8,
+    "default": 0
+  },
+  {
+    "key": "noaa-alert",
+    "label": "NOAA Alert",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "__sec_9",
+    "label": "Other settings",
+    "type": "section"
+  },
+  {
+    "key": "enable-automatic-key-lock",
+    "label": "Enable automatic key lock",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "auto-shutoff-delay",
+    "label": "Auto-shutoff delay",
+    "type": "select",
+    "options": [
+      "Off",
+      "10 min",
+      "30 min",
+      "60 min",
+      "120 min"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "voice-header-repetitions",
+    "label": "Voice Header Repetitions",
+    "type": "integer",
+    "min": 2,
+    "max": 10,
+    "default": 2
+  },
+  {
+    "key": "fm-broadcast-channel-index",
+    "label": "FM broadcast channel index",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "fm-broadcast-mode",
+    "label": "FM broadcast mode",
+    "type": "select",
+    "options": [
+      "Channel",
+      "VFO"
+    ],
+    "default": "Channel"
+  },
+  {
+    "key": "enable-recording",
+    "label": "Enable Recording",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "enable-fm-broadcast-monitor",
+    "label": "Enable FM broadcast monitor",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "enable-subchannel",
+    "label": "Enable Subchannel",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "enable-remote-stun-kill",
+    "label": "Enable remote stun & kill",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "enable-remote-monitor",
+    "label": "Enable remote monitor",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "enable-rx-dmr-aprs-positions",
+    "label": "Enable RX DMR APRS Positions",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "auto-repeater-a-direction",
+    "label": "Auto-repeater A direction",
+    "type": "select",
+    "options": [
+      "Off",
+      "Positive",
+      "Negative"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "fm-call-hold-time",
+    "label": "FM Call hold time",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "show-clock",
+    "label": "Show Clock",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "sent-dmr-aprs-message",
+    "label": "Sent (DMR) APRS message.",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "vfo-scan-uhf-min-frequency",
+    "label": "VFO Scan UHF min Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295,
+    "default": 0
+  },
+  {
+    "key": "vfo-scan-uhf-max-frequency",
+    "label": "VFO Scan UHF max Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295,
+    "default": 0
+  },
+  {
+    "key": "vfo-scan-vhf-min-frequency",
+    "label": "VFO Scan VHF min Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295,
+    "default": 0
+  },
+  {
+    "key": "vfo-scan-vhf-max-frequency",
+    "label": "VFO Scan VHF max Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295,
+    "default": 0
+  },
+  {
+    "key": "uhf-auto-repeater-offset-frequency-1-index",
+    "label": "UHF Auto-repeater offset frequency 1 index",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 255
+  },
+  {
+    "key": "vhf-auto-repeater-1-offset-frequency-index",
+    "label": "VHF Auto-repeater 1 offset frequency index.",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 255
+  },
+  {
+    "key": "priority-zone-index-a",
+    "label": "Priority zone index A",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 255
+  },
+  {
+    "key": "priority-zone-index-b",
+    "label": "Priority zone index B",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 255
+  },
+  {
+    "key": "call-permit-melody-tones.frequency.0",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-permit-melody-tones.frequency.1",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-permit-melody-tones.frequency.2",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-permit-melody-tones.frequency.3",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-permit-melody-tones.frequency.4",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-permit-melody-durations.duration.0",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-permit-melody-durations.duration.1",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-permit-melody-durations.duration.2",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-permit-melody-durations.duration.3",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-permit-melody-durations.duration.4",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "match-end-melody-tones.frequency.0",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "match-end-melody-tones.frequency.1",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "match-end-melody-tones.frequency.2",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "match-end-melody-tones.frequency.3",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "match-end-melody-tones.frequency.4",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "match-end-melody-durations.duration.0",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "match-end-melody-durations.duration.1",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "match-end-melody-durations.duration.2",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "match-end-melody-durations.duration.3",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "match-end-melody-durations.duration.4",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-reset-melody-tones.frequency.0",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-reset-melody-tones.frequency.1",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-reset-melody-tones.frequency.2",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-reset-melody-tones.frequency.3",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-reset-melody-tones.frequency.4",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-reset-melody-durations.duration.0",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-reset-melody-durations.duration.1",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-reset-melody-durations.duration.2",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-reset-melody-durations.duration.3",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-reset-melody-durations.duration.4",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "call-display-mode",
+    "label": "Call display mode",
+    "type": "select",
+    "options": [
+      "Off",
+      "Call",
+      "Name"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "enable-blue-tooth",
+    "label": "Enable blue tooth",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "blue-tooth-and-internal-mic",
+    "label": "Blue tooth and internal mic",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "blue-tooth-and-internal-speaker",
+    "label": "Blue tooth and internal speaker.",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "enable-plug-in-recording-tone",
+    "label": "Enable plug-in recording tone",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "blue-tooth-mic-gain",
+    "label": "Blue tooth mic gain",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "blue-tooth-speaker-gain",
+    "label": "Blue tooth speaker gain",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 2
+  },
+  {
+    "key": "enable-show-current-contact",
+    "label": "Enable show current contact",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "auto-roaming-period",
+    "label": "Auto-roaming period",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "call-sign-color",
+    "label": "Call sign color",
+    "type": "select",
+    "options": [
+      "Orange",
+      "Red",
+      "Yellow",
+      "Green",
+      "Turquoise",
+      "Blue",
+      "White"
+    ],
+    "default": "Orange"
+  },
+  {
+    "key": "folk",
+    "label": "Forced lock",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "sklk",
+    "label": "Side key lock",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "kblk",
+    "label": "Enable keyboard lock",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "knlk",
+    "label": "Enable knob lock",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "roaming-delay",
+    "label": "Roaming delay",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "standby-text-color",
+    "label": "Standby text color",
+    "type": "select",
+    "options": [
+      "White",
+      "Black",
+      "Orange",
+      "Red",
+      "Yellow",
+      "Green",
+      "Turquoise",
+      "Blue"
+    ],
+    "default": "White"
+  },
+  {
+    "key": "standby-background-image",
+    "label": "Standby background image",
+    "type": "select",
+    "options": [
+      "Default",
+      "Custom 1",
+      "Custom 2"
+    ],
+    "default": "Default"
+  },
+  {
+    "key": "show-last-caller-on-boot",
+    "label": "Show last caller on boot",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "sms-standard",
+    "label": "SMS standard",
+    "type": "select",
+    "options": [
+      "Motorola",
+      "Hytera",
+      "ETSI DMR"
+    ],
+    "default": "Motorola"
+  },
+  {
+    "key": "vhf-auto-repeater-1-min-frequency",
+    "label": "VHF auto-repeater 1 min frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295,
+    "default": 0
+  },
+  {
+    "key": "vhf-auto-repeater-1-max-frequency",
+    "label": "VHF auto-repeater 1 max frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295,
+    "default": 0
+  },
+  {
+    "key": "uhf-auto-repeater-1-min-frequency",
+    "label": "UHF auto-repeater 1 min frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295,
+    "default": 0
+  },
+  {
+    "key": "uhf-auto-repeater-1-max-frequency",
+    "label": "UHF auto-repeater 1 max frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295,
+    "default": 0
+  },
+  {
+    "key": "auto-repeater-b-direction",
+    "label": "Auto-repeater B direction",
+    "type": "select",
+    "options": [
+      "Off",
+      "Positive",
+      "Negative"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "send-fm-own-id",
+    "label": "Send FM own ID",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "boot-zone-vfo-a",
+    "label": "Boot zone VFO A",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "boot-zoot-vfo-b",
+    "label": "Boot zoot VFO B",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "roaming-zone-index",
+    "label": "Roaming zone index",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "enable-repeater-check",
+    "label": "Enable repeater check",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "repeater-check-interval",
+    "label": "Repeater check interval",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "repeater-check-retry-count",
+    "label": "Repeater check retry count",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "auto-roaming-start-condition",
+    "label": "Auto-roaming start condition",
+    "type": "select",
+    "options": [
+      "Periodic",
+      "Out-of-range"
+    ],
+    "default": "Periodic"
+  },
+  {
+    "key": "backlight-duration-tx",
+    "label": "Backlight duration TX",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "show-menu-separator",
+    "label": "Show menu separator",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "keep-last-caller",
+    "label": "Keep last caller",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "channel-a-name-color",
+    "label": "Channel A name color",
+    "type": "select",
+    "options": [
+      "Orange",
+      "Red",
+      "Yellow",
+      "Green",
+      "Turquoise",
+      "Blue",
+      "White"
+    ],
+    "default": "Orange"
+  },
+  {
+    "key": "repeater-check-oor-notification",
+    "label": "Repeater check OOR notification",
+    "type": "select",
+    "options": [
+      "Off",
+      "Tone",
+      "Voice"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "backlight-duration-rx",
+    "label": "Backlight duration RX",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "enable-auto-roamin",
+    "label": "Enable auto roamin",
+    "type": "boolean",
+    "default": false
+  },
+  {
+    "key": "mute-duration",
+    "label": "Mute duration",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "repeater-check-oor-notification-count",
+    "label": "Repeater check OOR notification count",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "enable-mcu-reset",
+    "label": "Enable MCU reset",
+    "type": "boolean",
+    "default": true
+  },
+  {
+    "key": "blue-tooth-hold-duration",
+    "label": "Blue tooth hold duration",
+    "type": "select",
+    "options": [
+      "Off",
+      "1s",
+      "2s",
+      "3s",
+      "4s",
+      "5s",
+      "6s",
+      "7s",
+      "8s",
+      "9s",
+      "11s",
+      "12s",
+      "13s",
+      "14s",
+      "15s",
+      "16s",
+      "17s",
+      "18s",
+      "19s",
+      "20s",
+      "21s",
+      "22s",
+      "23s",
+      "24s",
+      "25s",
+      "26s",
+      "27s",
+      "28s",
+      "29s",
+      "30s",
+      "60s",
+      "120s",
+      "Infinite"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "blue-tooth-rx-delay",
+    "label": "Blue tooth RX delay",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 2
+  },
+  {
+    "key": "analog-idle-tone",
+    "label": "Analog Idle Tone",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "unmatch-end-melody-tones.frequency.0",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "unmatch-end-melody-tones.frequency.1",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "unmatch-end-melody-tones.frequency.2",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "unmatch-end-melody-tones.frequency.3",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "unmatch-end-melody-tones.frequency.4",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "unmatch-end-melody-durations.duration.0",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "unmatch-end-melody-durations.duration.1",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "unmatch-end-melody-durations.duration.2",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "unmatch-end-melody-durations.duration.3",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "unmatch-end-melody-durations.duration.4",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "all-call-end-melody-tones.frequency.0",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "all-call-end-melody-tones.frequency.1",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "all-call-end-melody-tones.frequency.2",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "all-call-end-melody-tones.frequency.3",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "all-call-end-melody-tones.frequency.4",
+    "label": "Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "all-call-end-melody-durations.duration.0",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "all-call-end-melody-durations.duration.1",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "all-call-end-melody-durations.duration.2",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "all-call-end-melody-durations.duration.3",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "all-call-end-melody-durations.duration.4",
+    "label": "Duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535,
+    "default": 0
+  },
+  {
+    "key": "noaa-channel",
+    "label": "NOAA Channel",
+    "type": "integer",
+    "min": 0,
+    "max": 9,
+    "default": 0
+  },
+  {
+    "key": "dynamic-range-control",
+    "label": "Dynamic Range Control",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "rx-noise-reduction",
+    "label": "RX Noise Reduction",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "tx-noise-reduction",
+    "label": "TX Noise Reduction",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "nx-mic-gain",
+    "label": "NX Mic gain",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "reset-digital-protocol",
+    "label": "Reset Digital Protocol",
+    "type": "select",
+    "options": [
+      "Off",
+      "DMR",
+      "NXDN"
+    ],
+    "default": "Off"
+  },
+  {
+    "key": "noaa-monitor",
+    "label": "NOAA Monitor",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "noaa-scan",
+    "label": "NOAA Scan",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  },
+  {
+    "key": "speaker-on-tx",
+    "label": "Speaker On TX",
+    "type": "integer",
+    "min": 0,
+    "max": 255,
+    "default": 0
+  }
+]
