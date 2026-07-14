@@ -2,6 +2,7 @@ pub mod commands;
 mod db;
 mod error;
 mod models;
+mod radios;
 mod seed;
 mod util;
 
