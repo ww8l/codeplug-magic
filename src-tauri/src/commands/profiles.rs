@@ -4,7 +4,7 @@ use crate::db::AppState;
 use crate::error::MapErrString;
 use crate::models::{RadioModel, RadioProfile, RadioProfileInput};
 
-const MODEL_COLUMNS: &str = "id, manufacturer, model, display_name, analog_capable, dmr_capable, dstar_capable, ysf_capable, nxdn_capable, p25_capable, m17_capable, aprs_capable, covers_hf, covers_vhf, covers_uhf, covers_220, covers_900, freq_min, freq_max, memory_channels, zones_supported, max_zones, channels_per_zone, scan_lists_supported, max_scan_lists, banks_supported, max_name_length, export_format, connection_type, non_channel_settings_schema";
+const MODEL_COLUMNS: &str = "id, manufacturer, model, display_name, analog_capable, dmr_capable, dstar_capable, ysf_capable, nxdn_capable, p25_capable, m17_capable, aprs_capable, covers_hf, covers_vhf, covers_uhf, covers_220, covers_900, freq_min, freq_max, memory_channels, zones_supported, max_zones, channels_per_zone, scan_lists_supported, max_scan_lists, banks_supported, max_name_length, export_format, connection_type, non_channel_settings_schema, driver_key, programming_ui";
 
 // ============================================================
 // Radio Model library (read-only)
