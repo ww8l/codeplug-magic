@@ -1,10 +1,14 @@
 name: Release
 
 # Builds bundled installers for all three OSes and publishes them to a DRAFT
-# GitHub Release. Triggered manually for now (workflow_dispatch). A tag-based
-# trigger (on: push: tags) is wired separately once the manual flow is proven.
+# GitHub Release. Triggered on a version tag push (v1.2.3), or manually via
+# workflow_dispatch. The manual flow was proven with v0.1.0 before the tag
+# trigger was enabled.
 
 on:
+  push:
+    tags:
+      - 'v*.*.*'
   workflow_dispatch:
 
 permissions:
