@@ -175,6 +175,12 @@ pub struct RadioModel {
     pub max_name_length: Option<i64>,
     pub export_format: Option<String>,
     pub connection_type: Option<String>,
+    /// Live-USB driver key → `radios/<driver_key>/` (see migration 0014).
+    /// NULL for export-only models with no serial driver (e.g. VR-N76).
+    pub driver_key: Option<String>,
+    /// Which frontend "Program radio" dialog to render: "generic" (default),
+    /// "tdh3", "anytone", or NULL for no live-programming UI.
+    pub programming_ui: Option<String>,
     pub non_channel_settings_schema: Option<String>,
 }
 

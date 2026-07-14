@@ -31,6 +31,10 @@ struct ModelSeed {
     export_format: &'static str,
     connection_type: &'static str,
     non_channel_settings_schema: &'static str,
+    /// Live-USB driver key (`radios/<driver_key>/`); None for export-only models.
+    driver_key: Option<&'static str>,
+    /// Frontend "Program radio" dialog key; None for no live-programming UI.
+    programming_ui: Option<&'static str>,
 }
 
 /// Seed (and refresh) the built-in radio model library. Keyed on
@@ -52,7 +56,7 @@ pub async fn seed_radio_models(pool: &SqlitePool) -> Result<(), sqlx::Error> {
                 zones_supported, max_zones, channels_per_zone,
                 scan_lists_supported, max_scan_lists, banks_supported,
                 max_name_length, export_format, connection_type,
-                non_channel_settings_schema
+                non_channel_settings_schema, driver_key, programming_ui
             ) VALUES (
                 ?1, ?2, ?3,
                 ?4, ?5, ?6, ?7,
@@ -62,7 +66,7 @@ pub async fn seed_radio_models(pool: &SqlitePool) -> Result<(), sqlx::Error> {
                 ?20, ?21, ?22,
                 ?23, ?24, ?25,
                 ?26, ?27, ?28,
-                ?29
+                ?29, ?30, ?31
             )
             ON CONFLICT(manufacturer, model) DO UPDATE SET
                 display_name = excluded.display_name,
@@ -91,7 +95,9 @@ pub async fn seed_radio_models(pool: &SqlitePool) -> Result<(), sqlx::Error> {
                 max_name_length = excluded.max_name_length,
                 export_format = excluded.export_format,
                 connection_type = excluded.connection_type,
-                non_channel_settings_schema = excluded.non_channel_settings_schema
+                non_channel_settings_schema = excluded.non_channel_settings_schema,
+                driver_key = excluded.driver_key,
+                programming_ui = excluded.programming_ui
             "#,
         )
         .bind(m.manufacturer)
@@ -123,6 +129,8 @@ pub async fn seed_radio_models(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         .bind(m.export_format)
         .bind(m.connection_type)
         .bind(m.non_channel_settings_schema)
+        .bind(m.driver_key)
+        .bind(m.programming_ui)
         .execute(pool)
         .await?;
     }
@@ -177,6 +185,8 @@ fn models() -> Vec<ModelSeed> {
         ModelSeed {
             manufacturer: "Baofeng",
             model: "UV-5R",
+            driver_key: Some("baofeng_uv5r"),
+            programming_ui: Some("generic"),
             display_name: "Baofeng UV-5R",
             analog_capable: true,
             dmr_capable: false,
@@ -296,6 +306,8 @@ fn models() -> Vec<ModelSeed> {
         ModelSeed {
             manufacturer: "TIDRADIO",
             model: "TD-H3",
+            driver_key: Some("tidradio_tdh3"),
+            programming_ui: Some("tdh3"),
             display_name: "TIDRADIO TD-H3",
             analog_capable: true,
             dmr_capable: false,
@@ -437,6 +449,9 @@ fn models() -> Vec<ModelSeed> {
         ModelSeed {
             manufacturer: "Vero",
             model: "VR-N76",
+            // No serial driver (Bluetooth-app-only) and no live-programming UI.
+            driver_key: None,
+            programming_ui: None,
             display_name: "Vero VR-N76",
             analog_capable: true,
             dmr_capable: false,
@@ -502,6 +517,8 @@ fn models() -> Vec<ModelSeed> {
         ModelSeed {
             manufacturer: "AnyTone",
             model: "AT-D890UV",
+            driver_key: Some("anytone_atd890uv"),
+            programming_ui: Some("anytone"),
             display_name: "AnyTone AT-D890UV",
             analog_capable: true,
             dmr_capable: true,
