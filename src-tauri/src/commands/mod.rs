@@ -13,6 +13,5 @@ pub mod import;
 pub mod lists;
 pub mod profiles;
 pub mod program;
-pub mod program_settings;
 pub mod talkgroups;
 pub mod tdh3;

@@ -1187,7 +1187,7 @@ fn verify_settings_after_write(
 // The TD-H3 radio profile stores its `non_channel_settings` as JSON keyed by the
 // CHIRP `RadioSetting` names in the model's settings schema (squelch, ligcon,
 // btnvoice, ponmsg, brightness, tx220…). This mirrors the UV-5R
-// `program_settings::apply_profile_settings`: patch each KNOWN key's bits into a
+// `radios::baofeng_uv5r::settings::apply_profile_settings`: patch each KNOWN key's bits into a
 // downloaded image (unknown/unsupported keys — the deferred DTMF + key groups —
 // are skipped, so they're preserved as read), then upload. Only the settings
 // region changes; channels are untouched.

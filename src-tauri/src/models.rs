@@ -144,7 +144,7 @@ pub struct ChannelFilter {
 // ============================================================
 // radio_models
 // ============================================================
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, FromRow)]
 pub struct RadioModel {
     pub id: i64,
     pub manufacturer: String,
