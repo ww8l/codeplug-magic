@@ -133,25 +133,31 @@ pub(crate) const MAX_ZONES: usize = 250;
 pub(crate) const ZONE_BITMAP_BASE: u32 = 0x0348_2C00;
 pub(crate) const ZONE_BITMAP_BYTES: usize = 32;
 
-/// Scan lists. Layout HW-pinned (s51) by differential dumps against RT Systems
-/// writes on a live D890UV: the descriptor's 100-member list was WRONG — the
-/// member list is 50 entries, which puts the revert enum at 0x94 (not 0xF8).
+/// Scan lists. Layout HW-pinned (s53) by differential dumps against AnyTone's
+/// own CPS writes on a live D890UV: the member ARRAY is 100 slots (0x30–0xF7,
+/// CPS 0xFF-fills the unused tail of it) and the revert enum is @0xF8 — the
+/// original descriptor/qdmr layout was right. s51's 50-member/0x94 conclusion
+/// came from RT Systems, whose OWN layout is buggy: it writes its revert byte
+/// at 0x94 (member slot #50), which the radio ignores.
 /// 250 records of 0x200 bytes at `SCAN_LIST_BASE`: unused(1) + priority
-/// enum(1) + primary/secondary priority channel index (u16 LE, idx+1,
-/// 0xFFFF=none; offsets + idx+1 encoding HW-confirmed) + four u16 LE timers
-/// (0.1 s units) + 16-char UTF-16 name @0x0E + 2 unused + 50 × u16 LE 0-based
-/// channel indices @0x30 (0xFFFF = unset) + revert enum @0x94 (HW-confirmed:
-/// 4=Last Called, 5=Last Used) + zero-filled tail (RT Systems leaves 0xD0+
-/// erased 0xFF; the radio accepts both).
+/// enum(1) (HW: 0=Off, 1=Ch1) + primary/secondary priority channel index
+/// (u16 LE, idx+1, 0xFFFF=none; offsets + idx+1 encoding HW-confirmed) + four
+/// u16 LE timers (0.1 s units) + 16-char UTF-16 name @0x0E + 2 unused +
+/// 100 × u16 LE 0-based channel indices @0x30 (0xFFFF = unset) + revert enum
+/// @0xF8 (HW-confirmed: 4=Last Called, 5=Last Used) + zero-filled tail.
 pub(crate) const SCAN_LIST_BASE: u32 = 0x0210_0000;
 pub(crate) const SCAN_LIST_STEP: u32 = 0x0000_0200;
 pub(crate) const MAX_SCAN_LISTS: usize = 250;
+/// Functional member cap: AnyTone documents 50 channels per scan list, so we
+/// validate/truncate at 50 even though the record's array has 100 slots.
 pub(crate) const SCAN_MAX_CHANNELS: usize = 50;
 const SCAN_NAME: usize = 0x0E;
 const SCAN_NAME_CHARS: usize = 16;
 const SCAN_MEMBERS: usize = 0x30;
-/// Revert Channel enum byte — immediately after the 50-entry member list.
-const SCAN_REVERT: usize = SCAN_MEMBERS + SCAN_MAX_CHANNELS * 2; // 0x94
+/// Size of the member array in the record (u16 LE slots), > the 50-member cap.
+const SCAN_MEMBER_SLOTS: usize = 100;
+/// Revert Channel enum byte — immediately after the 100-slot member array.
+const SCAN_REVERT: usize = SCAN_MEMBERS + SCAN_MEMBER_SLOTS * 2; // 0xF8
 
 /// DMR Contact bank, from the dmr-tools `d890uv` map. Records are 0xC8 bytes at
 /// `CONTACT_BASE`, indexed directly by a channel's contact index (record 0x14).
@@ -2406,11 +2412,11 @@ pub(crate) fn encode_zone_list_record(indices: &[u16]) -> Result<Vec<u8>, String
 /// (priority channels as 0-based radio slots, timers in 0.1-s units). Built by
 /// the program planner from the DB row; consumed by `encode_scan_list_record`.
 ///
-/// NOTE: `revert_channel` (@0x94) is HW-pinned (s51, RT-Systems-oracle diff:
-/// Last Called=4, Last Used=5 — qdmr's value table confirmed). The
-/// `priority_select` (@0x01) enum values remain qdmr-sourced and unverified:
-/// RT Systems wrote 0 there even with both priority channels assigned, so its
-/// UI never exercised the byte.
+/// NOTE: `revert_channel` (@0xF8) is HW-pinned (s53, AnyTone-CPS-oracle diffs:
+/// Last Called=4, Last Used=5 — qdmr's value table AND offset confirmed; s51's
+/// 0x94 was an RT Systems layout bug). `priority_select` (@0x01) is HW-pinned
+/// for 0=Off and 1=Ch1 (same s53 diffs); 2=Ch2 and 3=Ch1+Ch2 remain
+/// qdmr-sourced.
 pub struct ScanListRecordSettings {
     pub priority_select: u8,          // 0=Off,1=Ch1,2=Ch2,3=Ch1+Ch2
     pub priority_slot_1: Option<u16>, // 0-based radio slot; None => 0xFFFF (unset)
@@ -2492,7 +2498,7 @@ pub fn encode_scan_list_record(
     out[0x0C..0x0E].copy_from_slice(&settings.dwell_time.to_le_bytes());
     let name_field = encode_utf16_field(name, SCAN_NAME_CHARS);
     out[SCAN_NAME..SCAN_NAME + name_field.len()].copy_from_slice(&name_field);
-    for i in 0..SCAN_MAX_CHANNELS {
+    for i in 0..SCAN_MEMBER_SLOTS {
         let off = SCAN_MEMBERS + i * 2;
         out[off..off + 2].copy_from_slice(&0xFFFFu16.to_le_bytes());
     }
@@ -2503,7 +2509,7 @@ pub fn encode_scan_list_record(
         let off = SCAN_MEMBERS + i * 2;
         out[off..off + 2].copy_from_slice(&idx.to_le_bytes());
     }
-    // Revert Channel Type @0x94 (right after the member list); tail stays zero.
+    // Revert Channel Type @0xF8 (right after the member array); tail stays zero.
     out[SCAN_REVERT] = settings.revert_channel;
     Ok(out)
 }
@@ -3310,13 +3316,13 @@ mod tests {
         assert_eq!(u16::from_le_bytes([def[0x0A], def[0x0B]]), 31); // dropout
         assert_eq!(u16::from_le_bytes([def[0x0C], def[0x0D]]), 31); // dwell
         assert_eq!(decode_utf16_name(&def[SCAN_NAME..], SCAN_NAME_CHARS), "NOCO SCAN");
-        let members: Vec<u16> = def[SCAN_MEMBERS..SCAN_MEMBERS + SCAN_MAX_CHANNELS * 2]
+        let members: Vec<u16> = def[SCAN_MEMBERS..SCAN_MEMBERS + SCAN_MEMBER_SLOTS * 2]
             .chunks_exact(2)
             .map(|p| u16::from_le_bytes([p[0], p[1]]))
             .collect();
         assert_eq!(&members[..3], &[0, 118, 0x0120]);
-        assert!(members[3..].iter().all(|&m| m == 0xFFFF));
-        assert_eq!(SCAN_REVERT, 0x94); // HW-pinned s51 (RT-oracle diff)
+        assert!(members[3..].iter().all(|&m| m == 0xFFFF)); // all 100 slots FFFF-filled
+        assert_eq!(SCAN_REVERT, 0xF8); // HW-pinned s53 (AnyTone-CPS-oracle diff)
         assert_eq!(def[SCAN_REVERT], 0); // revert = Selected Channel
         assert!(def[SCAN_REVERT + 1..].iter().all(|&b| b == 0));
 
@@ -3340,7 +3346,7 @@ mod tests {
         assert_eq!(u16::from_le_bytes([rec[0x08], rec[0x09]]), 34);
         assert_eq!(u16::from_le_bytes([rec[0x0A], rec[0x0B]]), 56);
         assert_eq!(u16::from_le_bytes([rec[0x0C], rec[0x0D]]), 78);
-        assert_eq!(rec[SCAN_REVERT], 4); // Last Called = 4, HW-confirmed s51
+        assert_eq!(rec[SCAN_REVERT], 4); // Last Called = 4, HW-confirmed s53
 
         let d = ScanListRecordSettings::default;
         assert!(encode_scan_list_record("", &[1], &d()).is_err()); // empty name
