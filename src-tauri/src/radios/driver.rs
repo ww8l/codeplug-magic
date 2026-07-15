@@ -28,7 +28,7 @@
 //! once the 3.2 registry starts consuming these traits.
 #![allow(dead_code)]
 
-use crate::commands::export::ExpandedChannel;
+use crate::commands::export::{ExpandedChannel, SlotChannel};
 use crate::models::RadioModel;
 
 /// A radio's self-reported identity, read during the connect handshake.
@@ -101,12 +101,13 @@ pub(crate) trait ImageProgrammer {
     /// Write a prepared memory image back to the radio.
     fn upload_image(&self, port: &str, image: &[u8]) -> Result<(), String>;
 
-    /// Patch `channels` into `base` (a freshly-read image), returning the image
-    /// to write. Kept separate from I/O so it's unit-testable without hardware.
+    /// Patch `channels` (slot-resolved, see `export::resolve_codeplug_slots`)
+    /// into `base` (a freshly-read image), returning the image to write. Kept
+    /// separate from I/O so it's unit-testable without hardware.
     fn build_image(
         &self,
         model: &RadioModel,
-        channels: &[ExpandedChannel],
+        channels: &[SlotChannel],
         base: &[u8],
     ) -> Result<Vec<u8>, String>;
 
@@ -117,7 +118,7 @@ pub(crate) trait ImageProgrammer {
         &self,
         port: &str,
         model: &RadioModel,
-        channels: &[ExpandedChannel],
+        channels: &[SlotChannel],
     ) -> Result<Vec<u8>, String> {
         let base = self.download_image(port)?;
         let image = self.build_image(model, channels, &base)?;
