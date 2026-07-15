@@ -13,8 +13,9 @@ const channelName = (c: Channel) =>
  * Assign a codeplug's channels to ONE scan list — this is the radio's
  * per-channel "scan list" field (byte 0x1B). Each channel points at exactly
  * one scan list within the codeplug, so checking a channel already assigned
- * elsewhere MOVES it here. Channels left unchecked (and unassigned anywhere)
- * fall back to membership-derivation when programming.
+ * elsewhere MOVES it here. A list with ANY assignment is manually managed:
+ * only its checked channels launch it. Lists with no assignments fall back
+ * to membership-derivation when programming.
  */
 export function ScanListAssignChannelsModal({
   open,
@@ -111,8 +112,9 @@ export function ScanListAssignChannelsModal({
           Pick which of this codeplug's channels launch{" "}
           <span className="font-medium">{scanList?.name}</span> when Scan is
           pressed. A channel can point at only one scan list, so checking one
-          that's assigned elsewhere moves it here. Unassigned channels fall back
-          to their scan-list membership.
+          that's assigned elsewhere moves it here. Once any channel is checked,
+          only checked channels launch this list; if none are checked, every
+          member channel launches it.
         </p>
 
         <div className="relative">

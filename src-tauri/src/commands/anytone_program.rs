@@ -558,18 +558,7 @@ pub(crate) async fn build_anytone_program(
         .map(|(si, &id)| (id, si as u8))
         .collect();
 
-    // Stamp each channel's scan-list byte (radio channel field 0x1B).
-    // Default = membership-derivation: the first planned scan list that contains
-    // the slot wins; everything else stays the explicit 0xFF (none).
-    for (si, sl) in scan_lists.iter().enumerate() {
-        for &slot0 in &sl.member_slots {
-            let pc = &mut channels[slot0 as usize];
-            if pc.edit.scan_list_index == Some(0xFF) {
-                pc.edit.scan_list_index = Some(si as u8);
-            }
-        }
-    }
-    // Explicit per-channel assignments override the derived default. Keyed by DB
+    // Explicit per-channel assignments (radio channel field 0x1B). Keyed by DB
     // channel id, they apply to every radio slot the channel owns and win even
     // when the channel is NOT a member of the target list ("launches list X but
     // isn't scanned in X"). An assignment to a list not planned for this codeplug
@@ -581,6 +570,27 @@ pub(crate) async fn build_anytone_program(
     .fetch_all(pool)
     .await
     .estr()?;
+    // A list with ANY explicit assignment is manually managed: only its assigned
+    // channels launch it, so it is excluded from membership-derivation below.
+    // (Otherwise a list whose members span the whole codeplug would stamp every
+    // channel, drowning out the one explicit assignment.)
+    let manual_lists: std::collections::HashSet<i64> =
+        override_rows.iter().map(|&(_, list_id)| list_id).collect();
+
+    // Stamp each channel's scan-list byte. Default = membership-derivation for
+    // lists WITHOUT explicit assignments: the first such planned scan list that
+    // contains the slot wins; everything else stays the explicit 0xFF (none).
+    for (si, sl) in scan_lists.iter().enumerate() {
+        if manual_lists.contains(&scan_list_ids[si]) {
+            continue;
+        }
+        for &slot0 in &sl.member_slots {
+            let pc = &mut channels[slot0 as usize];
+            if pc.edit.scan_list_index == Some(0xFF) {
+                pc.edit.scan_list_index = Some(si as u8);
+            }
+        }
+    }
     for (channel_id, list_id) in override_rows {
         let Some(slots) = slots_by_channel.get(&channel_id) else {
             continue; // channel isn't in this codeplug's programmed set
@@ -1841,7 +1851,8 @@ mod tests {
         .unwrap();
         // Explicit assignments:
         //  - ch1 → list 21 (index 1) even though ch1 is a member of list 20.
-        //  - ch2 → no override, so membership-derivation keeps it at list 20.
+        //  - ch2 → no override; both lists are manually managed (each has an
+        //    explicit assignment), so NO derivation applies → none (0xFF).
         //  - ch3 → list 20 (index 0) even though ch3 is NOT a member of list 20.
         sqlx::query(
             "INSERT INTO codeplug_channel_scan_lists (codeplug_id, channel_id, scan_list_id)
@@ -1856,10 +1867,84 @@ mod tests {
         assert_eq!(plan.channels.len(), 3);
         // ch1 (slot 0): override to index 1, beats membership in list 0.
         assert_eq!(plan.channels[0].edit.scan_list_index, Some(1));
-        // ch2 (slot 1): no override → derived from membership in list 0.
-        assert_eq!(plan.channels[1].edit.scan_list_index, Some(0));
+        // ch2 (slot 1): no override, and both lists are manually managed →
+        // membership in list 0 does NOT derive an assignment.
+        assert_eq!(plan.channels[1].edit.scan_list_index, Some(0xFF));
         // ch3 (slot 2): override to index 0 despite not being a member of it.
         assert_eq!(plan.channels[2].edit.scan_list_index, Some(0));
+    }
+
+    /// A scan list with any explicit assignment is manually managed: derivation
+    /// is skipped for THAT list only, so its members without an assignment get
+    /// none (0xFF) — while an untouched list still derives from membership.
+    #[tokio::test]
+    async fn manual_list_suppresses_derivation_per_list() {
+        let pool = fixture_pool("manual").await;
+        let cp = d890_codeplug(&pool).await;
+
+        sqlx::query(
+            "INSERT INTO channels (id, name_long, rx_freq, mode, source)
+             VALUES (1, 'ALPHA', 146.52, 'FM', 'manual'),
+                    (2, 'BRAVO', 146.55, 'FM', 'manual'),
+                    (3, 'CHARLIE', 146.58, 'FM', 'manual')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO channel_lists (id, name) VALUES (10, 'MAIN')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO channel_list_entries (channel_list_id, channel_id, position)
+             VALUES (10, 1, 0), (10, 2, 1), (10, 3, 2)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO codeplug_channel_lists (codeplug_id, channel_list_id, position)
+             VALUES (100, 10, 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // List 20 (index 0) contains ch1 & ch2 and is manually managed (ch1
+        // assigned). List 21 (index 1) contains ch3 and has no assignments.
+        sqlx::query("INSERT INTO scan_lists (id, name) VALUES (20, 'SCAN A'), (21, 'SCAN B')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO scan_list_entries (scan_list_id, channel_id, position)
+             VALUES (20, 1, 0), (20, 2, 1), (21, 3, 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO codeplug_scan_lists (codeplug_id, scan_list_id) VALUES (100, 20), (100, 21)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO codeplug_channel_scan_lists (codeplug_id, channel_id, scan_list_id)
+             VALUES (100, 1, 20)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let plan = build_anytone_program(&pool, cp).await.expect("assemble");
+
+        assert_eq!(plan.channels.len(), 3);
+        // ch1: explicitly assigned to list 0.
+        assert_eq!(plan.channels[0].edit.scan_list_index, Some(0));
+        // ch2: member of manually-managed list 0 but not assigned → none.
+        assert_eq!(plan.channels[1].edit.scan_list_index, Some(0xFF));
+        // ch3: member of untouched list 1 → still derived from membership.
+        assert_eq!(plan.channels[2].edit.scan_list_index, Some(1));
     }
 
     /// An assignment to a scan list not programmed in the codeplug is ignored
