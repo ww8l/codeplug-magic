@@ -14,6 +14,7 @@ import {
   X,
   RadioTower,
   ListChecks,
+  Pencil,
 } from "lucide-react";
 import { api, withToast } from "../lib/api";
 import type {
@@ -35,6 +36,7 @@ import {
   Badge,
 } from "../components/ui";
 import { NewCodeplugModal } from "../components/codeplugs/NewCodeplugModal";
+import { EditCodeplugModal } from "../components/codeplugs/EditCodeplugModal";
 import { ExportDialog } from "../components/codeplugs/ExportDialog";
 import { ProgramRadioDialog } from "../components/codeplugs/ProgramRadioDialog";
 import { Tdh3ProgramDialog } from "../components/codeplugs/Tdh3ProgramDialog";
@@ -198,6 +200,7 @@ export function CodeplugDetail() {
 
   const [exportOpen, setExportOpen] = useState(false);
   const [programOpen, setProgramOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [addChannelOpen, setAddChannelOpen] = useState(false);
   const [addScanOpen, setAddScanOpen] = useState(false);
   const [assignScanList, setAssignScanList] = useState<ScanListSummary | null>(
@@ -369,6 +372,9 @@ export function CodeplugDetail() {
           <>
             <Button onClick={() => navigate("/codeplugs")}>
               <ArrowLeft size={14} /> Back
+            </Button>
+            <Button onClick={() => setEditOpen(true)}>
+              <Pencil size={14} /> Edit
             </Button>
             <Button variant="danger" onClick={deleteCodeplug}>
               <Trash2 size={14} />
@@ -553,6 +559,12 @@ export function CodeplugDetail() {
         </div>
       </div>
 
+      <EditCodeplugModal
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        codeplug={codeplug}
+        onSaved={setCodeplug}
+      />
       <ExportDialog
         open={exportOpen}
         onClose={() => setExportOpen(false)}
