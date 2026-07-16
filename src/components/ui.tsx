@@ -7,7 +7,7 @@ import type {
   SelectHTMLAttributes,
 } from "react";
 
-export const APP_VERSION = "0.1.0";
+export const APP_VERSION = __APP_VERSION__;
 
 // ---- Button ----
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
