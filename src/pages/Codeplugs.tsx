@@ -15,7 +15,9 @@ import {
   RadioTower,
   ListChecks,
   Pencil,
+  GripVertical,
 } from "lucide-react";
+import clsx from "clsx";
 import { api, withToast } from "../lib/api";
 import type {
   ChannelListSummary,
@@ -190,6 +192,9 @@ export function CodeplugDetail() {
   const [profiles, setProfiles] = useState<RadioProfile[]>([]);
   const [models, setModels] = useState<RadioModel[]>([]);
   const [channelLists, setChannelLists] = useState<ChannelListSummary[]>([]);
+  // Index of the channel-list row being dragged, and the row it is over.
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
   const [scanLists, setScanLists] = useState<ScanListSummary[]>([]);
   const [allChannelLists, setAllChannelLists] = useState<ChannelListSummary[]>([]);
   const [allScanLists, setAllScanLists] = useState<ScanListSummary[]>([]);
@@ -312,11 +317,9 @@ export function CodeplugDetail() {
     setChannelLists((prev) => prev.filter((l) => l.id !== listId));
   };
 
-  const moveChannelList = async (index: number, dir: -1 | 1) => {
-    const target = index + dir;
-    if (target < 0 || target >= channelLists.length) return;
-    const next = [...channelLists];
-    [next[index], next[target]] = [next[target], next[index]];
+  // Optimistic: show the new order, revert if the save fails. Order here is the
+  // memory-channel ordering on export, so it has to survive the round-trip.
+  const saveChannelListOrder = async (next: ChannelListSummary[]) => {
     const prev = channelLists;
     setChannelLists(next);
     const res = await withToast(
@@ -327,6 +330,26 @@ export function CodeplugDetail() {
       { error: "Could not save order" },
     );
     if (res === undefined) setChannelLists(prev);
+  };
+
+  const moveChannelList = (index: number, dir: -1 | 1) => {
+    const target = index + dir;
+    if (target < 0 || target >= channelLists.length) return;
+    const next = [...channelLists];
+    [next[index], next[target]] = [next[target], next[index]];
+    saveChannelListOrder(next);
+  };
+
+  // Drop the dragged row at `to`, shifting the rest.
+  const dropChannelList = (to: number) => {
+    const from = dragIndex;
+    setDragIndex(null);
+    setOverIndex(null);
+    if (from === null || from === to) return;
+    const next = [...channelLists];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    saveChannelListOrder(next);
   };
 
   // ---- scan-list assignment ----
@@ -517,9 +540,45 @@ export function CodeplugDetail() {
                   {channelLists.map((l, i) => (
                     <li
                       key={l.id}
-                      className="flex items-center justify-between gap-2 px-4 py-2 text-xs"
+                      draggable
+                      onDragStart={(e) => {
+                        setDragIndex(i);
+                        // Firefox requires data to be set for a drag to begin.
+                        e.dataTransfer.effectAllowed = "move";
+                        e.dataTransfer.setData("text/plain", String(l.id));
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        if (overIndex !== i) setOverIndex(i);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        dropChannelList(i);
+                      }}
+                      onDragEnd={() => {
+                        setDragIndex(null);
+                        setOverIndex(null);
+                      }}
+                      className={clsx(
+                        "flex items-center justify-between gap-2 px-4 py-2 text-xs",
+                        dragIndex === i
+                          ? "opacity-40"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-700/30",
+                        // Show where the row will land.
+                        overIndex === i &&
+                          dragIndex !== null &&
+                          dragIndex !== i &&
+                          (dragIndex > i
+                            ? "border-t-2 border-t-sky-500"
+                            : "border-b-2 border-b-sky-500"),
+                      )}
                     >
                       <span className="flex items-center gap-2 truncate">
+                        <GripVertical
+                          size={14}
+                          className="shrink-0 cursor-grab text-slate-300 active:cursor-grabbing dark:text-slate-600"
+                        />
                         <span className="tabular-nums text-slate-400">
                           {i + 1}
                         </span>
