@@ -8,7 +8,9 @@ use crate::models::{Channel, ImportSummary};
 
 /// Magic value stamped into the export so re-import can recognise our own files
 /// and tell them apart from a RepeaterBook export.
-const BACKUP_FORMAT: &str = "73plug-channels";
+const BACKUP_FORMAT: &str = "codeplug-magic-channels";
+/// Legacy format id from before the product was renamed; still accepted on import.
+const LEGACY_BACKUP_FORMAT: &str = "73plug-channels";
 /// Current backup schema version (bump if the on-disk shape changes).
 const BACKUP_VERSION: u32 = 1;
 /// Cap on preview rows sent to the UI (matches the RepeaterBook importer).
@@ -106,7 +108,7 @@ pub struct ChannelBackupPreview {
 // Tauri commands
 // ============================================================
 
-/// Write the given channels (in the supplied order) to a 73plug backup JSON
+/// Write the given channels (in the supplied order) to a Codeplug Magic backup JSON
 /// file at `path`. Returns how many channels were written. Channel ids that no
 /// longer exist are silently skipped.
 #[tauri::command]
@@ -179,7 +181,7 @@ pub async fn export_channels(
 }
 
 /// Cheap probe used by the import dialog to route a `.json` file to the right
-/// importer: `true` if it parses as a 73plug channel backup, `false` otherwise
+/// importer: `true` if it parses as a Codeplug Magic channel backup, `false` otherwise
 /// (e.g. a RepeaterBook JSON export). Never errors on a parse mismatch.
 #[tauri::command]
 pub async fn is_channel_backup(path: String) -> Result<bool, String> {
@@ -227,9 +229,9 @@ fn read_backup(path: &str) -> Result<ChannelBackup, String> {
     let text =
         std::fs::read_to_string(path).map_err(|e| format!("Could not open file: {e}"))?;
     let backup: ChannelBackup = serde_json::from_str(&text)
-        .map_err(|e| format!("This file is not a 73plug channel backup: {e}"))?;
-    if backup.format != BACKUP_FORMAT {
-        return Err("This file is not a 73plug channel backup.".to_string());
+        .map_err(|e| format!("This file is not a Codeplug Magic channel backup: {e}"))?;
+    if backup.format != BACKUP_FORMAT && backup.format != LEGACY_BACKUP_FORMAT {
+        return Err("This file is not a Codeplug Magic channel backup.".to_string());
     }
     Ok(backup)
 }

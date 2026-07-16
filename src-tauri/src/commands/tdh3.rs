@@ -3,7 +3,7 @@
 //! The TD-H3's USB-C connector enumerates as a USB serial port and speaks the
 //! TIDRADIO clone protocol implemented by CHIRP's `chirp/drivers/tdh8.py`
 //! (shared TD-H8/H3 driver, H3 branch). This module is a faithful Rust port so
-//! 73plug can talk to the radio without going through CHIRP.
+//! Codeplug Magic can talk to the radio without going through CHIRP.
 //!
 //! **Phase A (this file): read-only.** Radio identify, a full-image download
 //! saved as a CHIRP-compatible `.img` backup, and a decoded sanity sample.
@@ -863,7 +863,7 @@ fn send_block(p: &mut dyn SerialPort, addr: u16, data: &[u8]) -> Result<(), Stri
 // Phase C: non-channel settings (read / edit / write)
 // ============================================================
 
-/// The radio-global "options" 73plug exposes for editing — the common-settings
+/// The radio-global "options" Codeplug Magic exposes for editing — the common-settings
 /// subset (the DTMF group and the six side/top-key assignments are intentionally
 /// left out for now). Multi-value fields are carried as a zero-based index into
 /// the matching label list on the frontend (see `Tdh3SETTINGS_*` lists there);

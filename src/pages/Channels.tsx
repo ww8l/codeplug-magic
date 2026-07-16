@@ -155,7 +155,7 @@ export function Channels() {
     const stamp = new Date().toISOString().slice(0, 10);
     const path = await save({
       defaultPath: `channels-${stamp}.json`,
-      filters: [{ name: "73plug channel backup", extensions: ["json"] }],
+      filters: [{ name: "Codeplug Magic channel backup", extensions: ["json"] }],
     });
     if (!path) return;
     const n = await withToast(api.exportChannels(ids, path), {

@@ -386,7 +386,9 @@ fn parse_talkgroup_csv(path: &str, default_network: &str) -> Result<Vec<ParsedTa
 // backup format in `channel_io.rs`.
 
 /// Magic value stamped into the export so import can recognise our own files.
-const TALKGROUP_BACKUP_FORMAT: &str = "73plug-talkgroups";
+const TALKGROUP_BACKUP_FORMAT: &str = "codeplug-magic-talkgroups";
+/// Legacy format id from before the product was renamed; still accepted on import.
+const LEGACY_TALKGROUP_BACKUP_FORMAT: &str = "73plug-talkgroups";
 /// Current backup schema version (bump if the on-disk shape changes).
 const TALKGROUP_BACKUP_VERSION: u32 = 1;
 
@@ -414,7 +416,7 @@ pub struct TalkgroupBackup {
     pub talkgroups: Vec<BackupTalkgroupRow>,
 }
 
-/// Write every talkgroup in the library to a 73plug talkgroup backup JSON file.
+/// Write every talkgroup in the library to a Codeplug Magic talkgroup backup JSON file.
 /// Returns how many were written.
 #[tauri::command]
 pub async fn export_talkgroups(state: State<'_, AppState>, path: String) -> Result<usize, String> {
@@ -445,9 +447,9 @@ pub async fn export_talkgroups(state: State<'_, AppState>, path: String) -> Resu
 fn read_talkgroup_backup(path: &str) -> Result<TalkgroupBackup, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("Could not open file: {e}"))?;
     let backup: TalkgroupBackup = serde_json::from_str(&text)
-        .map_err(|e| format!("This file is not a 73plug talkgroup backup: {e}"))?;
-    if backup.format != TALKGROUP_BACKUP_FORMAT {
-        return Err("This file is not a 73plug talkgroup backup.".to_string());
+        .map_err(|e| format!("This file is not a Codeplug Magic talkgroup backup: {e}"))?;
+    if backup.format != TALKGROUP_BACKUP_FORMAT && backup.format != LEGACY_TALKGROUP_BACKUP_FORMAT {
+        return Err("This file is not a Codeplug Magic talkgroup backup.".to_string());
     }
     Ok(backup)
 }
