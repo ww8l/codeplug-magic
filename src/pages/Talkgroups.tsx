@@ -138,7 +138,7 @@ export function Talkgroups() {
     const stamp = new Date().toISOString().slice(0, 10);
     const path = await save({
       defaultPath: `talkgroups-${stamp}.json`,
-      filters: [{ name: "73plug talkgroup backup", extensions: ["json"] }],
+      filters: [{ name: "Codeplug Magic talkgroup backup", extensions: ["json"] }],
     });
     if (!path) return;
     const n = await withToast(api.exportTalkgroups(path), {

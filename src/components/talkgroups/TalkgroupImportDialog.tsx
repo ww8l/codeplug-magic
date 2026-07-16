@@ -19,7 +19,7 @@ export function TalkgroupImportDialog({
   const [path, setPath] = useState<string | null>(null);
   const [network, setNetwork] = useState(DMR_NETWORKS[0]);
   // "csv" = column-mapped CSV (needs a default network); "backup" = a lossless
-  // 73plug talkgroup backup JSON (self-describing, no network needed).
+  // Codeplug Magic talkgroup backup JSON (self-describing, no network needed).
   const [mode, setMode] = useState<"csv" | "backup">("csv");
   const [preview, setPreview] = useState<TalkgroupImportPreview | null>(null);
   const [loading, setLoading] = useState(false);
@@ -51,7 +51,7 @@ export function TalkgroupImportDialog({
     const selected = await open({
       multiple: false,
       filters: [
-        { name: "Talkgroup file (CSV or 73plug backup)", extensions: ["csv", "json"] },
+        { name: "Talkgroup file (CSV or Codeplug Magic backup)", extensions: ["csv", "json"] },
       ],
     });
     if (typeof selected !== "string") return;
@@ -107,9 +107,9 @@ export function TalkgroupImportDialog({
             <span className="truncate">
               {path
                 ? mode === "backup"
-                  ? `${path} · 73plug backup`
+                  ? `${path} · Codeplug Magic backup`
                   : path
-                : "Select a talkgroup CSV (number + name, optional type/notes) or a 73plug backup."}
+                : "Select a talkgroup CSV (number + name, optional type/notes) or a Codeplug Magic backup."}
             </span>
           </div>
           <div className="flex items-center gap-2">

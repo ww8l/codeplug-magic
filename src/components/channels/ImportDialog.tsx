@@ -77,7 +77,7 @@ export function ImportDialog({
   const [path, setPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   // Which importer this file routes to: a RepeaterBook CSV/JSON export, or a
-  // native 73plug channel backup (a previously exported selection).
+  // native Codeplug Magic channel backup (a previously exported selection).
   const [kind, setKind] = useState<"csv" | "rb-json" | "native">("csv");
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -98,7 +98,7 @@ export function ImportDialog({
     const selected = await open({
       multiple: false,
       filters: [
-        { name: "Channel file (RepeaterBook export or 73plug backup)", extensions: ["csv", "json"] },
+        { name: "Channel file (RepeaterBook export or Codeplug Magic backup)", extensions: ["csv", "json"] },
       ],
     });
     if (typeof selected !== "string") return;
@@ -161,7 +161,7 @@ export function ImportDialog({
             <FileText size={14} className="shrink-0" />
             <span className="truncate">
               {path ??
-                "Select a RepeaterBook CSV/JSON export or a 73plug channel backup to preview."}
+                "Select a RepeaterBook CSV/JSON export or a Codeplug Magic channel backup to preview."}
             </span>
           </div>
           <Button onClick={pickFile}>
@@ -177,7 +177,7 @@ export function ImportDialog({
           ) : preview ? (
             <>
               <p className="mb-2 shrink-0 text-xs text-slate-500 dark:text-slate-400">
-                {kind === "native" ? "73plug channel backup. " : ""}
+                {kind === "native" ? "Codeplug Magic channel backup. " : ""}
                 {truncated
                   ? `Showing first ${preview.rows.length} of ${preview.total} parsed rows.`
                   : `Showing all ${preview.total} parsed rows.`}{" "}

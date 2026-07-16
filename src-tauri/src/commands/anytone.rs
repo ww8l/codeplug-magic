@@ -2,7 +2,7 @@
 //!
 //! The D890UV (like the rest of the AnyTone D868/D878/D578 family) enumerates as
 //! a USB CDC-ACM serial port and speaks a documented clone protocol. This module
-//! is a faithful Rust implementation of that protocol so 73plug can talk to the
+//! is a faithful Rust implementation of that protocol so Codeplug Magic can talk to the
 //! radio without Anytone CPS.
 //!
 //! **Stage 1 (this file): read-only.** Radio identify and a memory-map *probe*
