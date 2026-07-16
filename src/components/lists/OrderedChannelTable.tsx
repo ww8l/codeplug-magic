@@ -10,10 +10,13 @@ export function OrderedChannelTable({
   channels,
   onReorder,
   onRemove,
+  onEdit,
 }: {
   channels: Channel[];
   onReorder: (orderedIds: number[]) => void;
   onRemove: (channelId: number) => void;
+  /** Open a row's channel for editing. Rows are only clickable when given. */
+  onEdit?: (channel: Channel) => void;
 }) {
   // Index of the row being dragged, and the row it's currently hovering over.
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -81,8 +84,10 @@ export function OrderedChannelTable({
               setDragIndex(null);
               setOverIndex(null);
             }}
+            onClick={() => onEdit?.(c)}
             className={clsx(
               "border-b border-slate-100 dark:border-slate-700/60",
+              onEdit && "cursor-pointer",
               dragIndex === i
                 ? "opacity-40"
                 : "hover:bg-slate-50 dark:hover:bg-slate-700/30",
@@ -96,6 +101,7 @@ export function OrderedChannelTable({
             )}
           >
             <td
+              onClick={(e) => e.stopPropagation()}
               className="cursor-grab px-1 py-1.5 text-slate-300 hover:text-slate-500 active:cursor-grabbing dark:text-slate-600 dark:hover:text-slate-400"
               title="Drag to reorder"
             >
@@ -112,7 +118,7 @@ export function OrderedChannelTable({
             <td className="px-2 py-1.5 text-slate-600 dark:text-slate-300">
               {c.mode}
             </td>
-            <td className="px-2 py-1.5">
+            <td onClick={(e) => e.stopPropagation()} className="px-2 py-1.5">
               <div className="flex items-center justify-end gap-0.5">
                 <button
                   onClick={() => move(i, -1)}
@@ -130,7 +136,7 @@ export function OrderedChannelTable({
                 </button>
               </div>
             </td>
-            <td className="px-2 py-1.5">
+            <td onClick={(e) => e.stopPropagation()} className="px-2 py-1.5">
               <button
                 onClick={() => onRemove(c.id)}
                 title="Remove from list"

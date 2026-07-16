@@ -3,9 +3,10 @@ import { Plus, Pencil, Trash2, ListChecks } from "lucide-react";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import clsx from "clsx";
-import type { Channel, ScanListSettings } from "../../lib/types";
-import { withToast } from "../../lib/api";
+import type { Channel, CityCentroid, ScanListSettings } from "../../lib/types";
+import { api, withToast } from "../../lib/api";
 import { PageHeader, Button, Spinner, EmptyState, Badge } from "../ui";
+import { ChannelDetailPanel } from "../channels/ChannelDetailPanel";
 import { ChannelPickerModal } from "./ChannelPickerModal";
 import { OrderedChannelTable } from "./OrderedChannelTable";
 import { ListMetaModal } from "./ListMetaModal";
@@ -72,6 +73,9 @@ export function ListManager({ adapter }: { adapter: ListAdapter }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  const [editChannel, setEditChannel] = useState<Channel | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [cities, setCities] = useState<CityCentroid[]>([]);
 
   const Title =
     adapter.title ?? adapter.nounPlural.replace(/\b\w/g, (c) => c.toUpperCase());
@@ -92,6 +96,24 @@ export function ListManager({ adapter }: { adapter: ListAdapter }) {
   useEffect(() => {
     loadLists();
   }, [loadLists]);
+
+  useEffect(() => {
+    api.listCities().then(setCities);
+  }, []);
+
+  // Re-fetch after an edit: a rename changes the row label, and a delete from
+  // the panel drops the channel from the master table (cascading out of this
+  // list), so the sidebar count is resynced from what actually came back.
+  const refreshChannels = useCallback(async () => {
+    if (selectedId == null) return;
+    const cs = await adapter.getChannels(selectedId);
+    setChannels(cs);
+    setLists((prev) =>
+      prev.map((l) =>
+        l.id === selectedId ? { ...l, channel_count: cs.length } : l,
+      ),
+    );
+  }, [selectedId, adapter]);
 
   // Load channels for the selected list.
   useEffect(() => {
@@ -115,6 +137,11 @@ export function ListManager({ adapter }: { adapter: ListAdapter }) {
     () => new Set(channels.map((c) => c.id)),
     [channels],
   );
+  const sourceSuggestions = useMemo(() => {
+    const s = new Set<string>();
+    channels.forEach((c) => c.source && s.add(c.source));
+    return [...s].sort();
+  }, [channels]);
 
   const adjustCount = (id: number, delta: number) =>
     setLists((prev) =>
@@ -355,6 +382,10 @@ export function ListManager({ adapter }: { adapter: ListAdapter }) {
                       channels={channels}
                       onReorder={reorder}
                       onRemove={removeChannel}
+                      onEdit={(c) => {
+                        setEditChannel(c);
+                        setEditOpen(true);
+                      }}
                     />
                   )}
                 </div>
@@ -369,6 +400,18 @@ export function ListManager({ adapter }: { adapter: ListAdapter }) {
         onClose={() => setPickerOpen(false)}
         existingIds={existingIds}
         onAdd={addChannel}
+      />
+      <ChannelDetailPanel
+        channel={editChannel}
+        mode="edit"
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        onSaved={refreshChannels}
+        // Suggestions come from this list's channels rather than the whole
+        // library — it is only autocomplete, and the master table is not loaded
+        // here.
+        sourceSuggestions={sourceSuggestions}
+        cities={cities}
       />
       <ListMetaModal
         open={createOpen}
