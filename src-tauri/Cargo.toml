@@ -1,6 +1,6 @@
 [package]
 name = "ww8l-codeplug-magic"
-version = "26.7.14"
+version = "26.7.15"
 description = "WW8L Codeplug Magic - master codeplug database for amateur radio operators"
 authors = ["WW8L"]
 edition = "2021"
