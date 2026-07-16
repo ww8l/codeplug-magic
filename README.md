@@ -22,7 +22,6 @@ CSV for tools that expect it.
 | **Baofeng UV-5R** | Analog FM | VHF / UHF | Direct USB — read, write, settings | 128 channels, flat memory |
 | **TIDRADIO TD-H3** | Analog FM/NFM/AM | VHF / UHF / 1.25 m | Direct USB — read, write, settings | 200 channels, tri-band |
 | **AnyTone AT-D890UV** | DMR + Analog | VHF / UHF | Direct USB — channels, zones, scan lists, settings, call-sign DB | Full DMR: zones, talkgroups, 308k-entry caller-ID database |
-| **Vero VR-N76** | DMR + Analog | VHF / UHF | CSV export only | Bluetooth/app-only radio — no serial protocol available |
 
 Direct USB programming reads the radio's current image, applies your changes, backs up the
 original, writes, and can verify the result byte-for-byte. The radio catalog is data-driven, so

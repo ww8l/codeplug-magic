@@ -429,67 +429,7 @@ fn models() -> Vec<ModelSeed> {
             ]"##,
         },
         // --------------------------------------------------------
-        // 3. Vero (VGC) VR-N76 — analog dual-band HT, 192 ch in 6 banks
-        //    of 32, APRS/KISS-TNC capable, IP67. RX covers AM airband
-        //    (108-136) + broadcast FM (88-108); TX is 2 m (136-174) and
-        //    70 cm (400-470). Programmed exclusively over Bluetooth via the
-        //    Vero HT App (no serial-cable protocol), so it is EXPORT-ONLY:
-        //    no cable read/program path, and the Program/Download-settings
-        //    buttons stay hidden (they gate on model == "UV-5R"/"TD-H3").
-        //    NOTE/FOLLOW-UPS: (a) export_format is "chirp_csv" as a starting
-        //    point; the HT App actually imports a Vero-specific "VGC Channel
-        //    Import Template" (its own column headers, banks of 30) — swap in
-        //    a dedicated `vero_csv` exporter once that template's exact columns
-        //    are confirmed. (b) max_name_length (12) is a conservative guess
-        //    pending the app's real limit. (c) the non-channel settings schema
-        //    is empty for now — the VR-N76 has no CHIRP driver to derive
-        //    verified menu options from; populate from the radio menu/manual
-        //    when settings support is wanted.
-        // --------------------------------------------------------
-        ModelSeed {
-            manufacturer: "Vero",
-            model: "VR-N76",
-            // No serial driver (Bluetooth-app-only) and no live-programming UI.
-            driver_key: None,
-            programming_ui: None,
-            display_name: "Vero VR-N76",
-            analog_capable: true,
-            dmr_capable: false,
-            dstar_capable: false,
-            ysf_capable: false,
-            nxdn_capable: false,
-            p25_capable: false,
-            m17_capable: false,
-            aprs_capable: true,
-            covers_hf: false,
-            covers_vhf: true,
-            covers_uhf: true,
-            covers_220: false,
-            covers_900: false,
-            // TX bands only (2 m + 70 cm). The radio RX is wider (AM air + FM
-            // broadcast) but channels we program are TX-capable, so the export
-            // band filter uses the TX span. The two TX bands are disjoint; the
-            // single min/max spans them (same approach as the UV-5R/TD-H3).
-            freq_min: 136.0,
-            freq_max: 470.0,
-            memory_channels: 192,
-            zones_supported: false,
-            max_zones: None,
-            channels_per_zone: None,
-            scan_lists_supported: false,
-            max_scan_lists: None,
-            // 6 fixed banks of 32. With banks_supported, each channel list maps
-            // to one bank; the bank-aware exporter isn't built yet, so the
-            // current chirp_csv path flattens (channels still export, just not
-            // bank-segregated) — see channel-list-zone-bank-mapping notes.
-            banks_supported: true,
-            max_name_length: 12,
-            export_format: "chirp_csv",
-            connection_type: "Bluetooth (Vero HT App)",
-            non_channel_settings_schema: "[]",
-        },
-        // --------------------------------------------------------
-        // 4. AnyTone AT-D890UV — DMR Tier I/II + analog FM dual-band
+        // 3. AnyTone AT-D890UV — DMR Tier I/II + analog FM dual-band
         //    HT, 4000 channels in up to 250 zones (160 ch/zone), 250
         //    scan lists, 16-char alpha tags. APRS (analog + DMR) TX/RX,
         //    GPS, Bluetooth, Air-band AM RX, USB-C. This is the FIRST
@@ -505,14 +445,8 @@ fn models() -> Vec<ModelSeed> {
         //    follow-up. (b) nxdn_capable is left false: retailers market
         //    it as "DMR/NXDN" but NXDN may require a firmware update and
         //    isn't part of the export pipeline — flip it on if wanted.
-        //    (c) non_channel_settings_schema is empty: Anytone uses its
-        //    own CPS (no CHIRP driver to derive verified menu options
-        //    from), so global-settings support is deferred like the
-        //    VR-N76. (d) freq_max uses the US TX ceiling (480); non-US
-        //    units TX to 520 and a 220-225 RX band exists on band 14.
-        //    Like the VR-N76, adding this needs ONLY the seed entry — it
-        //    has no cable read/program driver, so Program/Download-settings
-        //    stay hidden (they gate on model == "UV-5R"/"TD-H3").
+        //    (c) freq_max uses the US TX ceiling (480); non-US units TX
+        //    to 520 and a 220-225 RX band exists on band 14.
         // --------------------------------------------------------
         ModelSeed {
             manufacturer: "AnyTone",
