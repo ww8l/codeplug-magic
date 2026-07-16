@@ -39,7 +39,7 @@ pub(crate) fn driver_for_key(key: &str) -> Option<&'static dyn RadioDriver> {
 }
 
 /// Resolve a radio model to its live-USB driver. `None` for export-only models
-/// (NULL `driver_key`, e.g. the VR-N76) or any key without a compiled-in driver.
+/// (NULL `driver_key`) or any key without a compiled-in driver.
 pub(crate) fn driver_for_model(model: &RadioModel) -> Option<&'static dyn RadioDriver> {
     driver_for_key(model.driver_key.as_deref()?)
 }

@@ -176,7 +176,7 @@ pub struct RadioModel {
     pub export_format: Option<String>,
     pub connection_type: Option<String>,
     /// Live-USB driver key → `radios/<driver_key>/` (see migration 0014).
-    /// NULL for export-only models with no serial driver (e.g. VR-N76).
+    /// NULL for export-only models with no serial driver.
     pub driver_key: Option<String>,
     /// Which frontend "Program radio" dialog to render: "generic" (default),
     /// "tdh3", "anytone", or NULL for no live-programming UI.
