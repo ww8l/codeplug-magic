@@ -34,6 +34,8 @@ use serialport::{ClearBuffer, SerialPort};
 use crate::error::MapErrString;
 use crate::radios::driver::RadioDriver;
 
+pub(crate) mod callsign_db;
+
 // ============================================================
 // Driver registration (RadioDriver + capability sub-traits)
 // ============================================================
