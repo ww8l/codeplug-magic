@@ -34,8 +34,9 @@ use super::anytone::{
     commit_channel_writes, ctcss_index, decode_utf16_name, diff_dumps,
     encode_channel_into_record, encode_contact_record, encode_scan_list_record,
     encode_utf16_field, encode_zone_list_record, end_session, enter_program_and_ident,
-    is_empty_record, new_channel_record_template, open_port, parse_dump, read_block,
-    run_patch_writes_direct, serialize_backup, split_into_windows, write_block, ScanListRecordSettings,
+    is_empty_record, new_channel_record_template, open_port, parse_dump, plans_from_pre_read,
+    read_block,
+    run_patch_writes_direct, serialize_backup, write_block, ScanListRecordSettings,
     AnytoneChannelEdit,
     AnytoneDumpDiff, AnytonePatchWriteResult, AnytoneSubTone, AnytoneToneEdit, BankPlan,
     RegionPatch, BANK_STEP, CHANNEL_BASE, CH_PER_BANK, CH_REC_LEN, CONTACT_BASE, CONTACT_REC_LEN,
@@ -44,7 +45,12 @@ use super::anytone::{
     ZONE_LIST_STEP, ZONE_MAX_CHANNELS, ZONE_NAME_BASE, ZONE_NAME_CHARS, ZONE_NAME_STEP,
 };
 use super::anytone_callsign_db::{encode_callsign_db, CallsignDbEntry};
-use super::anytone_settings::{encode_anytone_settings, SETTINGS_WINDOWS};
+// run_settings_program + its DTO moved into the driver's settings module in 3.5;
+// re-exported here so `commands::anytone_program::run_settings_program` (the
+// settings-write RE example) keeps resolving until 3.6.
+pub use super::anytone_settings::{
+    encode_anytone_settings, run_settings_program, AnytoneSettingsProgramResult, SETTINGS_WINDOWS,
+};
 use super::dmr_users::select_prioritized_dmr_users;
 use super::export::{
     codeplug_model, exclusion_reason, expand_for_export, expanded_name, resolve_codeplug_groups,
@@ -727,34 +733,6 @@ fn patch_channel_bank(
     Ok((patched != original).then_some(patched))
 }
 
-/// Splice `patches` onto pre-read windows, producing one `BankPlan` per window
-/// that actually changes. Every patched window must be present in `originals`
-/// (the session read it earlier) — a missing window is a logic error, not a
-/// hardware condition.
-fn plans_from_pre_read(
-    originals: &std::collections::BTreeMap<u32, Vec<u8>>,
-    patches: &[RegionPatch],
-) -> Result<Vec<BankPlan>, String> {
-    let mut plans = Vec::new();
-    for (base, segments) in split_into_windows(patches) {
-        let original = originals
-            .get(&base)
-            .ok_or_else(|| format!("internal: window 0x{base:08X} was not read"))?;
-        let mut patched = original.clone();
-        for (off, data) in segments {
-            patched[off..off + data.len()].copy_from_slice(&data);
-        }
-        if patched != *original {
-            plans.push(BankPlan {
-                base,
-                original: original.clone(),
-                patched,
-            });
-        }
-    }
-    Ok(plans)
-}
-
 /// Read the 0x4000 windows of a record region sequentially, stopping after the
 /// first window that is both past `needed_bytes` and entirely 0xFF (the flash
 /// empty pattern) — that window still gets kept so patches may spill into it.
@@ -1001,122 +979,6 @@ fn run_program(
 // ============================================================
 // Settings (radio profile) write path
 // ============================================================
-
-/// Outcome of a committed settings (radio-profile) push.
-#[derive(Serialize)]
-pub struct AnytoneSettingsProgramResult {
-    /// Number of settings fields whose bytes actually changed on the radio.
-    pub fields_changed: usize,
-    /// 0x4000 window base addresses actually rewritten (hex).
-    pub windows_written: Vec<String>,
-    pub backup_path: String,
-    /// The `.expected.bin` image for `verify_anytone_program`.
-    pub expected_path: String,
-    pub note: String,
-}
-
-/// The blocking hardware session for a settings push. Mirrors [`run_program`]'s
-/// discipline exactly: read the settings window(s) fresh in-session, encode the
-/// profile values into byte patches (read-modify-write, preserving every
-/// unmodeled byte AND bit), write a mandatory backup of the ORIGINAL bytes plus
-/// an `.expected.bin` of the patched bytes BEFORE any write, then commit and END
-/// once. Brick-capable — the settings window has never been written before, so it
-/// gets the same whole-0x4000-window RMW treatment as the zone/contact regions.
-/// `pub` so a headless CLI example can drive the exact shipping write path.
-pub fn run_settings_program(
-    port: &str,
-    values: &serde_json::Value,
-    backup_path: &std::path::Path,
-    expected_path: &std::path::Path,
-) -> Result<AnytoneSettingsProgramResult, String> {
-    let mut p = open_port(port)?;
-    let _ident = enter_program_and_ident(&mut *p)?;
-
-    // ---- Phase 1: read the affected windows + compute the patched windows.
-    let phase1 = (|| -> Result<Vec<BankPlan>, String> {
-        // Read every 0x4000 window covering the settings regions (both regions
-        // fall in the single 0x03500000 window today, but derive it generally).
-        let mut originals = std::collections::BTreeMap::new();
-        for &(base, _) in SETTINGS_WINDOWS {
-            let wbase = base & !(WRITE_WINDOW as u32 - 1);
-            originals
-                .entry(wbase)
-                .or_insert_with(|| read_block(&mut *p, wbase, WRITE_WINDOW));
-        }
-        // Surface any read error (the closure above defers it into the Option).
-        let originals: std::collections::BTreeMap<u32, Vec<u8>> = originals
-            .into_iter()
-            .map(|(base, r)| r.map(|data| (base, data)))
-            .collect::<Result<_, _>>()?;
-
-        // Slice out each settings region's current bytes for the encoder.
-        let existing: Vec<(u32, Vec<u8>)> = SETTINGS_WINDOWS
-            .iter()
-            .map(|&(base, len)| {
-                let wbase = base & !(WRITE_WINDOW as u32 - 1);
-                let off = (base - wbase) as usize;
-                let win = &originals[&wbase];
-                (base, win[off..off + len as usize].to_vec())
-            })
-            .collect();
-
-        let patches = encode_anytone_settings(&existing, values)?;
-        plans_from_pre_read(&originals, &patches)
-    })();
-    let all_plans = match phase1 {
-        Ok(v) => v,
-        Err(e) => {
-            let _ = end_session(&mut *p);
-            return Err(e);
-        }
-    };
-
-    if all_plans.is_empty() {
-        let _ = end_session(&mut *p);
-        return Err(
-            "the radio already matches this profile's settings — nothing to write".to_string(),
-        );
-    }
-
-    // Count changed bytes (for the human-facing summary) before we move plans.
-    let fields_changed = all_plans
-        .iter()
-        .map(|pl| {
-            pl.original
-                .iter()
-                .zip(&pl.patched)
-                .filter(|(a, b)| a != b)
-                .count()
-        })
-        .sum();
-
-    // ---- Backup (originals) + expected image (patched) BEFORE any write.
-    let to_blocks = |f: fn(&BankPlan) -> &Vec<u8>| -> Vec<(u32, Vec<u8>)> {
-        all_plans.iter().map(|pl| (pl.base, f(pl).clone())).collect()
-    };
-    let backup = serialize_backup(&to_blocks(|pl| &pl.original));
-    let expected = serialize_backup(&to_blocks(|pl| &pl.patched));
-    for (path, bytes) in [(backup_path, &backup), (expected_path, &expected)] {
-        if let Err(e) = std::fs::write(path, bytes) {
-            let _ = end_session(&mut *p);
-            return Err(format!("could not write {}: {e}", path.display()));
-        }
-    }
-
-    // ---- Phase 2: write every changed window, then END once (commit+reboot).
-    let written = commit_channel_writes(&mut *p, &all_plans)?;
-    let _ = end_session(&mut *p);
-
-    Ok(AnytoneSettingsProgramResult {
-        fields_changed,
-        windows_written: written.iter().map(|a| format!("0x{a:08X}")).collect(),
-        backup_path: backup_path.to_string_lossy().to_string(),
-        expected_path: expected_path.to_string_lossy().to_string(),
-        note: "Written and committed — the radio reboots and re-enumerates USB. \
-               Rescan, reselect the port, then run Verify against the expected image."
-            .to_string(),
-    })
-}
 
 /// Push the radio profile's non-channel settings (the "radio profile") to the
 /// AT-D890UV. Model-gated to the AT-D890UV; loads the codeplug's profile
