@@ -10,9 +10,14 @@
 //! validated against a golden radio dump and the seed schema JSON is generated
 //! from the SAME source so the UI schema and this decoder cannot drift.
 
+use serde::Serialize;
 use serde_json::{Map, Value};
 
-use super::RegionPatch;
+use super::{
+    commit_channel_writes, end_session, enter_program_and_ident, open_port, plans_from_pre_read,
+    read_block, serialize_backup, AnytoneAtd890uv, BankPlan, RegionPatch, WRITE_WINDOW,
+};
+use crate::radios::driver::SettingsProgrammer;
 
 /// Base of "Radio Id element 0" — the radio's own DMR ID + name. A `repeat` of
 /// up to 250 records (stride 0x40) at `0x03680000`; each is a 4-byte big-endian
@@ -412,6 +417,163 @@ pub fn encode_anytone_settings(
         }
     }
     Ok(patches)
+}
+
+
+/// Outcome of a committed settings (radio-profile) push.
+#[derive(Serialize)]
+pub struct AnytoneSettingsProgramResult {
+    /// Number of settings fields whose bytes actually changed on the radio.
+    pub fields_changed: usize,
+    /// 0x4000 window base addresses actually rewritten (hex).
+    pub windows_written: Vec<String>,
+    pub backup_path: String,
+    /// The `.expected.bin` image for `verify_anytone_program`.
+    pub expected_path: String,
+    pub note: String,
+}
+
+
+/// The blocking hardware session for a settings push. Mirrors [`run_program`]'s
+/// discipline exactly: read the settings window(s) fresh in-session, encode the
+/// profile values into byte patches (read-modify-write, preserving every
+/// unmodeled byte AND bit), write a mandatory backup of the ORIGINAL bytes plus
+/// an `.expected.bin` of the patched bytes BEFORE any write, then commit and END
+/// once. Brick-capable — the settings window has never been written before, so it
+/// gets the same whole-0x4000-window RMW treatment as the zone/contact regions.
+/// `pub` so a headless CLI example can drive the exact shipping write path.
+pub fn run_settings_program(
+    port: &str,
+    values: &serde_json::Value,
+    backup_path: &std::path::Path,
+    expected_path: &std::path::Path,
+) -> Result<AnytoneSettingsProgramResult, String> {
+    let mut p = open_port(port)?;
+    let _ident = enter_program_and_ident(&mut *p)?;
+
+    // ---- Phase 1: read the affected windows + compute the patched windows.
+    let phase1 = (|| -> Result<Vec<BankPlan>, String> {
+        // Read every 0x4000 window covering the settings regions (both regions
+        // fall in the single 0x03500000 window today, but derive it generally).
+        let mut originals = std::collections::BTreeMap::new();
+        for &(base, _) in SETTINGS_WINDOWS {
+            let wbase = base & !(WRITE_WINDOW as u32 - 1);
+            originals
+                .entry(wbase)
+                .or_insert_with(|| read_block(&mut *p, wbase, WRITE_WINDOW));
+        }
+        // Surface any read error (the closure above defers it into the Option).
+        let originals: std::collections::BTreeMap<u32, Vec<u8>> = originals
+            .into_iter()
+            .map(|(base, r)| r.map(|data| (base, data)))
+            .collect::<Result<_, _>>()?;
+
+        // Slice out each settings region's current bytes for the encoder.
+        let existing: Vec<(u32, Vec<u8>)> = SETTINGS_WINDOWS
+            .iter()
+            .map(|&(base, len)| {
+                let wbase = base & !(WRITE_WINDOW as u32 - 1);
+                let off = (base - wbase) as usize;
+                let win = &originals[&wbase];
+                (base, win[off..off + len as usize].to_vec())
+            })
+            .collect();
+
+        let patches = encode_anytone_settings(&existing, values)?;
+        plans_from_pre_read(&originals, &patches)
+    })();
+    let all_plans = match phase1 {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = end_session(&mut *p);
+            return Err(e);
+        }
+    };
+
+    if all_plans.is_empty() {
+        let _ = end_session(&mut *p);
+        return Err(
+            "the radio already matches this profile's settings — nothing to write".to_string(),
+        );
+    }
+
+    // Count changed bytes (for the human-facing summary) before we move plans.
+    let fields_changed = all_plans
+        .iter()
+        .map(|pl| {
+            pl.original
+                .iter()
+                .zip(&pl.patched)
+                .filter(|(a, b)| a != b)
+                .count()
+        })
+        .sum();
+
+    // ---- Backup (originals) + expected image (patched) BEFORE any write.
+    let to_blocks = |f: fn(&BankPlan) -> &Vec<u8>| -> Vec<(u32, Vec<u8>)> {
+        all_plans.iter().map(|pl| (pl.base, f(pl).clone())).collect()
+    };
+    let backup = serialize_backup(&to_blocks(|pl| &pl.original));
+    let expected = serialize_backup(&to_blocks(|pl| &pl.patched));
+    for (path, bytes) in [(backup_path, &backup), (expected_path, &expected)] {
+        if let Err(e) = std::fs::write(path, bytes) {
+            let _ = end_session(&mut *p);
+            return Err(format!("could not write {}: {e}", path.display()));
+        }
+    }
+
+    // ---- Phase 2: write every changed window, then END once (commit+reboot).
+    let written = commit_channel_writes(&mut *p, &all_plans)?;
+    let _ = end_session(&mut *p);
+
+    Ok(AnytoneSettingsProgramResult {
+        fields_changed,
+        windows_written: written.iter().map(|a| format!("0x{a:08X}")).collect(),
+        backup_path: backup_path.to_string_lossy().to_string(),
+        expected_path: expected_path.to_string_lossy().to_string(),
+        note: "Written and committed — the radio reboots and re-enumerates USB. \
+               Rescan, reselect the port, then run Verify against the expected image."
+            .to_string(),
+    })
+}
+
+
+
+impl SettingsProgrammer for AnytoneAtd890uv {
+    /// Read the General/Boot settings windows off the radio and decode them into
+    /// the profile-form JSON (`decode_anytone_settings`). The schema is table-
+    /// driven here, so `schema_json` is unused. Device I/O only; the command layer
+    /// (`read_anytone_settings_for_profile`) owns the DB gate + backup file.
+    fn read_settings(&self, port: &str, _schema_json: &str) -> Result<Value, String> {
+        let mut p = open_port(port)?;
+        let _ident = enter_program_and_ident(&mut *p)?;
+        let mut blocks = Vec::new();
+        for &(addr, len) in SETTINGS_WINDOWS {
+            match read_block(&mut *p, addr, len as usize) {
+                Ok(data) => blocks.push((addr, data)),
+                Err(e) => {
+                    let _ = end_session(&mut *p);
+                    return Err(e);
+                }
+            }
+        }
+        let _ = end_session(&mut *p);
+        Ok(decode_anytone_settings(&blocks))
+    }
+
+    /// Encode `settings` into the settings windows and write them (backup → write
+    /// → single END/commit) via the shared `run_settings_program`. The trait
+    /// carries no backup directory, so the mandatory pre-write backup + expected
+    /// image go to the system temp dir; the Tauri command
+    /// (`program_anytone_settings`) keeps the app-data `radio-backups` copies.
+    fn write_settings(&self, port: &str, settings: &Value, _schema_json: &str) -> Result<(), String> {
+        let dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let backup = dir.join(format!("anytone-settings-{pid}.bak"));
+        let expected = dir.join(format!("anytone-settings-{pid}.expected"));
+        run_settings_program(port, settings, &backup, &expected)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

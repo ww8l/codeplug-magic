@@ -45,7 +45,8 @@
 //!     overflowed and corrupted the parse of every record after it — CPS's list
 //!     stopped at ~38. Writing full 300k data with truncation fixes it.
 
-use super::{bcd_be_encode, RegionPatch};
+use super::{bcd_be_encode, run_patch_writes_direct, AnytoneAtd890uv, RegionPatch};
+use crate::radios::driver::{CallsignDbWriter, CallsignRecord};
 
 /// Call-sign Database Limits record (Entry Count + End-of-DB address + 8 pad).
 pub const LIMITS_BASE: u32 = 0x0700_0000;
@@ -244,6 +245,36 @@ pub fn encode_callsign_db(entries: &[CallsignDbEntry]) -> Result<Vec<RegionPatch
     patches.push(RegionPatch { addr: LIMITS_BASE, data: limits });
 
     Ok(patches)
+}
+
+
+impl CallsignDbWriter for AnytoneAtd890uv {
+    /// Encode `records` into the three caller-ID regions and write them via the
+    /// DIRECT (no read-modify-write) path — the RMW read phase corrupts large
+    /// flash commits, and the DB region is fully overwritten so nothing needs
+    /// preserving (see `run_patch_writes_direct`). Returns the entry count written.
+    fn write_callsign_db(&self, port: &str, records: &[CallsignRecord]) -> Result<usize, String> {
+        let entries: Vec<CallsignDbEntry> = records
+            .iter()
+            .filter(|r| r.dmr_id > 0 && r.dmr_id <= 99_999_999)
+            .map(|r| CallsignDbEntry {
+                dmr_id: r.dmr_id,
+                name: r.name.clone(),
+                city: r.city.clone().unwrap_or_default(),
+                call: r.callsign.clone(),
+                state: r.state.clone().unwrap_or_default(),
+                country: r.country.clone().unwrap_or_default(),
+                comment: String::new(),
+            })
+            .collect();
+        if entries.is_empty() {
+            return Err("no valid DMR IDs in the batch".to_string());
+        }
+        let count = entries.len();
+        let patches = encode_callsign_db(&entries)?;
+        run_patch_writes_direct(port, &patches)?;
+        Ok(count)
+    }
 }
 
 #[cfg(test)]

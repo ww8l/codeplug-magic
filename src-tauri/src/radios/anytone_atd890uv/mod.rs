@@ -32,7 +32,9 @@ use serde::{Deserialize, Serialize};
 use serialport::{ClearBuffer, SerialPort};
 
 use crate::error::MapErrString;
-use crate::radios::driver::RadioDriver;
+use crate::radios::driver::{
+    CallsignDbWriter, CodeplugExporter, DriverDiagnostics, RadioDriver, SettingsProgrammer,
+};
 
 pub(crate) mod callsign_db;
 pub(crate) mod export;
@@ -65,6 +67,38 @@ impl RadioDriver for AnytoneAtd890uv {
 
     fn baud(&self) -> u32 {
         BAUD
+    }
+
+    // Capabilities the driver advertises. Channel programming (the DB-driven
+    // full-codeplug replace) stays in the command layer for now; its registry
+    // dispatch is designed in 3.6, so `as_channel_writer` is intentionally not
+    // overridden here.
+    fn as_settings_programmer(&self) -> Option<&dyn SettingsProgrammer> {
+        Some(self)
+    }
+
+    fn as_callsign_db_writer(&self) -> Option<&dyn CallsignDbWriter> {
+        Some(self)
+    }
+
+    fn as_codeplug_exporter(&self) -> Option<&dyn CodeplugExporter> {
+        Some(self)
+    }
+
+    fn as_diagnostics(&self) -> Option<&dyn DriverDiagnostics> {
+        Some(self)
+    }
+}
+
+impl DriverDiagnostics for AnytoneAtd890uv {
+    /// Read `len` bytes at absolute address `start` in one PC-mode session
+    /// (enter → strict-checksum read → END). Backs the raw dump/diff RE tooling.
+    fn dump_raw(&self, port: &str, start: u32, len: u32) -> Result<Vec<u8>, String> {
+        let mut p = open_port(port)?;
+        let _ident = enter_program_and_ident(&mut *p)?;
+        let data = read_block(&mut *p, start, len as usize);
+        let _ = end_session(&mut *p);
+        data
     }
 }
 
@@ -1997,9 +2031,56 @@ pub fn run_noop_window(port: &str, base: u32) -> Result<Vec<u8>, String> {
     Ok(original)
 }
 
+
+/// Splice `patches` onto pre-read windows, producing one `BankPlan` per window
+/// that actually changes. Every patched window must be present in `originals`
+/// (the session read it earlier) — a missing window is a logic error, not a
+/// hardware condition.
+pub(crate) fn plans_from_pre_read(
+    originals: &std::collections::BTreeMap<u32, Vec<u8>>,
+    patches: &[RegionPatch],
+) -> Result<Vec<BankPlan>, String> {
+    let mut plans = Vec::new();
+    for (base, segments) in split_into_windows(patches) {
+        let original = originals
+            .get(&base)
+            .ok_or_else(|| format!("internal: window 0x{base:08X} was not read"))?;
+        let mut patched = original.clone();
+        for (off, data) in segments {
+            patched[off..off + data.len()].copy_from_slice(&data);
+        }
+        if patched != *original {
+            plans.push(BankPlan {
+                base,
+                original: original.clone(),
+                patched,
+            });
+        }
+    }
+    Ok(plans)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capabilities_derive_settings_callsign_export_and_diagnostics() {
+        use crate::radios::driver::DriverCapabilities;
+        let caps = DriverCapabilities::of(&DRIVER);
+        // Advertised now (Chunk 3.5):
+        assert!(caps.program_settings);
+        assert!(caps.write_callsign_db);
+        assert!(caps.export);
+        assert!(caps.diagnostics);
+        // Deferred to 3.6 (the DB-driven full-codeplug program stays in the
+        // command layer) and not applicable (AnyTone is not an image-clone radio):
+        assert!(!caps.write_channels);
+        assert!(!caps.program_image);
+        assert_eq!(DRIVER.key(), "anytone_atd890uv");
+        assert_eq!(DRIVER.display_name(), "AnyTone AT-D890UV");
+    }
 
     #[test]
     fn checksum_sums_address_len_and_data() {

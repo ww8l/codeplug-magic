@@ -21,11 +21,10 @@ use crate::models::RadioModel;
 /// Every driver compiled into the app. Order is not significant — lookups are
 /// by `key()`, which is unique. (A static array rather than a slice literal:
 /// references to statics aren't const-promotable inside a returned temporary.)
-static DRIVERS: [&dyn RadioDriver; 2] = [
+static DRIVERS: [&dyn RadioDriver; 3] = [
     &super::baofeng_uv5r::DRIVER,
     &super::tidradio_tdh3::DRIVER,
-    // Populated in 3.5:
-    //   &super::anytone_atd890uv::DRIVER,
+    &super::anytone_atd890uv::DRIVER,
 ];
 
 pub(crate) fn all_drivers() -> &'static [&'static dyn RadioDriver] {
