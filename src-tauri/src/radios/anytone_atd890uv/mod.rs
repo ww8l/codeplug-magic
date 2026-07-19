@@ -35,6 +35,7 @@ use crate::error::MapErrString;
 use crate::radios::driver::RadioDriver;
 
 pub(crate) mod callsign_db;
+pub(crate) mod export;
 pub(crate) mod settings;
 
 // ============================================================
