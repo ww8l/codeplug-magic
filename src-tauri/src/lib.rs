@@ -137,7 +137,6 @@ pub fn run() {
             commands::tdh3::download_tdh3_image,
             commands::tdh3::program_tdh3_codeplug,
             commands::tdh3::read_tdh3_settings_for_profile,
-            commands::tdh3::write_tdh3_settings,
             commands::tdh3::apply_tdh3_profile,
             commands::tdh3::save_tdh3_settings_to_profile,
             // direct radio programming (AnyTone AT-D890UV) — Stage 1: read-only
@@ -148,21 +147,11 @@ pub fn run() {
             // non-channel settings read: General Settings decode into profile shape
             commands::anytone_settings::read_anytone_settings_for_profile,
             // Stage 3 write validation: round-trip no-op (gated, mandatory backup)
-            commands::anytone::roundtrip_write_anytone,
             // Stage 3 SAFE first write test: committing whole-bank no-op (gated)
-            commands::anytone::commit_noop_bank_anytone,
             // Stage 3 batch channel write: app-model edits → bank RMW (gated, backup)
-            commands::anytone::write_channels_anytone,
             // Stage 3b zone/contact writes: absolute patches → window RMW (gated, backup)
-            commands::anytone::write_zones_anytone,
-            commands::anytone::write_contacts_anytone,
             // Stage 3 persistence test: write-field / fresh-read / restore (gated)
-            commands::anytone::write_timeslot_anytone,
-            commands::anytone::read_slot_anytone,
-            commands::anytone::restore_slot_anytone,
             // Integrity-structure investigation: deterministic dump + diff (read-only)
-            commands::anytone::dump_anytone_raw,
-            commands::anytone::diff_anytone_dumps,
             // "Program radio" from the DB: full-replace channel set (gated, backup)
             commands::anytone_program::program_anytone_preview,
             commands::anytone_program::program_anytone_codeplug,

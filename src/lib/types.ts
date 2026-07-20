@@ -524,6 +524,12 @@ export interface AnytoneRegionProbe {
   error: string | null;
 }
 
+// One direction's sub-audible tone. Mirrors the Rust `AnytoneSubTone` enum
+// (serde tag "kind" / content "value"): CTCSS carries Hz, DCS the raw stored code.
+export type AnytoneSubTone =
+  | { kind: "ctcss"; value: number }
+  | { kind: "dcs"; value: number };
+
 export interface AnytoneDecodedChannel {
   index: number;
   name: string;
@@ -578,92 +584,6 @@ export interface AnytoneImportSummary {
   lists_skipped: number;
 }
 
-export interface AnytoneRoundtripResult {
-  slot: number;
-  addr: string;
-  original_hex: string;
-  readback_hex: string;
-  matched: boolean;
-  backup_path: string;
-  channel: AnytoneDecodedChannel | null;
-}
-
-export interface AnytoneWriteFieldResult {
-  slot: number;
-  addr: string;
-  field: string;
-  old_value: number;
-  new_value: number;
-  backup_path: string;
-  channel: AnytoneDecodedChannel | null;
-}
-
-export interface AnytoneSlotReadResult {
-  slot: number;
-  addr: string;
-  time_slot_byte: number | null;
-  hex: string;
-  channel: AnytoneDecodedChannel | null;
-}
-
-// ---- Stage 3 batch channel write (app-model edit → bank RMW) ----
-// One direction's sub-audible tone. Mirrors the Rust `AnytoneSubTone` enum
-// (serde tag "kind" / content "value"): CTCSS carries Hz, DCS the raw stored code.
-export type AnytoneSubTone =
-  | { kind: "ctcss"; value: number }
-  | { kind: "dcs"; value: number };
-
-export interface AnytoneToneEdit {
-  tx: AnytoneSubTone | null;
-  rx: AnytoneSubTone | null;
-}
-
-// A structured channel edit to patch onto an existing record. `mode` selects the
-// field group: analog (0) uses `tone`; digital (1-3) uses the DMR fields.
-export interface AnytoneChannelEdit {
-  name: string;
-  rx_mhz: number;
-  tx_mhz: number;
-  power: number; // 0 Low / 1 Medium / 2 High / 3 Turbo
-  wide: boolean; // true = 25 kHz, false = 12.5 kHz
-  mode: number; // 0 FM / 1 DMR / 2 FM+DMR RX / 3 DMR+FM RX
-  tone: AnytoneToneEdit;
-  color_code: number;
-  time_slot: number; // 1-based (1 or 2)
-  contact_index: number;
-}
-
-export interface AnytoneChannelWrite {
-  slot: number; // 1-based
-  edit: AnytoneChannelEdit;
-}
-
-export interface AnytoneWriteChannelsResult {
-  slots: number[];
-  banks_written: string[];
-  backup_path: string;
-  note: string;
-}
-
-export interface AnytoneRestoreResult {
-  slot: number;
-  addr: string;
-  backup_path: string;
-}
-
-export interface AnytoneDumpResult {
-  path: string;
-  total_bytes: number;
-  regions: AnytoneRegionProbe[];
-}
-
-export interface AnytoneDumpDiff {
-  addr: string;
-  len: number;
-  a_hex: string;
-  b_hex: string;
-}
-
 // ---- "Program radio" from the DB (AT-D890UV full-replace channel set) ----
 // Mirror of the Rust `anytone_program.rs` structs.
 export interface AnytoneSkippedChannel {
@@ -697,6 +617,14 @@ export interface AnytoneProgramResult {
   expected_path: string;
   warnings: string[];
   note: string;
+}
+
+// One differing byte-run between two reads, used by program verification.
+export interface AnytoneDumpDiff {
+  addr: string;
+  len: number;
+  a_hex: string;
+  b_hex: string;
 }
 
 export interface AnytoneVerifyResult {

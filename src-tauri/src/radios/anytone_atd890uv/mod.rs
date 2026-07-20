@@ -128,41 +128,6 @@ pub(crate) const PROBE_REGIONS: &[(&str, u32, u32)] = &[
     ("fm_channels", 0x0340_0000, 0x0040),
 ];
 
-/// FIXED, deterministic region map for the integrity-structure investigation
-/// (Stage 3 blocker). Unlike `read_channel_banks`/`read_zones` (which early-stop
-/// on content), these ranges are ALWAYS read at the SAME address+length so two
-/// dumps are byte-comparable — the point is to change ONE field in official
-/// software (RT Systems/CPS) between two dumps and DIFF, revealing the checksum /
-/// "valid" region the radio maintains alongside channel data (which our
-/// per-record write corrupts). Generous but bounded; widen if a diff shows only
-/// the channel record changed. `(name, address, len)`.
-pub(crate) const DUMP_REGIONS: &[(&str, u32, u32)] = &[
-    ("channel_bank_0", 0x0100_0000, 0x4000),
-    // The 0x4000 gap right after bank 0's 128 records — a prime spot for a
-    // per-bank checksum/metadata the model wouldn't show.
-    ("channel_bank_0_tail", 0x0100_4000, 0x4000),
-    ("channel_bank_1", 0x0108_0000, 0x4000),
-    ("vfo", 0x01F8_1000, 0x0400),
-    ("zone_lists", 0x0200_0000, 0x0800),
-    ("roaming_channels", 0x0208_0000, 0x0400),
-    ("roaming_zones", 0x0208_5000, 0x0400),
-    ("scan_lists", 0x0210_0000, 0x0800),
-    ("messages", 0x0318_0000, 0x0400),
-    // FM + FM VFO + FM scan bitmap (0x03402050).
-    ("fm_channels", 0x0340_0000, 0x0400),
-    // DTMF (0x03481E00), zone bitmap (0x03482C20), auto-repeater (0x03483200).
-    ("settings_block", 0x0348_0000, 0x4000),
-    // General settings, Zone A&B, DTMF Ids, Boot settings, APRS.
-    ("general_settings", 0x0350_0000, 0x2000),
-    // Encryption keys + key bitmaps (0x03585600/0x03585620).
-    ("encryption", 0x0358_5000, 0x0800),
-    ("zone_names", 0x0360_0000, 0x0800),
-    ("radio_ids", 0x0368_0000, 0x0400),
-    ("primary_id", 0x0368_4000, 0x0100),
-    ("group_lists", 0x0378_0000, 0x0800),
-    ("contacts", 0x03A0_0000, 0x0800),
-];
-
 /// Channel storage: 32 banks of 128 records each (4000 channels, last bank
 /// partial). Bank N base = `CHANNEL_BASE + N*BANK_STEP`; each bank is
 /// `CH_PER_BANK * CH_REC_LEN` = 0x4000 bytes. Confirmed against a programmed
@@ -1460,6 +1425,10 @@ pub(crate) struct BankPlan {
 /// existing bytes (via [`encode_channel_into_record`]). No writes are issued, so
 /// the caller can save a backup of the originals before committing. Range-checks
 /// every slot first. Brick-safe granularity (whole-bank).
+// Currently unused: its only caller was the retired `write_channels_anytone` RE
+// command. Kept because it is the driver's channel-write planner — Chunk 3.6 needs
+// it when the AnyTone gains a registry-dispatched channel write path.
+#[allow(dead_code)]
 pub(crate) fn plan_channel_writes(
     p: &mut dyn SerialPort,
     writes: &[AnytoneChannelWrite],

@@ -36,14 +36,6 @@ import type {
   AnytoneDecodedContact,
   AnytoneDecodedZone,
   AnytoneImportSummary,
-  AnytoneRoundtripResult,
-  AnytoneChannelWrite,
-  AnytoneWriteChannelsResult,
-  AnytoneWriteFieldResult,
-  AnytoneSlotReadResult,
-  AnytoneRestoreResult,
-  AnytoneDumpResult,
-  AnytoneDumpDiff,
   AnytoneProgramPreview,
   AnytoneProgramResult,
   AnytoneSettingsProgramResult,
@@ -359,27 +351,6 @@ export const api = {
       zones,
       contacts,
     }),
-  roundtripWriteAnytone: (port: string, slot: number) =>
-    invoke<AnytoneRoundtripResult>("roundtrip_write_anytone", { port, slot }),
-  writeChannelsAnytone: (port: string, writes: AnytoneChannelWrite[]) =>
-    invoke<AnytoneWriteChannelsResult>("write_channels_anytone", {
-      port,
-      writes,
-    }),
-  writeTimeslotAnytone: (port: string, slot: number) =>
-    invoke<AnytoneWriteFieldResult>("write_timeslot_anytone", { port, slot }),
-  readSlotAnytone: (port: string, slot: number) =>
-    invoke<AnytoneSlotReadResult>("read_slot_anytone", { port, slot }),
-  restoreSlotAnytone: (port: string, slot: number, backupPath: string) =>
-    invoke<AnytoneRestoreResult>("restore_slot_anytone", {
-      port,
-      slot,
-      backupPath,
-    }),
-  dumpAnytoneRaw: (port: string) =>
-    invoke<AnytoneDumpResult>("dump_anytone_raw", { port }),
-  diffAnytoneDumps: (pathA: string, pathB: string) =>
-    invoke<AnytoneDumpDiff[]>("diff_anytone_dumps", { pathA, pathB }),
 
   // ---- "Program radio" from the DB (AT-D890UV full-replace channel set) ----
   programAnytonePreview: (codeplugId: number) =>
