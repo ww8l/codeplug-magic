@@ -215,6 +215,161 @@ pub(crate) async fn expand_for_export(
     Ok(out)
 }
 
+/// A scan list assigned to a codeplug, with its members resolved. Carries the
+/// raw DB columns; clamping them to a radio's field widths is the driver's job.
+pub(crate) struct CodeplugScanList {
+    pub id: i64,
+    pub name: String,
+    pub priority_channel_id: Option<i64>,
+    pub priority_channel_2_id: Option<i64>,
+    pub priority_select: i64,
+    pub look_back_a: i64,
+    pub look_back_b: i64,
+    pub dropout_delay: i64,
+    pub dwell_time: i64,
+    pub revert_channel: i64,
+    /// Member channel ids in list position order.
+    pub member_channel_ids: Vec<i64>,
+}
+
+/// One row of `codeplug_channel_scan_lists`: "this channel launches that scan
+/// list", independent of scan-list membership.
+pub(crate) struct ChannelScanListOverride {
+    pub channel_id: i64,
+    pub scan_list_id: i64,
+}
+
+/// Everything a [`CodeplugProgrammer`](crate::radios::driver::CodeplugProgrammer)
+/// needs, owned. Drivers borrow from this via `CodeplugPayload`; keeping the
+/// storage here is what lets driver planners stay synchronous and DB-free.
+pub(crate) struct ResolvedCodeplug {
+    pub model: RadioModel,
+    pub groups: Vec<CodeplugGroup>,
+    pub channels: Vec<ExpandedChannel>,
+    pub scan_lists: Vec<CodeplugScanList>,
+    pub scan_list_overrides: Vec<ChannelScanListOverride>,
+}
+
+impl ResolvedCodeplug {
+    /// Borrowed view for handing to a driver.
+    pub(crate) fn payload(&self) -> crate::radios::driver::CodeplugPayload<'_> {
+        crate::radios::driver::CodeplugPayload {
+            model: &self.model,
+            groups: &self.groups,
+            channels: &self.channels,
+            scan_lists: &self.scan_lists,
+            scan_list_overrides: &self.scan_list_overrides,
+        }
+    }
+}
+
+/// Gather every row a driver needs to program `codeplug_id`, in one place.
+///
+/// The channel pool is the codeplug's lists in assignment order, deduped
+/// globally (first list wins the memory slots; later lists still reference the
+/// same slots through their groups), then DMR-expanded. Scan lists come back in
+/// id order — `codeplug_scan_lists` has no position column.
+pub(crate) async fn resolve_codeplug_payload(
+    pool: &sqlx::SqlitePool,
+    codeplug_id: i64,
+) -> Result<ResolvedCodeplug, String> {
+    let model = codeplug_model(pool, codeplug_id).await?;
+    let groups = resolve_codeplug_groups(pool, codeplug_id).await?;
+
+    let mut seen = HashSet::new();
+    let mut pool_channels: Vec<Channel> = Vec::new();
+    for g in &groups {
+        for c in &g.channels {
+            if seen.insert(c.id) {
+                pool_channels.push(c.clone());
+            }
+        }
+    }
+    let channels = expand_for_export(pool, pool_channels).await?;
+
+    #[allow(clippy::type_complexity)]
+    let scan_rows = sqlx::query_as::<
+        _,
+        (i64, String, Option<i64>, Option<i64>, i64, i64, i64, i64, i64, i64),
+    >(
+        r#"
+        SELECT sl.id, sl.name,
+               sl.priority_channel_id, sl.priority_channel_2_id, sl.priority_select,
+               sl.look_back_a, sl.look_back_b, sl.dropout_delay, sl.dwell_time, sl.revert_channel
+        FROM codeplug_scan_lists csl
+        JOIN scan_lists sl ON sl.id = csl.scan_list_id
+        WHERE csl.codeplug_id = ?1
+        ORDER BY sl.id
+        "#,
+    )
+    .bind(codeplug_id)
+    .fetch_all(pool)
+    .await
+    .estr()?;
+
+    let mut scan_lists = Vec::with_capacity(scan_rows.len());
+    for (
+        id,
+        name,
+        priority_channel_id,
+        priority_channel_2_id,
+        priority_select,
+        look_back_a,
+        look_back_b,
+        dropout_delay,
+        dwell_time,
+        revert_channel,
+    ) in scan_rows
+    {
+        let member_channel_ids = sqlx::query_as::<_, (i64,)>(
+            "SELECT channel_id FROM scan_list_entries WHERE scan_list_id = ?1 ORDER BY position",
+        )
+        .bind(id)
+        .fetch_all(pool)
+        .await
+        .estr()?
+        .into_iter()
+        .map(|(cid,)| cid)
+        .collect();
+
+        scan_lists.push(CodeplugScanList {
+            id,
+            name,
+            priority_channel_id,
+            priority_channel_2_id,
+            priority_select,
+            look_back_a,
+            look_back_b,
+            dropout_delay,
+            dwell_time,
+            revert_channel,
+            member_channel_ids,
+        });
+    }
+
+    let scan_list_overrides = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT channel_id, scan_list_id FROM codeplug_channel_scan_lists WHERE codeplug_id = ?1",
+    )
+    .bind(codeplug_id)
+    .fetch_all(pool)
+    .await
+    .estr()?
+    .into_iter()
+    .map(|(channel_id, scan_list_id)| ChannelScanListOverride {
+        channel_id,
+        scan_list_id,
+    })
+    .collect();
+
+    Ok(ResolvedCodeplug {
+        model,
+        groups,
+        channels,
+        scan_lists,
+        scan_list_overrides,
+    })
+}
+
 /// Decide whether a channel can be exported to a given radio.
 /// Returns `None` if the channel is included, or `Some(reason)` if excluded.
 pub(crate) fn exclusion_reason(channel: &Channel, model: &RadioModel) -> Option<String> {
