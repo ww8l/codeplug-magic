@@ -28,7 +28,11 @@
 //! once the 3.2 registry starts consuming these traits.
 #![allow(dead_code)]
 
-use crate::commands::export::{ExpandedChannel, SlotChannel};
+use std::path::Path;
+
+use crate::commands::export::{
+    ChannelScanListOverride, CodeplugGroup, CodeplugScanList, ExpandedChannel, SlotChannel,
+};
 use crate::models::RadioModel;
 
 /// A radio's self-reported identity, read during the connect handshake.
@@ -76,6 +80,9 @@ pub(crate) trait RadioDriver: Send + Sync {
         None
     }
     fn as_channel_writer(&self) -> Option<&dyn ChannelWriter> {
+        None
+    }
+    fn as_codeplug_programmer(&self) -> Option<&dyn CodeplugProgrammer> {
         None
     }
     fn as_callsign_db_writer(&self) -> Option<&dyn CallsignDbWriter> {
@@ -142,8 +149,106 @@ pub(crate) trait SettingsProgrammer {
     ) -> Result<(), String>;
 }
 
+/// Everything a driver needs to program a whole codeplug, resolved from the
+/// database by the command layer. Drivers are synchronous and storage-agnostic,
+/// so every row a planner might need is gathered up front — a driver never
+/// issues a query. See `export::resolve_codeplug_payload`, which builds this.
+///
+/// Contacts/talkgroups are deliberately absent: they are derived from
+/// `channels` (first-use order of `tg_number`), not stored separately.
+pub(crate) struct CodeplugPayload<'a> {
+    pub model: &'a RadioModel,
+    /// The codeplug's channel lists in assignment order. One group becomes one
+    /// zone on zone-capable radios, one bank on bank-capable ones.
+    pub groups: &'a [CodeplugGroup],
+    /// DMR-expanded channel rows in memory-slot order (a repeater carrying N
+    /// talkgroups occupies N entries).
+    pub channels: &'a [ExpandedChannel],
+    /// Scan lists assigned to this codeplug, with their member channel ids.
+    pub scan_lists: &'a [CodeplugScanList],
+    /// Explicit per-channel scan-list assignments (`codeplug_channel_scan_lists`).
+    /// A list named here is *manually managed* — see `scan-list-per-channel-field`.
+    pub scan_list_overrides: &'a [ChannelScanListOverride],
+}
+
+/// A channel that could not be programmed, and why. Surfaced in the preview so
+/// the user can fix the codeplug before touching the radio.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SkippedChannel {
+    pub name: String,
+    pub reason: String,
+}
+
+/// Dry-run summary of what [`CodeplugProgrammer::program`] would write. Pure —
+/// no radio required, so the UI can show it before the user commits.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CodeplugPreview {
+    pub radio: String,
+    pub channels: usize,
+    pub zones: usize,
+    pub scan_lists: usize,
+    pub contacts: usize,
+    pub zone_names: Vec<String>,
+    pub scan_list_names: Vec<String>,
+    pub skipped: Vec<SkippedChannel>,
+    pub warnings: Vec<String>,
+}
+
+/// Outcome of a committed full-replace program.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProgramReport {
+    pub channels_written: usize,
+    /// Previously-programmed slots beyond the new channel set that were blanked.
+    pub slots_cleared: usize,
+    pub zones_written: usize,
+    pub zones_cleared: usize,
+    pub scan_lists_written: usize,
+    pub scan_lists_cleared: usize,
+    pub contacts_written: usize,
+    pub contacts_cleared: usize,
+    /// Flash regions actually rewritten, as hex addresses — driver-defined
+    /// granularity (0x4000 windows/banks on the AnyTone).
+    pub windows_written: Vec<String>,
+    pub backup_path: String,
+    /// Image to hand back for a post-commit byte-verify.
+    pub expected_path: String,
+    pub warnings: Vec<String>,
+    pub note: String,
+}
+
+/// Radios programmed as a whole codeplug — channels *plus* zones, scan lists,
+/// and contacts — in one session, from database state rather than a memory
+/// image (AnyTone D890UV).
+///
+/// This is distinct from [`ImageProgrammer`] (whole-blob clone radios) and from
+/// [`ChannelWriter`] (channels only). It exists because the AnyTone flow is
+/// DB-shaped: it needs list membership and scan-list rows that a flat channel
+/// slice cannot carry, and it writes a mandatory backup before any byte goes
+/// out. The command layer resolves the payload and owns the backup directory;
+/// the driver owns planning and the hardware session.
+/// `Send + Sync` because the command layer resolves the driver on the async
+/// side and then moves the `&'static dyn` reference into `spawn_blocking` to
+/// run the serial session.
+pub(crate) trait CodeplugProgrammer: Send + Sync {
+    /// Summarize what [`program`](Self::program) would write. Pure — must not
+    /// open the port. Errors only on structural problems (wrong model, over
+    /// capacity); per-channel issues become `skipped` or `warnings`.
+    fn preview(&self, payload: &CodeplugPayload) -> Result<CodeplugPreview, String>;
+
+    /// Full-replace program: write the payload as the radio's entire
+    /// channel/zone/scan-list/contact set. Writes a backup and an expected
+    /// image under `backup_dir` *before* the first byte goes to the radio.
+    fn program(
+        &self,
+        port: &str,
+        payload: &CodeplugPayload,
+        backup_dir: &Path,
+    ) -> Result<ProgramReport, String>;
+}
+
 /// Radios programmed by targeted per-channel/bank writes rather than a full
-/// image clone (AnyTone D890UV read-modify-write bank flow).
+/// image clone. Channels only — see [`CodeplugProgrammer`] when zones, scan
+/// lists, or contacts are also involved.
 pub(crate) trait ChannelWriter {
     /// Write `channels` to the radio, returning the number of channels written.
     fn program_channels(
@@ -192,6 +297,7 @@ pub(crate) struct DriverCapabilities {
     pub program_image: bool,
     pub program_settings: bool,
     pub write_channels: bool,
+    pub program_codeplug: bool,
     pub write_callsign_db: bool,
     pub export: bool,
     pub diagnostics: bool,
@@ -204,6 +310,7 @@ impl DriverCapabilities {
             program_image: driver.as_image_programmer().is_some(),
             program_settings: driver.as_settings_programmer().is_some(),
             write_channels: driver.as_channel_writer().is_some(),
+            program_codeplug: driver.as_codeplug_programmer().is_some(),
             write_callsign_db: driver.as_callsign_db_writer().is_some(),
             export: driver.as_codeplug_exporter().is_some(),
             diagnostics: driver.as_diagnostics().is_some(),
