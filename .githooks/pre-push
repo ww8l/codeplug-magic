@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#
+# Runs the local CI checks before every push. Enable with:
+#
+#     git config core.hooksPath .githooks
+#
+# Bypass a single push with `git push --no-verify` when you know the checks are
+# irrelevant (docs-only change, WIP branch you're just parking).
+
+set -euo pipefail
+
+zero='0000000000000000000000000000000000000000'
+pushing_something=false
+
+# stdin: <local ref> <local sha> <remote ref> <remote sha>, one line per ref.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue   # branch deletion — nothing to check
+  case "$local_ref" in refs/tags/*) continue ;; esac  # release tags: let them fly
+  pushing_something=true
+done
+
+if [ "$pushing_something" = false ]; then
+  exit 0
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+exec "$repo_root/scripts/ci-local.sh"

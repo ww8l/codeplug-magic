@@ -42,6 +42,27 @@ npm run tauri dev
 ```
 The first Rust build is slow (it compiles all crates); subsequent runs are incremental.
 
+### Checks before you push
+```sh
+git config core.hooksPath .githooks   # one time, per clone
+```
+That installs a pre-push hook running `npm run ci` (`scripts/ci-local.sh`): the frontend build plus
+`cargo check` / `test` / `clippy` — the same steps as `.github/workflows/ci.yml`, on your own
+machine. Run it by hand any time with `npm run ci`; bypass a single push with `git push --no-verify`.
+
+**Install the hook — it is load-bearing, not a convenience.** The free Actions allowance is metered
+in quota-minutes (wall-clock × runner multiplier: macOS 10x, Windows 2x), so CI is trimmed to what
+this hook cannot cover:
+
+- CI runs **only on pull requests**, not on pushes to `main` — `main` is only reached by merging a
+  PR that already passed.
+- The CI matrix is **`ubuntu-latest` + `windows-latest` only**. There is no hosted macOS job; this
+  hook *is* the macOS check. (`release.yml` still bundles macOS on every tag.)
+
+So a push to a branch with no open PR triggers no remote CI at all — push freely, the hook keeps
+checking. Keep the hook's step list and `ci.yml` in sync when either changes, and if the primary
+dev platform ever stops being macOS, revisit which matrix leg is the redundant one.
+
 ## Project layout
 
 ```

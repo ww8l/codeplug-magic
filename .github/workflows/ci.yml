@@ -1,13 +1,25 @@
 name: CI
 
-# Fast breakage check on every push and PR: build the frontend and
-# check/test/lint the Rust backend on all three target OSes. No app bundling
-# here — that lives in release.yml.
+# Fast breakage check on every PR: build the frontend and check/test/lint the
+# Rust backend. No app bundling here — that lives in release.yml.
+#
+# Two deliberate omissions, both because the free Actions allowance is metered
+# in quota-minutes = wall-clock x runner multiplier (macOS 10x, Windows 2x):
+#
+#   * No push-to-main trigger. main is only reached by merging a PR that already
+#     passed this matrix, so it just re-ran an identical check.
+#   * No macos-latest leg. Development happens on macOS and scripts/ci-local.sh
+#     runs these exact steps there via the pre-push hook, so a hosted Mac would
+#     re-run what already passed locally — at 30 of the 48 quota-minutes a
+#     3-OS run costs. release.yml still builds and bundles macOS on every tag,
+#     so macOS packaging is verified before anything ships.
+#
+# What's left is the two platforms a Mac laptop genuinely cannot check. If the
+# dev platform ever changes, revisit which leg is the redundant one.
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref to save CI minutes.
 concurrency:
@@ -21,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-latest, macos-latest, windows-latest]
+        platform: [ubuntu-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
