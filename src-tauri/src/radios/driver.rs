@@ -482,7 +482,7 @@ pub(crate) trait DriverDiagnostics {
 /// Serialized to the UI so dialogs enable actions from ground truth (the trait
 /// impls) rather than a hand-maintained list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-pub(crate) struct DriverCapabilities {
+pub struct DriverCapabilities {
     pub program_image: bool,
     pub read_settings: bool,
     pub write_settings: bool,
@@ -495,7 +495,9 @@ pub(crate) struct DriverCapabilities {
 
 impl DriverCapabilities {
     /// Compute the capability set for a driver from its accessors.
-    pub fn of(driver: &dyn RadioDriver) -> Self {
+    /// `pub(crate)` while the struct itself is `pub`: the flags cross the Tauri
+    /// boundary as a command result, but `RadioDriver` never leaves the crate.
+    pub(crate) fn of(driver: &dyn RadioDriver) -> Self {
         Self {
             program_image: driver.as_image_programmer().is_some(),
             read_settings: driver.as_settings_reader().is_some(),

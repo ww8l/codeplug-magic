@@ -23,6 +23,10 @@ import type {
 import { Modal } from "../overlays";
 import { Button, Spinner, Select } from "../ui";
 import { Tdh3RadioOptions } from "./Tdh3RadioOptions";
+import {
+  driverKeyOf,
+  type ProgramDialogProps,
+} from "../../lib/radioProgramming";
 
 // TD-H3 holds 199 programmable channels (memory_bounds 1..199).
 const TDH3_CAPACITY = 199;
@@ -36,24 +40,19 @@ const TDH3_CAPACITY = 199;
  * whole main range (so all other settings are preserved), and reads back to
  * verify. The radio's non-channel settings are written back untouched.
  */
-/// See the note in `ProgramRadioDialog` — per-dialog until 3.7.
-const DRIVER_KEY = "tidradio_tdh3";
-
 export function Tdh3ProgramDialog({
   open,
   onClose,
   codeplugId,
   codeplugName,
-  modelName,
-  modelId,
-}: {
-  open: boolean;
-  onClose: () => void;
-  codeplugId: number;
-  codeplugName: string;
-  modelName: string;
-  modelId: number;
-}) {
+  model,
+}: ProgramDialogProps) {
+  // Registered under `programming_ui = 'tdh3'`, so the model here is always a
+  // TD-H3 and its key resolves; `driverKeyOf` still reads it off the row
+  // rather than hardcoding it (3.7).
+  const driverKey = driverKeyOf(model);
+  const modelName = model?.display_name ?? "this radio";
+  const modelId = model?.id ?? 0;
   const [ports, setPorts] = useState<PortInfo[]>([]);
   const [port, setPort] = useState<string>("");
   const [preview, setPreview] = useState<ExportPreview | null>(null);
@@ -109,13 +108,13 @@ export function Tdh3ProgramDialog({
     run("identify", async () => {
       setDownload(null);
       setProgram(null);
-      setIdent(await api.identifyRadio(DRIVER_KEY, port));
+      setIdent(await api.identifyRadio(driverKey, port));
     });
 
   const doDownload = () =>
     run("download", async () => {
       setProgram(null);
-      setDownload(await api.downloadImage(DRIVER_KEY, port));
+      setDownload(await api.downloadImage(driverKey, port));
     });
 
   const doProgram = () =>

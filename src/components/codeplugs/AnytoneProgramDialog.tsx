@@ -28,6 +28,7 @@ import type {
 } from "../../lib/types";
 import { Modal } from "../overlays";
 import { Button, Spinner, Select, TextInput } from "../ui";
+import type { ProgramDialogProps } from "../../lib/radioProgramming";
 
 type Payload = "channels" | "userdb" | "profile";
 type Busy = null | "program" | "verify" | "restore";
@@ -50,17 +51,9 @@ export function AnytoneProgramDialog({
   codeplugId,
   profileId,
   codeplugName,
-  modelName,
-}: {
-  open: boolean;
-  onClose: () => void;
-  codeplugId: number;
-  /// The codeplug's radio profile. Settings and the call-sign DB are written
-  /// per PROFILE (3.6d) — the channel-set program stays codeplug-scoped.
-  profileId: number | null;
-  codeplugName: string;
-  modelName: string;
-}) {
+  model,
+}: ProgramDialogProps) {
+  const modelName = model?.display_name ?? "this radio";
   const [ports, setPorts] = useState<PortInfo[]>([]);
   const [port, setPort] = useState<string>("");
   const [payload, setPayload] = useState<Payload>("channels");

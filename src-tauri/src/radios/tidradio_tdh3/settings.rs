@@ -209,6 +209,13 @@ pub(crate) fn decode_settings(image: &[u8]) -> Tdh3Settings {
 /// Patch the editable settings into a downloaded image in place, touching only
 /// the specific bits/bytes each field owns (every other byte — including the
 /// unknown/reserved bits packed alongside — is preserved exactly as read).
+///
+/// TEST-ONLY since Chunk 3.7. The shipping write path is the schema-driven
+/// [`apply_profile_settings`]; this typed encoder existed for the form-based
+/// `save_tdh3_settings_to_profile` command, which is gone. It is kept because
+/// it is the round-trip oracle that locks the `SLoc` bit map against
+/// [`decode_settings`] — the decode side is still very much live.
+#[cfg(test)]
 pub(crate) fn encode_settings(image: &mut [u8], st: &Tdh3Settings) {
     let b = SETTINGS_BASE;
     image[b + 17] = st.squelch.min(9);

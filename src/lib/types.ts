@@ -147,6 +147,25 @@ export interface RadioModel {
   export_format: string | null;
   connection_type: string | null;
   non_channel_settings_schema: string | null;
+  /// Which compiled-in driver programs this radio, or null for export-only
+  /// models. Every command that talks to a radio dispatches on this (Chunk 3.6).
+  driver_key: string | null;
+  /// Which "Program radio" dialog to render — see `lib/radioProgramming.ts`.
+  /// Null falls back to the generic dialog (Chunk 3.7).
+  programming_ui: string | null;
+}
+
+/// What a driver can actually do, derived on the Rust side from its trait impls
+/// (`driver_capabilities`). Gate UI on this rather than on model names.
+export interface DriverCapabilities {
+  program_image: boolean;
+  read_settings: boolean;
+  write_settings: boolean;
+  write_channels: boolean;
+  program_codeplug: boolean;
+  write_callsign_db: boolean;
+  export: boolean;
+  diagnostics: boolean;
 }
 
 // One field definition inside non_channel_settings_schema (JSON).
@@ -659,36 +678,6 @@ export interface AnytonePatchWriteResult {
   windows_written: string[];
   backup_path: string;
   note: string;
-}
-
-// ---- TD-H3 Phase C: radio-global "options"/settings (read / edit / write) ----
-// Multi-value fields are a zero-based index into the matching label list in
-// `tdh3Settings.ts`; switches are booleans. Mirror of the Rust `Tdh3Settings`.
-export interface Tdh3Settings {
-  squelch: number;
-  brightness: number;
-  backlight: number;
-  vox_gain: number;
-  vox_delay: number;
-  tot: number;
-  scan_mode: number;
-  power_on_msg_mode: number;
-  power_save: number;
-  breath_led: number;
-  display_a: number;
-  display_b: number;
-  alarm_mode: number;
-  beep: boolean;
-  voice_prompt: boolean;
-  auto_lock: boolean;
-  dual_watch: boolean;
-  tx_220: boolean;
-  tx_350: boolean;
-  tx_500: boolean;
-  am_band: boolean;
-  power_on_msg1: string;
-  power_on_msg2: string;
-  power_on_msg3: string;
 }
 
 // Mirrors the Rust `ParsedChannel` — every field that will be imported, shown
