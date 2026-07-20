@@ -36,8 +36,8 @@ use crate::commands::export::SlotChannel;
 use crate::error::MapErrString;
 use crate::models::{Channel, RadioModel};
 use crate::radios::driver::{
-    DecodedChannelSample, ImageProgrammer, RadioDriver, RadioIdentity, SettingsReader,
-    SettingsWriter,
+    CodeplugProgramReport, DecodedChannelSample, ImageProgramRequest, ImageProgrammer, RadioDriver,
+    RadioIdentity, SettingsReader, SettingsWriter,
 };
 
 const BAUD: u32 = 38400;
@@ -147,18 +147,7 @@ impl ImageProgrammer for TidradioTdh3 {
     }
 
     fn decode_sample(&self, image: &[u8]) -> Vec<DecodedChannelSample> {
-        decode_channels(image)
-            .into_iter()
-            .map(|c| DecodedChannelSample {
-                index: c.index,
-                name: c.name,
-                rx_mhz: c.rx_mhz,
-                shift: Some(c.shift),
-                tone: c.tone,
-                power: c.power,
-                mode: Some(c.mode),
-            })
-            .collect()
+        decode_channels(image).into_iter().map(decoded_to_sample).collect()
     }
 
     fn upload_image(&self, port: &str, image: &[u8]) -> Result<(), String> {
@@ -194,6 +183,101 @@ impl ImageProgrammer for TidradioTdh3 {
         let mut image = base.to_vec();
         patch_image(&mut image, channels);
         Ok(image)
+    }
+
+    /// Moved verbatim from `commands::tdh3::program_tdh3_codeplug` in Chunk
+    /// 3.6e. Hardware-proven flow, unchanged: download + back up, patch
+    /// channels/names and the used/scan bitmaps into THAT image, re-identify
+    /// (the radio settles after a full read), upload the whole main range so
+    /// every untouched byte — including all radio settings — goes back exactly
+    /// as read, then verify.
+    ///
+    /// `req.settings` is ignored: the TD-H3 pushes profile settings through
+    /// `SettingsWriter` as a separate, explicitly-acknowledged operation, and a
+    /// channel program deliberately preserves the radio's own settings.
+    fn program_codeplug(
+        &self,
+        port: &str,
+        req: &ImageProgramRequest,
+    ) -> Result<CodeplugProgramReport, String> {
+        if req.channels.len() > MAX_CHANNEL {
+            return Err(format!(
+                "Codeplug has {} programmable channels, but the TD-H3 holds only {MAX_CHANNEL}.",
+                req.channels.len()
+            ));
+        }
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let slug = slug_label(req.label);
+        let backup_path = req.backup_dir.join(if slug.is_empty() {
+            format!("tdh3-prewrite-{stamp}.img")
+        } else {
+            format!("tdh3-prewrite-{slug}-{stamp}.img")
+        });
+
+        let mut p = open_port(port)?;
+
+        // 1. Download + back up the current radio contents.
+        let ident = do_ident(&mut *p)?;
+        let mut image = download(&mut *p, &ident)?;
+        std::fs::write(&backup_path, &image)
+            .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
+
+        // 2. Patch channels/names + used/scan bitmaps into the downloaded image.
+        let channels_written = req.channels.len();
+        patch_image(&mut image, req.channels);
+
+        // 3. Re-identify (the radio settles after a full read) and upload the
+        //    whole main range, then exit programming mode.
+        std::thread::sleep(Duration::from_secs(1));
+        reident(&mut *p)?;
+        upload(&mut *p, &image)?;
+
+        // 4. Read back and verify (non-fatal — every block was ack'd).
+        let (verified, note, channels) = match verify_after_write(&mut *p, &image) {
+            Ok((ok, note, ch)) => (ok, note, ch),
+            Err(e) => (
+                false,
+                Some(format!(
+                    "Write completed, but read-back verification could not run ({e}). \
+                     Power-cycle the radio and use Download to confirm."
+                )),
+                decode_channels(&image),
+            ),
+        };
+
+        Ok(CodeplugProgramReport {
+            channels_written,
+            slots_cleared: MAX_CHANNEL - channels_written,
+            // A channel program leaves the radio's settings exactly as read.
+            settings_written: None,
+            verified: Some(verified),
+            note,
+            backup_path: backup_path.to_string_lossy().to_string(),
+            channels: channels.into_iter().take(20).map(decoded_to_sample).collect(),
+            zones_written: 0,
+            zones_cleared: 0,
+            scan_lists_written: 0,
+            scan_lists_cleared: 0,
+            contacts_written: 0,
+            contacts_cleared: 0,
+            expected_path: None,
+            windows_written: Vec::new(),
+            skipped: Vec::new(),
+            warnings: Vec::new(),
+        })
+    }
+}
+
+/// Narrow the driver's own richer decode to the generic sanity-sample shape.
+fn decoded_to_sample(c: Tdh3DecodedChannel) -> DecodedChannelSample {
+    DecodedChannelSample {
+        index: c.index,
+        name: c.name,
+        rx_mhz: c.rx_mhz,
+        shift: Some(c.shift),
+        tone: c.tone,
+        power: c.power,
+        mode: Some(c.mode),
     }
 }
 

@@ -3,10 +3,15 @@
 //! Two kinds of command live here. The generic ones resolve a driver through
 //! `radios/registry.rs` and serve every radio: `identify_radio` and
 //! `download_image` (Chunk 3.6c), then `read_radio_settings`,
-//! `write_radio_settings`, and `write_callsign_db` (Chunk 3.6d). The rest are
-//! still UV-5R-specific (`program_codeplug`, `restore_image`) and fold into the
-//! generic surface in 3.6e; the UV-5R clone protocol they call has lived in
-//! `radios/baofeng_uv5r` since Chunk 3.3.
+//! `write_radio_settings`, and `write_callsign_db` (Chunk 3.6d), and
+//! `program_radio` (Chunk 3.6e). `program_codeplug` is now a thin wrapper over
+//! `program_radio` that preserves the old wire shape until the frontend moves
+//! across in 3.6e-2; `restore_image` is still genuinely UV-5R-specific. The
+//! UV-5R clone protocol they call has lived in `radios/baofeng_uv5r` since 3.3.
+//!
+//! `program_radio` dispatches on CAPABILITY, not on a driver key: clone radios
+//! (`ImageProgrammer`) are programmed from a patched memory image, the AnyTone
+//! (`CodeplugProgrammer`) from DB state as a full replace.
 //!
 //! Either way this module is only the Tauri layer — DB lookups, backup-file
 //! naming, and the result DTOs the frontend renders. `list_serial_ports` is
@@ -25,10 +30,9 @@ use crate::commands::export;
 use crate::db::AppState;
 use crate::error::MapErrString;
 use crate::radios::baofeng_uv5r as uv5r;
-use crate::radios::baofeng_uv5r::settings as uv5r_settings;
-use crate::radios::baofeng_uv5r::DecodedChannel;
 use crate::radios::driver::{
-    CallsignDbReport, CallsignRecord, DecodedChannelSample, RadioDriver, SettingsWriteReport,
+    CallsignDbReport, CallsignRecord, CodeplugProgramReport, DecodedChannelSample,
+    ImageProgramRequest, ProgramReport, RadioDriver, SettingsWriteReport,
 };
 use crate::radios::registry;
 
@@ -456,6 +460,146 @@ pub async fn write_callsign_db(
 // Write / upload
 // ============================================================
 
+/// Program a codeplug to whichever radio it targets.
+///
+/// Registry-dispatched (Chunk 3.6e). Two programming models coexist behind one
+/// command, which is why the dispatch is on capability rather than a driver key:
+///
+///   * [`CodeplugProgrammer`] radios (AnyTone D890UV) are programmed from DB
+///     state as a full replace — channels *plus* zones, scan lists, and contacts
+///     — so they get the whole resolved payload.
+///   * [`ImageProgrammer`] radios (UV-5R, TD-H3) are clone radios: the codeplug's
+///     channels are patched into a freshly-read image, alongside the profile's
+///     settings on radios that write them during a program.
+///
+/// `CodeplugProgrammer` is tried first: a radio advertising both would be one
+/// that can do the richer DB-driven program, and that is the better write.
+///
+/// Brick-capable — every driver takes a mandatory backup before the first byte,
+/// and the UI gates this behind an explicit acknowledgement.
+#[tauri::command]
+pub async fn program_radio(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    codeplug_id: i64,
+    port: String,
+) -> Result<CodeplugProgramReport, String> {
+    let model = export::codeplug_model(&state.pool, codeplug_id).await?;
+    let driver = registry::driver_for_model(&model).ok_or_else(|| {
+        format!(
+            "no live-radio driver for {} — it is export-only",
+            model.display_name
+        )
+    })?;
+
+    let backup_dir = app.path().app_data_dir().estr()?.join("radio-backups");
+    std::fs::create_dir_all(&backup_dir).estr()?;
+
+    let report = if let Some(programmer) = driver.as_codeplug_programmer() {
+        // `resolved` owns every row the planner needs, so it moves into the
+        // blocking task wholesale — the payload borrows from it in there.
+        let resolved = export::resolve_codeplug_payload(&state.pool, codeplug_id).await?;
+        let report = tauri::async_runtime::spawn_blocking(move || {
+            programmer.program(&port, &resolved.payload(), &backup_dir)
+        })
+        .await
+        .estr()??;
+        program_report_to_generic(report)
+    } else if let Some(imager) = driver.as_image_programmer() {
+        // Included channels pack contiguously from slot 0; excluded (e.g.
+        // digital-mode) channels drop out and the rest close up behind them.
+        let (_model, slots) = export::resolve_codeplug_slots(&state.pool, codeplug_id).await?;
+
+        // The radio profile's settings + the model's schema. Present on the
+        // UV-5R (which makes the profile authoritative over every editable
+        // setting during a program); the TD-H3 ignores them and pushes settings
+        // through its separate, explicitly-acknowledged settings write.
+        let profile_settings: Option<String> = sqlx::query_scalar(
+            "SELECT rp.non_channel_settings FROM codeplugs cp \
+             JOIN radio_profiles rp ON rp.id = cp.radio_profile_id WHERE cp.id = ?1",
+        )
+        .bind(codeplug_id)
+        .fetch_optional(&state.pool)
+        .await
+        .estr()?
+        .flatten();
+        let schema = model.non_channel_settings_schema.clone();
+
+        // Label the pre-write backup with the codeplug name so several
+        // codeplugs for one radio stay distinguishable when restoring.
+        let label: String = sqlx::query_scalar("SELECT name FROM codeplugs WHERE id = ?1")
+            .bind(codeplug_id)
+            .fetch_one(&state.pool)
+            .await
+            .estr()?;
+
+        tauri::async_runtime::spawn_blocking(move || {
+            let settings = match (&profile_settings, &schema) {
+                (Some(s), Some(schema)) => {
+                    let value: serde_json::Value = serde_json::from_str(s)
+                        .map_err(|e| format!("saved profile settings are not valid JSON: {e}"))?;
+                    Some((value, schema.as_str()))
+                }
+                _ => None,
+            };
+            let req = ImageProgramRequest {
+                model: &model,
+                channels: &slots,
+                settings: settings.as_ref().map(|(v, s)| (v, *s)),
+                backup_dir: &backup_dir,
+                label: &label,
+            };
+            imager.program_codeplug(&port, &req)
+        })
+        .await
+        .estr()??
+    } else {
+        return Err(format!(
+            "{} cannot be programmed over the cable",
+            driver.display_name()
+        ));
+    };
+
+    // Every block ack'd, so record this as the codeplug's last program time (the
+    // Codeplugs screen shows "Programmed <date>"). Verification is best-effort
+    // and deliberately does not gate the stamp.
+    sqlx::query(
+        "UPDATE codeplugs SET last_exported = CURRENT_TIMESTAMP, last_export_kind = 'radio' WHERE id = ?1",
+    )
+    .bind(codeplug_id)
+    .execute(&state.pool)
+    .await
+    .estr()?;
+
+    Ok(report)
+}
+
+/// Widen a [`CodeplugProgrammer`] report into the unified shape. The DB-driven
+/// path reports zones/scan lists/contacts and an `.expected.bin` for a
+/// fresh-session byte-diff, but cannot read back in-session (the commit reboots
+/// the radio), so `verified` stays `None`.
+fn program_report_to_generic(r: ProgramReport) -> CodeplugProgramReport {
+    CodeplugProgramReport {
+        channels_written: r.channels_written,
+        slots_cleared: r.slots_cleared,
+        settings_written: None,
+        zones_written: r.zones_written,
+        zones_cleared: r.zones_cleared,
+        scan_lists_written: r.scan_lists_written,
+        scan_lists_cleared: r.scan_lists_cleared,
+        contacts_written: r.contacts_written,
+        contacts_cleared: r.contacts_cleared,
+        verified: None,
+        note: Some(r.note),
+        backup_path: r.backup_path,
+        expected_path: Some(r.expected_path),
+        windows_written: r.windows_written,
+        channels: Vec::new(),
+        skipped: Vec::new(),
+        warnings: r.warnings,
+    }
+}
+
 #[derive(Serialize)]
 pub struct ProgramResult {
     /// Channels written to slots 0..written.
@@ -471,18 +615,19 @@ pub struct ProgramResult {
     pub verify_note: Option<String>,
     /// Absolute path of the pre-write backup `.img`.
     pub backup_path: String,
-    /// Channels actually present on the radio after writing (read back).
-    pub channels: Vec<DecodedChannel>,
+    /// Channels actually present on the radio after writing (read back). Now
+    /// the generic sample shape — a superset of the UV-5R's own
+    /// `DecodedChannel`, so the frontend's declared type still reads every
+    /// field it renders.
+    pub channels: Vec<DecodedChannelSample>,
 }
 
 /// Program a codeplug directly into a connected UV-5R.
 ///
-/// Safety model: download the full image and save it as a backup FIRST, then
-/// patch the channel + name regions and (when the radio profile carries them)
-/// the non-channel settings into that downloaded image, upload the affected
-/// regions, and finally read the radio back to confirm the result. Because we
-/// start from the radio's own image, only the bytes we explicitly encode change;
-/// every untouched byte is written back exactly as it was read.
+/// Thin wrapper over the generic [`program_radio`] (Chunk 3.6e): the whole
+/// hardware flow now lives in `ImageProgrammer::program_codeplug` on the driver,
+/// unchanged. Kept only so the frontend keeps working untouched; it retires in
+/// 3.6e-2, when `api.ts` moves to `program_radio` and the unified report.
 #[tauri::command]
 pub async fn program_codeplug(
     app: AppHandle,
@@ -490,137 +635,16 @@ pub async fn program_codeplug(
     codeplug_id: i64,
     port: String,
 ) -> Result<ProgramResult, String> {
-    // Resolve the channels (DB work) before entering the blocking serial task.
-    // Included channels are packed contiguously from slot 0; excluded (e.g.
-    // digital-mode) channels are dropped and the rest close up behind them.
-    let (model, slots) = export::resolve_codeplug_slots(&state.pool, codeplug_id).await?;
-    if model.model != "UV-5R" {
-        return Err(format!(
-            "Direct programming supports the Baofeng UV-5R only (this codeplug targets {}).",
-            model.display_name
-        ));
-    }
-    if slots.len() > uv5r::CHANNEL_COUNT {
-        return Err(format!(
-            "Codeplug has {} programmable channels, but the UV-5R holds only {}.",
-            slots.len(),
-            uv5r::CHANNEL_COUNT
-        ));
-    }
-
-    // The radio profile's non-channel settings (CHIRP-keyed JSON) + the model's
-    // settings schema (for select-option indices). When both are present we
-    // also write the settings memory so profile changes flow through to the
-    // radio; otherwise we fall back to a channels+names-only write.
-    let profile_settings: Option<String> = sqlx::query_scalar(
-        "SELECT rp.non_channel_settings FROM codeplugs cp \
-         JOIN radio_profiles rp ON rp.id = cp.radio_profile_id WHERE cp.id = ?1",
-    )
-    .bind(codeplug_id)
-    .fetch_optional(&state.pool)
-    .await
-    .estr()?
-    .flatten();
-    let settings_schema = model.non_channel_settings_schema.clone();
-
-    // Label the pre-write backup with the codeplug name so multiple
-    // profiles/codeplugs for the same radio stay distinguishable when restoring.
-    let codeplug_name: String = sqlx::query_scalar("SELECT name FROM codeplugs WHERE id = ?1")
-        .bind(codeplug_id)
-        .fetch_one(&state.pool)
-        .await
-        .estr()?;
-
-    let backup_dir = app.path().app_data_dir().estr()?.join("radio-backups");
-    std::fs::create_dir_all(&backup_dir).estr()?;
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let backup_path = backup_dir.join(uv5r::backup_filename("prewrite", &codeplug_name, &stamp));
-
-    let result = tauri::async_runtime::spawn_blocking(move || -> Result<ProgramResult, String> {
-        let mut p = uv5r::open_port(&port)?;
-
-        // 1. Download + back up the current radio contents.
-        let (magic, ident) = uv5r::ident_radio(&mut *p)?;
-        if !magic.starts_with("UV5R") {
-            return Err("the connected radio did not identify as a UV-5R".into());
-        }
-        let mut image = uv5r::download(&mut *p, &ident)?;
-        std::fs::write(&backup_path, &image)
-            .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
-
-        // 2. Patch the channel + name regions in the downloaded image.
-        let written = slots.len();
-        uv5r::patch_image(&mut image, &slots);
-
-        // 2b. Patch the radio profile's non-channel settings into the image, if
-        //     the profile carries them. This makes the profile authoritative:
-        //     every editable setting is written from the profile.
-        let settings_written = match (&settings_schema, &profile_settings) {
-            (Some(schema), Some(settings)) => Some(uv5r_settings::apply_profile_settings(
-                &mut image, schema, settings,
-            )?),
-            _ => None,
-        };
-        let write_settings = settings_written.is_some();
-
-        // 3. Upload the patched regions (re-identify to start a clone session).
-        //    The radio may take a moment to be ready to talk again after the
-        //    full read, so settle first, then retry the identify. When settings
-        //    are written we upload CHIRP's full main ranges + the aux ranges
-        //    (poweron message, band limits); otherwise just channels + names.
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        uv5r::reident_with_retry(&mut *p)?;
-        if write_settings {
-            for &(start, end) in uv5r_settings::SETTINGS_MAIN_RANGES {
-                uv5r::write_region(&mut *p, &image, start, end)?;
-            }
-            for &(start, end) in uv5r_settings::SETTINGS_AUX_RANGES {
-                uv5r::write_aux_region(&mut *p, &image, start, end)?;
-            }
-        } else {
-            uv5r::write_region(&mut *p, &image, uv5r::CHANNEL_ADDR.0, uv5r::CHANNEL_ADDR.1)?;
-            uv5r::write_region(&mut *p, &image, uv5r::NAME_ADDR.0, uv5r::NAME_ADDR.1)?;
-        }
-
-        // 4. Read back and verify (non-fatal: a write that ack'd every block
-        //    succeeded; verification is a best-effort confirmation).
-        let (verified, verify_note, channels) = match uv5r::verify_after_write(&mut *p, &image) {
-            Ok((ok, note, ch)) => (ok, note, ch),
-            Err(e) => (
-                false,
-                Some(format!(
-                    "Write completed, but read-back verification could not run ({e}). \
-                     Power-cycle the radio and use Download to confirm."
-                )),
-                uv5r::decode_channels(&image),
-            ),
-        };
-
-        Ok(ProgramResult {
-            written,
-            cleared: uv5r::CHANNEL_COUNT - written,
-            settings_written,
-            verified,
-            verify_note,
-            backup_path: backup_path.to_string_lossy().to_string(),
-            channels: channels.into_iter().take(20).collect(),
-        })
+    let r = program_radio(app, state, codeplug_id, port).await?;
+    Ok(ProgramResult {
+        written: r.channels_written,
+        cleared: r.slots_cleared,
+        settings_written: r.settings_written,
+        verified: r.verified.unwrap_or(false),
+        verify_note: r.note,
+        backup_path: r.backup_path,
+        channels: r.channels,
     })
-    .await
-    .estr()??;
-
-    // The write ack'd every block, so record this as the codeplug's last
-    // program time (the Codeplugs screen shows "Programmed <date>").
-    // Verification is best-effort and doesn't gate the stamp.
-    sqlx::query(
-        "UPDATE codeplugs SET last_exported = CURRENT_TIMESTAMP, last_export_kind = 'radio' WHERE id = ?1",
-    )
-    .bind(codeplug_id)
-    .execute(&state.pool)
-    .await
-    .estr()?;
-
-    Ok(result)
 }
 
 #[derive(Serialize)]
