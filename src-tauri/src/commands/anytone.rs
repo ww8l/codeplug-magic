@@ -44,30 +44,9 @@ use crate::error::MapErrString;
 // (import.rs, the RE example binaries) keep resolving until 3.6 rewires them.
 pub use crate::radios::anytone_atd890uv::*;
 
-#[derive(Serialize)]
-pub struct AnytoneIdent {
-    /// The raw ident bytes the radio returned, as hex.
-    pub ident_hex: String,
-    /// The same ident rendered as ASCII (printable bytes), e.g. "ID890UV".
-    pub ident_ascii: String,
-}
-
-/// Harmless handshake: confirm a D890UV is connected and in PC/clone mode. Reads
-/// no memory, so it cannot affect the radio's contents.
-#[tauri::command]
-pub async fn identify_anytone(port: String) -> Result<AnytoneIdent, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut p = open_port(&port)?;
-        let ident = enter_program_and_ident(&mut *p)?;
-        let _ = end_session(&mut *p);
-        Ok(AnytoneIdent {
-            ident_hex: hex(&ident),
-            ident_ascii: ascii(&ident),
-        })
-    })
-    .await
-    .estr()?
-}
+// The identify handshake now lives on the driver (`RadioDriver::identify`) and
+// is reached through the registry-dispatched `program::identify_radio` command
+// (Chunk 3.6c) — `identify_anytone` was retired with it.
 
 #[derive(Serialize)]
 pub struct AnytoneDownloadResult {

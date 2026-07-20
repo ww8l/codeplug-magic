@@ -7,13 +7,10 @@
 //! adding its folder under `radios/<key>/` and one line to `all_drivers()` —
 //! never a new arm in `lib.rs`, `Codeplugs.tsx`, or `export.rs`.
 //!
-//! Drivers are registered here as they're migrated: 3.3 (UV-5R), 3.4 (TD-H3),
-//! 3.5 (AnyTone D890UV). The list is empty until then, so the lookups return
-//! `None` and callers fall back to the current per-command code paths.
-//!
-//! `dead_code` is allowed while nothing calls these yet — remove the attribute
-//! once 3.6 routes commands through the registry.
-#![allow(dead_code)]
+//! All three drivers are registered: `baofeng_uv5r` (3.3), `tidradio_tdh3`
+//! (3.4), `anytone_atd890uv` (3.5). `driver_for_key` is live as of 3.6c —
+//! `identify_radio` and `download_image` dispatch through it — so a lookup
+//! returning `None` now means a bad `driver_key`, not an unmigrated radio.
 
 use super::driver::RadioDriver;
 use crate::models::RadioModel;
@@ -41,4 +38,42 @@ pub(crate) fn driver_for_key(key: &str) -> Option<&'static dyn RadioDriver> {
 /// (NULL `driver_key`) or any key without a compiled-in driver.
 pub(crate) fn driver_for_model(model: &RadioModel) -> Option<&'static dyn RadioDriver> {
     driver_for_key(model.driver_key.as_deref()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The generic `identify_radio` / `download_image` commands (3.6c) resolve a
+    /// `driver_key` string straight from the DB, so an unknown or renamed key is
+    /// a user-visible failure rather than a compile error. Lock the keys.
+    #[test]
+    fn every_driver_key_resolves_and_is_unique() {
+        for key in ["baofeng_uv5r", "tidradio_tdh3", "anytone_atd890uv"] {
+            let d = driver_for_key(key).unwrap_or_else(|| panic!("no driver for '{key}'"));
+            assert_eq!(d.key(), key);
+        }
+        assert!(driver_for_key("nonesuch").is_none());
+
+        let mut keys: Vec<&str> = all_drivers().iter().map(|d| d.key()).collect();
+        let before = keys.len();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), before, "duplicate driver_key in the registry");
+    }
+
+    /// `identify` lives on the base trait precisely so the AnyTone — which has no
+    /// `ImageProgrammer` — is still reachable from the generic identify command.
+    #[test]
+    fn all_drivers_identify_but_only_clone_radios_download_images() {
+        for d in all_drivers() {
+            let expect_image = matches!(d.key(), "baofeng_uv5r" | "tidradio_tdh3");
+            assert_eq!(
+                d.as_image_programmer().is_some(),
+                expect_image,
+                "{} image-programmer capability",
+                d.key()
+            );
+        }
+    }
 }

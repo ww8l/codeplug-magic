@@ -17,15 +17,16 @@
 //! futures. The async + DB responsibility stays in the command layer; the
 //! driver only sees already-resolved data and a port name.
 //!
-//! ## Scope of this file (3.1)
+//! ## Status
 //!
-//! This is the trait scaffold only — no driver implements it yet. The real
-//! drivers move in under `radios/<key>/` during 3.3 (UV-5R), 3.4 (TD-H3), and
-//! 3.5 (AnyTone D890UV); method parameters may be tightened as each migration
-//! lands and is hardware-verified.
+//! All three drivers live under `radios/<key>/`: 3.3 (UV-5R), 3.4 (TD-H3), 3.5
+//! (AnyTone D890UV). The command layer dispatches through the registry for
+//! `identify`/`download_image` (3.6c); settings, call-sign DB, and the
+//! remaining per-radio commands follow in 3.6d/3.6e.
 //!
-//! `dead_code` is allowed while this is a bare scaffold — remove the attribute
-//! once the 3.2 registry starts consuming these traits.
+//! `dead_code` is still allowed here: [`ChannelWriter`] has no implementor yet
+//! (no shipping radio is programmed channels-only), and a few trait methods are
+//! reached only from the command paths that 3.6d/3.6e will rewire.
 #![allow(dead_code)]
 
 use std::path::Path;
@@ -37,10 +38,39 @@ use crate::models::RadioModel;
 
 /// A radio's self-reported identity, read during the connect handshake.
 pub(crate) struct RadioIdentity {
-    /// Which handshake matched, e.g. the UV-5R magic key `"UV5R_ORIG"`.
+    /// Which handshake matched: the UV-5R magic key `"UV5R_ORIG"`, or the model
+    /// token the radio returned (`"P31183"`, `"ID890UV"`) for radios whose
+    /// handshake has no magic table.
     pub matched: String,
-    /// Free-form extra the radio returned (ident bytes as hex, firmware, …).
-    pub details: Option<String>,
+    /// The raw ident bytes the radio returned, as hex.
+    pub ident_hex: String,
+    /// The same bytes rendered as printable ASCII, when the radio returns a
+    /// readable token. `None` for radios whose ident is not text (UV-5R).
+    pub ident_ascii: Option<String>,
+}
+
+/// One channel decoded out of a freshly-read image for the download sanity
+/// sample — the "is this read real?" table the program dialogs show. A superset
+/// of what the image-clone radios decode: `shift` and `mode` are `None` on
+/// radios that do not report them (UV-5R).
+///
+/// Deliberately separate from each driver's own richer `*DecodedChannel` (which
+/// still backs the per-radio program/verify results): this one exists only to
+/// give the generic `download_image` command a single wire shape.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DecodedChannelSample {
+    pub index: usize,
+    pub name: String,
+    pub rx_mhz: f64,
+    /// TX shift as the radio applies it, e.g. `"−0.600"`, `"+5.000"`,
+    /// `"RX-only"`, or `""` for simplex. `None` if the driver doesn't decode it.
+    pub shift: Option<String>,
+    /// Human-readable tone summary, e.g. `"T 88.5"`, `"DTCS 023 N"`, `"—"`.
+    pub tone: String,
+    /// The radio's stored TX power level, e.g. `"High"` / `"Low"`.
+    pub power: String,
+    /// `"FM"` (wide) or `"NFM"` (narrow). `None` if the driver doesn't decode it.
+    pub mode: Option<String>,
 }
 
 /// One DMR contacts / call-sign DB entry, as the command layer hands it to a
@@ -67,6 +97,16 @@ pub(crate) trait RadioDriver: Send + Sync {
 
     /// Serial baud rate for the handshake and bulk transfer.
     fn baud(&self) -> u32;
+
+    /// Harmless connect handshake: confirm the right radio is on `port`. Reads
+    /// no memory, so it can never affect the radio's contents.
+    ///
+    /// This sits on the base trait rather than on a capability sub-trait because
+    /// *every* driver can identify — it's how the user proves the cable works
+    /// before committing to anything. Notably the AnyTone has no
+    /// [`ImageProgrammer`] (it is programmed as a whole codeplug from the DB,
+    /// not as a memory image), yet still handshakes.
+    fn identify(&self, port: &str) -> Result<RadioIdentity, String>;
 
     // --- Capability accessors -------------------------------------------------
     // Default `None`; a driver overrides the ones it supports. The derived
@@ -98,12 +138,21 @@ pub(crate) trait RadioDriver: Send + Sync {
 
 /// Clone-mode radios: the whole memory image is read, patched, and written back
 /// as one blob (Baofeng UV-5R, TIDRADIO TD-H3).
-pub(crate) trait ImageProgrammer {
-    /// Harmless handshake — confirm the right radio is connected in clone mode.
-    fn identify(&self, port: &str) -> Result<RadioIdentity, String>;
+/// `Send + Sync` because the command layer resolves the driver on the async
+/// side and then moves the `&'static dyn` reference into `spawn_blocking`.
+pub(crate) trait ImageProgrammer: Send + Sync {
+    /// Read the radio's full memory image (raw codeplug bytes), returning the
+    /// handshake identity alongside it.
+    ///
+    /// The identity comes back from *this* session rather than the caller
+    /// running [`RadioDriver::identify`] first: the clone protocols hand the
+    /// ident bytes straight to the block reader, and opening the port twice
+    /// would mean two handshakes where the hardware-verified flow has one.
+    fn download_image(&self, port: &str) -> Result<(RadioIdentity, Vec<u8>), String>;
 
-    /// Read the radio's full memory image (raw codeplug bytes).
-    fn download_image(&self, port: &str) -> Result<Vec<u8>, String>;
+    /// Decode the programmed channels out of an image for the download sanity
+    /// sample. Pure — no radio required, so it's unit-testable.
+    fn decode_sample(&self, image: &[u8]) -> Vec<DecodedChannelSample>;
 
     /// Write a prepared memory image back to the radio.
     fn upload_image(&self, port: &str, image: &[u8]) -> Result<(), String>;
@@ -127,7 +176,7 @@ pub(crate) trait ImageProgrammer {
         model: &RadioModel,
         channels: &[SlotChannel],
     ) -> Result<Vec<u8>, String> {
-        let base = self.download_image(port)?;
+        let (_ident, base) = self.download_image(port)?;
         let image = self.build_image(model, channels, &base)?;
         self.upload_image(port, &image)?;
         Ok(image)
