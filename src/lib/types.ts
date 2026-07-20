@@ -477,16 +477,31 @@ export interface RestoreResult {
   source: string;
 }
 
-export interface ProgramResult {
-  written: number;
-  cleared: number;
-  // Number of non-channel settings written from the radio profile, or null if
-  // the profile had none and only channels/names were written.
+// Unified outcome of a codeplug program, for every radio (Rust
+// `CodeplugProgramReport`). Clone radios fill `verified`/`channels` (they read
+// back in the same session) and leave the zone/scan-list/contact counts at
+// zero. The AnyTone is the inverse: it reboots on commit, so it reports
+// `expected_path` for a fresh-session byte-diff instead of `verified`.
+export interface CodeplugProgramReport {
+  channels_written: number;
+  slots_cleared: number;
+  // Non-channel settings written from the radio profile, or null when the
+  // profile carried none and only channels/names went out.
   settings_written: number | null;
-  verified: boolean;
-  verify_note: string | null;
+  zones_written: number;
+  zones_cleared: number;
+  scan_lists_written: number;
+  scan_lists_cleared: number;
+  contacts_written: number;
+  contacts_cleared: number;
+  verified: boolean | null;
+  note: string | null;
   backup_path: string;
-  channels: DecodedChannel[];
+  expected_path: string | null;
+  windows_written: string[];
+  channels: DecodedChannelSample[];
+  skipped: AnytoneSkippedChannel[];
+  warnings: string[];
 }
 
 // ---- direct radio programming (TIDRADIO TD-H3) ----
@@ -501,15 +516,6 @@ export interface Tdh3DecodedChannel {
   tone: string;
   power: string;
   mode: string;
-}
-
-export interface Tdh3ProgramResult {
-  written: number;
-  cleared: number;
-  verified: boolean;
-  verify_note: string | null;
-  backup_path: string;
-  channels: Tdh3DecodedChannel[];
 }
 
 // ---- direct radio programming (AnyTone AT-D890UV, Stage 1: read-only) ----
@@ -602,22 +608,6 @@ export interface AnytoneProgramPreview {
   scan_list_names: string[];
   skipped: AnytoneSkippedChannel[];
   warnings: string[];
-}
-
-export interface AnytoneProgramResult {
-  channels_written: number;
-  slots_cleared: number;
-  zones_written: number;
-  zones_cleared: number;
-  scan_lists_written: number;
-  scan_lists_cleared: number;
-  contacts_written: number;
-  contacts_cleared: number;
-  windows_written: string[];
-  backup_path: string;
-  expected_path: string;
-  warnings: string[];
-  note: string;
 }
 
 // One differing byte-run between two reads, used by program verification.

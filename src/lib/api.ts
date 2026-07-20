@@ -21,11 +21,10 @@ import type {
   RepeaterTalkgroup,
   DownloadResult,
   PortInfo,
-  ProgramResult,
+  CodeplugProgramReport,
   RadioIdent,
   RadioSettingsRead,
   RestoreResult,
-  Tdh3ProgramResult,
   Tdh3Settings,
   SettingsWriteReport,
   CallsignDbReport,
@@ -35,7 +34,6 @@ import type {
   AnytoneDecodedZone,
   AnytoneImportSummary,
   AnytoneProgramPreview,
-  AnytoneProgramResult,
   AnytoneVerifyResult,
   AnytoneLatestProgram,
   AnytonePatchWriteResult,
@@ -308,6 +306,10 @@ export const api = {
     invoke<RadioSettingsRead>("read_radio_settings", { port, profileId }),
   writeRadioSettings: (port: string, profileId: number) =>
     invoke<SettingsWriteReport>("write_radio_settings", { port, profileId }),
+  // One program command for every radio (3.6e). Dispatches on capability:
+  // DB-driven full replace (AnyTone) or clone-image patch (UV-5R, TD-H3).
+  programRadio: (codeplugId: number, port: string) =>
+    invoke<CodeplugProgramReport>("program_radio", { codeplugId, port }),
   writeCallsignDb: (
     profileId: number,
     port: string,
@@ -322,15 +324,11 @@ export const api = {
     }),
 
   // ---- direct radio programming (UV-5R) ----
-  programCodeplug: (codeplugId: number, port: string) =>
-    invoke<ProgramResult>("program_codeplug", { codeplugId, port }),
   restoreImage: (port: string, path: string) =>
     invoke<RestoreResult>("restore_image", { port, path }),
   backupsDir: () => invoke<string>("backups_dir"),
 
   // ---- direct radio programming (TIDRADIO TD-H3) ----
-  programTdh3Codeplug: (codeplugId: number, port: string) =>
-    invoke<Tdh3ProgramResult>("program_tdh3_codeplug", { codeplugId, port }),
   saveTdh3SettingsToProfile: (
     settings: Tdh3Settings,
     modelId: number,
@@ -361,8 +359,6 @@ export const api = {
   // ---- "Program radio" from the DB (AT-D890UV full-replace channel set) ----
   programAnytonePreview: (codeplugId: number) =>
     invoke<AnytoneProgramPreview>("program_anytone_preview", { codeplugId }),
-  programAnytoneCodeplug: (codeplugId: number, port: string) =>
-    invoke<AnytoneProgramResult>("program_anytone_codeplug", { codeplugId, port }),
   verifyAnytoneProgram: (port: string, expectedPath: string) =>
     invoke<AnytoneVerifyResult>("verify_anytone_program", { port, expectedPath }),
   restoreAnytoneBackup: (port: string, backupPath: string) =>

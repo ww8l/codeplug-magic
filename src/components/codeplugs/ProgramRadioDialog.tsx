@@ -17,7 +17,7 @@ import type {
   DownloadResult,
   ExportPreview,
   PortInfo,
-  ProgramResult,
+  CodeplugProgramReport,
   RadioIdent,
 } from "../../lib/types";
 import { Modal } from "../overlays";
@@ -26,7 +26,7 @@ import { Button, Spinner, Select } from "../ui";
 /**
  * Direct UV-5R programming.
  *
- * Read: identify + download a full backup image. Write: `program_codeplug`
+ * Read: identify + download a full backup image. Write: `program_radio`
  * always downloads + backs up the radio first, then writes only the channel +
  * name regions and reads them back to verify. Settings/aux memory are
  * round-tripped untouched.
@@ -60,7 +60,7 @@ export function ProgramRadioDialog({
   >(null);
   const [ident, setIdent] = useState<RadioIdent | null>(null);
   const [download, setDownload] = useState<DownloadResult | null>(null);
-  const [program, setProgram] = useState<ProgramResult | null>(null);
+  const [program, setProgram] = useState<CodeplugProgramReport | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,7 +123,7 @@ export function ProgramRadioDialog({
       setConfirming(false);
       setDownload(null);
       setIdent(null);
-      setProgram(await api.programCodeplug(codeplugId, port));
+      setProgram(await api.programRadio(codeplugId, port));
     });
 
   const doRestore = async () => {
@@ -342,16 +342,16 @@ export function ProgramRadioDialog({
 
               {program && (
                 <ResultBlock
-                  ok={program.verified}
+                  ok={program.verified === true}
                   heading={
-                    (program.verified
-                      ? `Programmed ${program.written} channel${program.written === 1 ? "" : "s"} · verified ✓`
-                      : `Wrote ${program.written} channel${program.written === 1 ? "" : "s"} — verification warning`) +
+                    (program.verified === true
+                      ? `Programmed ${program.channels_written} channel${program.channels_written === 1 ? "" : "s"} · verified ✓`
+                      : `Wrote ${program.channels_written} channel${program.channels_written === 1 ? "" : "s"} — verification warning`) +
                     (program.settings_written != null
                       ? ` · ${program.settings_written} setting${program.settings_written === 1 ? "" : "s"}`
                       : "")
                   }
-                  note={program.verify_note ?? undefined}
+                  note={program.note ?? undefined}
                   backupPath={program.backup_path}
                   backupLabel="Pre-write backup"
                   channels={program.channels}
