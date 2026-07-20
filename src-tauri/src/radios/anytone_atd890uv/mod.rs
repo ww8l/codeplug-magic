@@ -33,11 +33,13 @@ use serialport::{ClearBuffer, SerialPort};
 
 use crate::error::MapErrString;
 use crate::radios::driver::{
-    CallsignDbWriter, CodeplugExporter, DriverDiagnostics, RadioDriver, SettingsProgrammer,
+    CallsignDbWriter, CodeplugExporter, CodeplugProgrammer, DriverDiagnostics, RadioDriver,
+    SettingsProgrammer,
 };
 
 pub(crate) mod callsign_db;
 pub(crate) mod export;
+pub(crate) mod program;
 pub(crate) mod settings;
 
 // ============================================================
@@ -69,10 +71,14 @@ impl RadioDriver for AnytoneAtd890uv {
         BAUD
     }
 
-    // Capabilities the driver advertises. Channel programming (the DB-driven
-    // full-codeplug replace) stays in the command layer for now; its registry
-    // dispatch is designed in 3.6, so `as_channel_writer` is intentionally not
-    // overridden here.
+    // Capabilities the driver advertises. `as_channel_writer` stays unset on
+    // purpose: this radio's programming unit is the whole codeplug (channels +
+    // zones + scan lists + contacts in one session), which is
+    // `CodeplugProgrammer`, not the channels-only `ChannelWriter`.
+    fn as_codeplug_programmer(&self) -> Option<&dyn CodeplugProgrammer> {
+        Some(self)
+    }
+
     fn as_settings_programmer(&self) -> Option<&dyn SettingsProgrammer> {
         Some(self)
     }
