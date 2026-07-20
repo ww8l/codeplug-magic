@@ -309,65 +309,6 @@ pub struct Tdh3SettingsWriteResult {
     pub settings: Tdh3Settings,
 }
 
-/// Write edited settings back to a connected TD-H3.
-///
-/// Same safety model as the channel write: download the full image and back it
-/// up FIRST, patch only the settings bits into that image (every other byte —
-/// channels included — is preserved exactly as read), upload the whole main
-/// range, then read the radio back and confirm the settings took.
-#[tauri::command]
-pub async fn write_tdh3_settings(
-    app: AppHandle,
-    port: String,
-    settings: Tdh3Settings,
-) -> Result<Tdh3SettingsWriteResult, String> {
-    let backup_dir = app.path().app_data_dir().estr()?.join("radio-backups");
-    std::fs::create_dir_all(&backup_dir).estr()?;
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let backup_path = backup_dir.join(format!("tdh3-presettings-{stamp}.img"));
-
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut p = tdh3::open_port(&port)?;
-
-        // 1. Download + back up the current radio contents.
-        let ident = tdh3::do_ident(&mut *p)?;
-        let mut image = tdh3::download(&mut *p, &ident)?;
-        std::fs::write(&backup_path, &image)
-            .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
-
-        // 2. Patch the settings bits into the downloaded image.
-        tdh3_settings::encode_settings(&mut image, &settings);
-
-        // 3. Re-identify and upload the whole main range, then leave clone mode.
-        std::thread::sleep(Duration::from_secs(1));
-        tdh3::reident(&mut *p)?;
-        tdh3::upload(&mut *p, &image)?;
-
-        // 4. Read back and verify against what we intended (non-fatal).
-        let (verified, verify_note, result) =
-            match tdh3_settings::verify_settings_after_write(&mut *p, &image) {
-                Ok((ok, note, st)) => (ok, note, st),
-                Err(e) => (
-                    false,
-                    Some(format!(
-                        "Write completed, but read-back verification could not run ({e}). \
-                         Power-cycle the radio and use Read to confirm."
-                    )),
-                    tdh3_settings::decode_settings(&image),
-                ),
-            };
-
-        Ok(Tdh3SettingsWriteResult {
-            verified,
-            verify_note,
-            backup_path: backup_path.to_string_lossy().to_string(),
-            settings: result,
-        })
-    })
-    .await
-    .estr()?
-}
-
 // ============================================================
 // Settings: apply a saved radio profile → radio
 // ============================================================
