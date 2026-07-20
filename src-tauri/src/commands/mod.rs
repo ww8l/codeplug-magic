@@ -14,4 +14,3 @@ pub mod lists;
 pub mod profiles;
 pub mod program;
 pub mod talkgroups;
-pub mod tdh3;

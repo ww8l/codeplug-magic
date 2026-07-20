@@ -20,12 +20,12 @@ import type {
   RadioProfileInput,
   RepeaterTalkgroup,
   DownloadResult,
+  DriverCapabilities,
   PortInfo,
   CodeplugProgramReport,
   RadioIdent,
   RadioSettingsRead,
   RestoreResult,
-  Tdh3Settings,
   SettingsWriteReport,
   CallsignDbReport,
   AnytoneDownloadResult,
@@ -295,6 +295,9 @@ export const api = {
   // `driverKey` is the radio's `radio_models.driver_key`; the port alone carries
   // no model hint, so the caller says which radio it expects to find.
   listSerialPorts: () => invoke<PortInfo[]>("list_serial_ports"),
+  // Static per driver — `useDriverCapabilities` caches it (3.7).
+  driverCapabilities: (driverKey: string) =>
+    invoke<DriverCapabilities>("driver_capabilities", { driverKey }),
   identifyRadio: (driverKey: string, port: string) =>
     invoke<RadioIdent>("identify_radio", { driverKey, port }),
   downloadImage: (driverKey: string, port: string) =>
@@ -327,20 +330,6 @@ export const api = {
   restoreImage: (port: string, path: string) =>
     invoke<RestoreResult>("restore_image", { port, path }),
   backupsDir: () => invoke<string>("backups_dir"),
-
-  // ---- direct radio programming (TIDRADIO TD-H3) ----
-  saveTdh3SettingsToProfile: (
-    settings: Tdh3Settings,
-    modelId: number,
-    profileId: number | null,
-    newName: string | null,
-  ) =>
-    invoke<RadioProfile>("save_tdh3_settings_to_profile", {
-      settings,
-      modelId,
-      profileId,
-      newName,
-    }),
 
   // ---- direct radio programming (AnyTone AT-D890UV, Stage 1: read-only) ----
   downloadAnytoneImage: (port: string) =>

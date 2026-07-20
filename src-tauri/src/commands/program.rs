@@ -32,7 +32,7 @@ use crate::error::MapErrString;
 use crate::radios::baofeng_uv5r as uv5r;
 use crate::radios::driver::{
     CallsignDbReport, CallsignRecord, CodeplugProgramReport, DecodedChannelSample,
-    ImageProgramRequest, ProgramReport, RadioDriver, SettingsWriteReport,
+    DriverCapabilities, ImageProgramRequest, ProgramReport, RadioDriver, SettingsWriteReport,
 };
 use crate::radios::registry;
 
@@ -124,6 +124,19 @@ fn supplement_macos_usb_ports(out: &mut Vec<PortInfo>) {
 fn driver(driver_key: &str) -> Result<&'static dyn RadioDriver, String> {
     registry::driver_for_key(driver_key)
         .ok_or_else(|| format!("no driver is compiled in for '{driver_key}'"))
+}
+
+/// What a driver can actually do, derived from its trait impls.
+///
+/// The frontend gates UI on this instead of comparing model names (Chunk 3.7):
+/// which buttons a program dialog offers, and whether the profile editor shows
+/// its read-from-radio bar, are ground truth from the driver rather than a
+/// hand-maintained list that silently rots when a radio is added.
+///
+/// Static per driver, so the UI may fetch it once and cache it.
+#[tauri::command]
+pub async fn driver_capabilities(driver_key: String) -> Result<DriverCapabilities, String> {
+    Ok(DriverCapabilities::of(driver(&driver_key)?))
 }
 
 #[derive(Serialize)]

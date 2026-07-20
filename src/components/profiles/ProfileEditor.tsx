@@ -3,6 +3,7 @@ import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { Trash2, Save, DownloadCloud, RefreshCw } from "lucide-react";
 import clsx from "clsx";
 import { api, withToast } from "../../lib/api";
+import { useDriverCapabilities } from "../../lib/radioProgramming";
 import type {
   AnytoneDownloadResult,
   AnytoneImportSummary,
@@ -549,6 +550,8 @@ export function ProfileEditor({
   const [saving, setSaving] = useState(false);
 
   const fields = useMemo(() => parseSchema(model), [model]);
+  // What this model's driver can actually do — gates the read-from-radio bar.
+  const caps = useDriverCapabilities(model?.driver_key ?? null);
 
   // Form state, re-seeded whenever a different profile is selected.
   const [name, setName] = useState(profile.display_name);
@@ -649,18 +652,22 @@ export function ProfileEditor({
           <Capabilities model={model} />
         ) : (
           <div className="max-w-2xl space-y-5">
-            {(model.model === "UV-5R" ||
-              model.model === "TD-H3" ||
-              model.model === "AT-D890UV") &&
-              fields.length > 0 && (
-                <RadioSyncBar
-                  profileId={profile.id}
-                  modelLabel={model.display_name}
-                  read={api.readRadioSettings}
-                  onLoaded={(s) => setValues((v) => ({ ...v, ...s }))}
-                />
-              )}
-            {model.model === "AT-D890UV" && (
+            {/* Read-from-radio is offered when the DRIVER says it can read
+                settings (3.7), not when the model name is on a list — a new
+                radio picks this up the moment it implements SettingsReader. */}
+            {caps?.read_settings && fields.length > 0 && (
+              <RadioSyncBar
+                profileId={profile.id}
+                modelLabel={model.display_name}
+                read={api.readRadioSettings}
+                onLoaded={(s) => setValues((v) => ({ ...v, ...s }))}
+              />
+            )}
+            {/* Stays keyed to the AnyTone on purpose: this bar drives
+                `download_anytone_image`, a region probe feeding the library
+                importer, which is deliberately NOT part of the generic
+                download_image capability (see the note in registry.rs). */}
+            {model.driver_key === "anytone_atd890uv" && (
               <AnytoneBackupBar modelLabel={model.display_name} />
             )}
             {fields.length === 0 ? (

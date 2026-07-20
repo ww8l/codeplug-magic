@@ -40,9 +40,7 @@ import {
 import { NewCodeplugModal } from "../components/codeplugs/NewCodeplugModal";
 import { EditCodeplugModal } from "../components/codeplugs/EditCodeplugModal";
 import { ExportDialog } from "../components/codeplugs/ExportDialog";
-import { ProgramRadioDialog } from "../components/codeplugs/ProgramRadioDialog";
-import { Tdh3ProgramDialog } from "../components/codeplugs/Tdh3ProgramDialog";
-import { AnytoneProgramDialog } from "../components/codeplugs/AnytoneProgramDialog";
+import { programDialogFor } from "../components/codeplugs/programDialogs";
 import { AssignModal, type AssignItem } from "../components/codeplugs/AssignModal";
 import { ScanListAssignChannelsModal } from "../components/codeplugs/ScanListAssignChannelsModal";
 
@@ -245,6 +243,11 @@ export function CodeplugDetail() {
     const prof = profiles.find((p) => p.id === profileId);
     return prof ? models.find((m) => m.id === prof.radio_model_id) : undefined;
   }, [profiles, models, profileId]);
+
+  // Which "Program radio" dialog this radio gets. Driven by
+  // `radio_models.programming_ui`, never by the model name — see
+  // `components/codeplugs/programDialogs.ts` (Chunk 3.7).
+  const ProgramDialog = programDialogFor(model?.programming_ui ?? null);
 
   const totalChannels = useMemo(
     () => channelLists.reduce((sum, l) => sum + l.channel_count, 0),
@@ -633,34 +636,14 @@ export function CodeplugDetail() {
           api.getCodeplug(codeplugId).then(setCodeplug)
         }
       />
-      {model?.model === "TD-H3" ? (
-        <Tdh3ProgramDialog
-          open={programOpen}
-          onClose={() => setProgramOpen(false)}
-          codeplugId={codeplugId}
-          codeplugName={codeplug.name}
-          modelName={model?.display_name ?? "this radio"}
-          modelId={model?.id ?? 0}
-        />
-      ) : model?.model === "AT-D890UV" ? (
-        <AnytoneProgramDialog
-          open={programOpen}
-          onClose={() => setProgramOpen(false)}
-          codeplugId={codeplugId}
-          profileId={codeplug.radio_profile_id}
-          codeplugName={codeplug.name}
-          modelName={model?.display_name ?? "this radio"}
-        />
-      ) : (
-        <ProgramRadioDialog
-          open={programOpen}
-          onClose={() => setProgramOpen(false)}
-          codeplugId={codeplugId}
-          codeplugName={codeplug.name}
-          isSupported={model?.model === "UV-5R"}
-          modelName={model?.display_name ?? "this radio"}
-        />
-      )}
+      <ProgramDialog
+        open={programOpen}
+        onClose={() => setProgramOpen(false)}
+        codeplugId={codeplugId}
+        codeplugName={codeplug.name}
+        model={model ?? null}
+        profileId={codeplug.radio_profile_id}
+      />
       <AssignModal
         open={addChannelOpen}
         onClose={() => setAddChannelOpen(false)}

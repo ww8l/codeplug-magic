@@ -127,6 +127,7 @@ pub fn run() {
             // direct radio programming — registry-dispatched, all radios
             // (3.6c: identify/download_image; 3.6d: settings + call-sign DB)
             commands::program::list_serial_ports,
+            commands::program::driver_capabilities,
             commands::program::identify_radio,
             commands::program::download_image,
             commands::program::read_radio_settings,
@@ -136,18 +137,10 @@ pub fn run() {
             // direct radio programming (UV-5R)
             commands::program::restore_image,
             commands::program::backups_dir,
-            // direct radio programming (TIDRADIO TD-H3)
-            commands::tdh3::save_tdh3_settings_to_profile,
             // direct radio programming (AnyTone AT-D890UV) — Stage 1: read-only
             commands::anytone::download_anytone_image,
             // radio download → library import (channels / zones→lists / contacts→TGs)
             commands::import::import_anytone_download,
-            // Stage 3 write validation: round-trip no-op (gated, mandatory backup)
-            // Stage 3 SAFE first write test: committing whole-bank no-op (gated)
-            // Stage 3 batch channel write: app-model edits → bank RMW (gated, backup)
-            // Stage 3b zone/contact writes: absolute patches → window RMW (gated, backup)
-            // Stage 3 persistence test: write-field / fresh-read / restore (gated)
-            // Integrity-structure investigation: deterministic dump + diff (read-only)
             // "Program radio" from the DB: full-replace channel set (gated, backup)
             commands::anytone_program::program_anytone_preview,
             commands::anytone_program::verify_anytone_program,
