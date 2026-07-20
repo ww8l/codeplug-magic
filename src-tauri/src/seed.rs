@@ -531,4 +531,21 @@ mod tests {
             }
         }
     }
+
+    /// Every seeded `export_format` must be one the export command can act on:
+    /// either a registered exporter's key, or `chirp_csv`, the shared analog
+    /// fallback. A typo also fails silently — the model just exports CHIRP CSV
+    /// instead of its native format (Chunk 3.8).
+    #[test]
+    fn every_seeded_export_format_resolves_or_is_the_chirp_fallback() {
+        for m in models() {
+            assert!(
+                m.export_format == "chirp_csv"
+                    || registry::exporter_for_format(m.export_format).is_some(),
+                "{}: unknown export_format '{}'",
+                m.model,
+                m.export_format
+            );
+        }
+    }
 }

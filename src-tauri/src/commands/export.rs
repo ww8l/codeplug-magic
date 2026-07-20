@@ -497,14 +497,19 @@ pub async fn generate_codeplug(
         .filter(|ec| exclusion_reason(&ec.channel, &model).is_none())
         .collect();
 
-    match model.export_format.as_deref() {
-        // DMR-native: a Channel CSV with real DMR columns + a Digital Contacts
-        // (TalkGroups) CSV, written alongside the chosen path.
-        Some("anytone_csv") => {
-            crate::radios::anytone_atd890uv::export::write_anytone_bundle(&path, &included, &model)?
+    // Format-keyed registry lookup (Chunk 3.8): a model picks its exporter by
+    // `export_format`, never by name and never by driver — an export-only model
+    // has no driver but still names a format. Unclaimed formats (and NULL) get
+    // the shared CHIRP-compatible analog CSV.
+    match model
+        .export_format
+        .as_deref()
+        .and_then(crate::radios::registry::exporter_for_format)
+    {
+        Some(exporter) => {
+            exporter.export(&path, &included, &model)?;
         }
-        // Default: a single CHIRP-compatible analog CSV.
-        _ => {
+        None => {
             let csv = render_chirp_csv(&included, &model)?;
             std::fs::write(&path, csv).map_err(|e| format!("Could not write file: {e}"))?;
         }
