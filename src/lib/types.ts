@@ -424,11 +424,17 @@ export interface PortInfo {
   product: string | null;
 }
 
+// Registry-dispatched identify/download results (3.6c) — one shape for every
+// radio. Mirrors `program.rs`'s `RadioIdent` / `DownloadResult`.
 export interface RadioIdent {
+  // A magic key like "UV5R_ORIG", or the model token the radio reported.
   matched_magic: string;
   ident_hex: string;
+  // Printable ASCII ident ("P31183", "ID890UV"); null when the ident is binary.
+  ident_ascii: string | null;
 }
 
+// The per-radio decoded shape, still used by the UV-5R program/verify result.
 export interface DecodedChannel {
   index: number;
   name: string;
@@ -437,13 +443,26 @@ export interface DecodedChannel {
   power: string;
 }
 
+// The generic download sanity sample: a superset of what the image-clone radios
+// decode. `shift` and `mode` are null on radios that don't report them (UV-5R).
+export interface DecodedChannelSample {
+  index: number;
+  name: string;
+  rx_mhz: number;
+  shift: string | null;
+  tone: string;
+  power: string;
+  mode: string | null;
+}
+
 export interface DownloadResult {
   matched_magic: string;
   ident_hex: string;
+  ident_ascii: string | null;
   image_bytes: number;
   backup_path: string;
   channel_count: number;
-  channels: DecodedChannel[];
+  channels: DecodedChannelSample[];
 }
 
 export interface RadioSettingsRead {
@@ -470,13 +489,9 @@ export interface ProgramResult {
   channels: DecodedChannel[];
 }
 
-// ---- direct radio programming (TIDRADIO TD-H3, Phase A: read-only) ----
-// Mirror of the Rust `tdh3.rs` structs.
-export interface Tdh3Ident {
-  ident_hex: string;
-  ident_ascii: string;
-}
-
+// ---- direct radio programming (TIDRADIO TD-H3) ----
+// Mirror of the Rust `tdh3.rs` structs. Identify + download are generic since
+// 3.6c (`RadioIdent` / `DownloadResult`); what's left here is TD-H3-specific.
 export interface Tdh3DecodedChannel {
   index: number;
   name: string;
@@ -486,15 +501,6 @@ export interface Tdh3DecodedChannel {
   tone: string;
   power: string;
   mode: string;
-}
-
-export interface Tdh3DownloadResult {
-  ident_hex: string;
-  ident_ascii: string;
-  image_bytes: number;
-  backup_path: string;
-  channel_count: number;
-  channels: Tdh3DecodedChannel[];
 }
 
 export interface Tdh3ProgramResult {
@@ -508,11 +514,6 @@ export interface Tdh3ProgramResult {
 
 // ---- direct radio programming (AnyTone AT-D890UV, Stage 1: read-only) ----
 // Mirror of the Rust `anytone.rs` structs.
-export interface AnytoneIdent {
-  ident_hex: string;
-  ident_ascii: string;
-}
-
 export interface AnytoneRegionProbe {
   name: string;
   addr: string;

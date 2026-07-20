@@ -15,6 +15,8 @@ use crate::error::MapErrString;
 use crate::radios::baofeng_uv5r as uv5r;
 use crate::radios::baofeng_uv5r::settings as uv5r_settings;
 use crate::radios::baofeng_uv5r::DecodedChannel;
+use crate::radios::driver::{DecodedChannelSample, RadioDriver};
+use crate::radios::registry;
 
 // ============================================================
 // Tauri commands
@@ -99,24 +101,41 @@ fn supplement_macos_usb_ports(out: &mut Vec<PortInfo>) {
     }
 }
 
-#[derive(Serialize)]
-pub struct RadioIdent {
-    /// Which magic matched, e.g. "UV5R_ORIG".
-    pub matched_magic: String,
-    /// The 8-byte ident the radio returned, as hex.
-    pub ident_hex: String,
+/// Resolve a `radio_models.driver_key` to its compiled-in driver, with an error
+/// message the UI can show as-is. Shared by every registry-dispatched command.
+fn driver(driver_key: &str) -> Result<&'static dyn RadioDriver, String> {
+    registry::driver_for_key(driver_key)
+        .ok_or_else(|| format!("no driver is compiled in for '{driver_key}'"))
 }
 
-/// Harmless handshake: confirm a UV-5R is connected and in clone mode. Performs
-/// no reads of memory, so it cannot affect the radio's contents.
+#[derive(Serialize)]
+pub struct RadioIdent {
+    /// Which handshake matched: a magic key like "UV5R_ORIG" on radios with a
+    /// magic table, otherwise the model token the radio reported.
+    pub matched_magic: String,
+    /// The raw ident bytes the radio returned, as hex.
+    pub ident_hex: String,
+    /// The same bytes as printable ASCII (e.g. "P31183", "ID890UV"), or null on
+    /// radios whose ident is binary.
+    pub ident_ascii: Option<String>,
+}
+
+/// Harmless handshake: confirm the expected radio is connected and in clone/PC
+/// mode. Reads no memory, so it cannot affect the radio's contents.
+///
+/// Registry-dispatched (Chunk 3.6c) — replaces the former per-radio
+/// `identify_radio` / `identify_tdh3` / `identify_anytone` trio. `driver_key`
+/// comes from `radio_models.driver_key`; the port alone carries no model hint,
+/// so the caller must say which radio it expects.
 #[tauri::command]
-pub async fn identify_radio(port: String) -> Result<RadioIdent, String> {
+pub async fn identify_radio(driver_key: String, port: String) -> Result<RadioIdent, String> {
+    let driver = driver(&driver_key)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let mut p = uv5r::open_port(&port)?;
-        let (magic, ident) = uv5r::ident_radio(&mut *p)?;
+        let ident = driver.identify(&port)?;
         Ok(RadioIdent {
-            matched_magic: magic,
-            ident_hex: uv5r::hex(&ident),
+            matched_magic: ident.matched,
+            ident_hex: ident.ident_hex,
+            ident_ascii: ident.ident_ascii,
         })
     })
     .await
@@ -127,6 +146,7 @@ pub async fn identify_radio(port: String) -> Result<RadioIdent, String> {
 pub struct DownloadResult {
     pub matched_magic: String,
     pub ident_hex: String,
+    pub ident_ascii: Option<String>,
     pub image_bytes: usize,
     /// Absolute path of the saved CHIRP-compatible backup `.img`.
     pub backup_path: String,
@@ -134,14 +154,29 @@ pub struct DownloadResult {
     pub channel_count: usize,
     /// A sanity sample of decoded channels (first programmed ones) so the user
     /// can eyeball that the read is real before we ever build the write path.
-    pub channels: Vec<DecodedChannel>,
+    pub channels: Vec<DecodedChannelSample>,
 }
 
-/// Read the full radio image and save it as a timestamped backup. This is the
-/// non-destructive proof that our protocol port is correct, and it produces the
-/// safety backup that the write path always takes first.
+/// Read a clone-mode radio's full memory image and save it as a timestamped
+/// backup. This is the non-destructive proof that the protocol port is correct,
+/// and it produces the safety backup the write path always takes first.
+///
+/// Registry-dispatched (Chunk 3.6c) — replaces `download_image` (UV-5R) and
+/// `download_tdh3_image`. Only [`ImageProgrammer`] radios are image-clonable;
+/// the AnyTone is programmed from DB state rather than a memory image, so its
+/// read path stays `download_anytone_image` (a region probe that feeds the
+/// importer, not an image download).
 #[tauri::command]
-pub async fn download_image(app: AppHandle, port: String) -> Result<DownloadResult, String> {
+pub async fn download_image(
+    app: AppHandle,
+    driver_key: String,
+    port: String,
+) -> Result<DownloadResult, String> {
+    let driver = driver(&driver_key)?;
+    let imager = driver
+        .as_image_programmer()
+        .ok_or_else(|| format!("{} is not programmed as a memory image", driver.display_name()))?;
+
     // Resolve the backup directory on the main thread (AppHandle path API).
     let backup_dir = app
         .path()
@@ -150,20 +185,21 @@ pub async fn download_image(app: AppHandle, port: String) -> Result<DownloadResu
         .join("radio-backups");
     std::fs::create_dir_all(&backup_dir).estr()?;
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let backup_path = backup_dir.join(format!("uv5r-{stamp}.img"));
+    // Backup names stay driver-keyed so a folder of .img files is still
+    // self-identifying (previously hardcoded "uv5r-"/"tdh3-").
+    let backup_path = backup_dir.join(format!("{driver_key}-{stamp}.img"));
 
     tauri::async_runtime::spawn_blocking(move || {
-        let mut p = uv5r::open_port(&port)?;
-        let (magic, ident) = uv5r::ident_radio(&mut *p)?;
-        let image = uv5r::download(&mut *p, &ident)?;
+        let (ident, image) = imager.download_image(&port)?;
 
         std::fs::write(&backup_path, &image)
             .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
 
-        let channels = uv5r::decode_channels(&image);
+        let channels = imager.decode_sample(&image);
         Ok(DownloadResult {
-            matched_magic: magic,
-            ident_hex: uv5r::hex(&ident),
+            matched_magic: ident.matched,
+            ident_hex: ident.ident_hex,
+            ident_ascii: ident.ident_ascii,
             image_bytes: image.len(),
             backup_path: backup_path.to_string_lossy().to_string(),
             channel_count: channels.len(),

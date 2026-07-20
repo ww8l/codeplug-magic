@@ -35,7 +35,9 @@ use crate::commands::export;
 use crate::commands::export::SlotChannel;
 use crate::error::MapErrString;
 use crate::models::{Channel, RadioModel};
-use crate::radios::driver::{ImageProgrammer, RadioDriver, RadioIdentity, SettingsProgrammer};
+use crate::radios::driver::{
+    DecodedChannelSample, ImageProgrammer, RadioDriver, RadioIdentity, SettingsProgrammer,
+};
 
 const BAUD: u32 = 38400;
 const TIMEOUT: Duration = Duration::from_secs(1);
@@ -86,10 +88,9 @@ const POWER_LEVELS: [&str; 3] = ["Low", "Med", "High"];
 /// `SettingsProgrammer` is implemented in `settings.rs`.
 pub(crate) struct TidradioTdh3;
 
-/// Registry entry (see `radios/registry.rs`). The command layer still calls the
-/// module functions below directly until 3.6 routes dispatch through the
-/// registry, so the static is only reachable through `all_drivers()` for now.
-#[allow(dead_code)] // remove when 3.6 dispatches commands via the registry
+/// Registry entry (see `radios/registry.rs`). `identify`/`download_image` reach
+/// it through the registry as of 3.6c; the remaining program/settings commands
+/// still call the module functions below directly until 3.6d/3.6e.
 pub(crate) static DRIVER: TidradioTdh3 = TidradioTdh3;
 
 impl RadioDriver for TidradioTdh3 {
@@ -105,6 +106,16 @@ impl RadioDriver for TidradioTdh3 {
         BAUD
     }
 
+    fn identify(&self, port: &str) -> Result<RadioIdentity, String> {
+        let mut p = open_port(port)?;
+        let ident = do_ident(&mut *p)?;
+        Ok(RadioIdentity {
+            matched: ascii(&ident),
+            ident_hex: hex(&ident),
+            ident_ascii: Some(ascii(&ident)),
+        })
+    }
+
     fn as_image_programmer(&self) -> Option<&dyn ImageProgrammer> {
         Some(self)
     }
@@ -115,19 +126,33 @@ impl RadioDriver for TidradioTdh3 {
 }
 
 impl ImageProgrammer for TidradioTdh3 {
-    fn identify(&self, port: &str) -> Result<RadioIdentity, String> {
+    fn download_image(&self, port: &str) -> Result<(RadioIdentity, Vec<u8>), String> {
         let mut p = open_port(port)?;
         let ident = do_ident(&mut *p)?;
-        Ok(RadioIdentity {
-            matched: ascii(&ident),
-            details: Some(hex(&ident)),
-        })
+        let image = download(&mut *p, &ident)?;
+        Ok((
+            RadioIdentity {
+                matched: ascii(&ident),
+                ident_hex: hex(&ident),
+                ident_ascii: Some(ascii(&ident)),
+            },
+            image,
+        ))
     }
 
-    fn download_image(&self, port: &str) -> Result<Vec<u8>, String> {
-        let mut p = open_port(port)?;
-        let ident = do_ident(&mut *p)?;
-        download(&mut *p, &ident)
+    fn decode_sample(&self, image: &[u8]) -> Vec<DecodedChannelSample> {
+        decode_channels(image)
+            .into_iter()
+            .map(|c| DecodedChannelSample {
+                index: c.index,
+                name: c.name,
+                rx_mhz: c.rx_mhz,
+                shift: Some(c.shift),
+                tone: c.tone,
+                power: c.power,
+                mode: Some(c.mode),
+            })
+            .collect()
     }
 
     fn upload_image(&self, port: &str, image: &[u8]) -> Result<(), String> {

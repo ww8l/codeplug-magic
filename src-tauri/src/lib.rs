@@ -124,23 +124,21 @@ pub fn run() {
             // export
             commands::export::export_preview,
             commands::export::generate_codeplug,
-            // direct radio programming (UV-5R)
+            // direct radio programming — registry-dispatched, all radios (3.6c)
             commands::program::list_serial_ports,
             commands::program::identify_radio,
             commands::program::download_image,
+            // direct radio programming (UV-5R)
             commands::program::program_codeplug,
             commands::program::read_radio_settings,
             commands::program::restore_image,
             commands::program::backups_dir,
             // direct radio programming (TIDRADIO TD-H3)
-            commands::tdh3::identify_tdh3,
-            commands::tdh3::download_tdh3_image,
             commands::tdh3::program_tdh3_codeplug,
             commands::tdh3::read_tdh3_settings_for_profile,
             commands::tdh3::apply_tdh3_profile,
             commands::tdh3::save_tdh3_settings_to_profile,
             // direct radio programming (AnyTone AT-D890UV) — Stage 1: read-only
-            commands::anytone::identify_anytone,
             commands::anytone::download_anytone_image,
             // radio download → library import (channels / zones→lists / contacts→TGs)
             commands::import::import_anytone_download,
