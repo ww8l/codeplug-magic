@@ -463,10 +463,12 @@ pub(crate) trait CodeplugExporter {
     fn export_format(&self) -> &'static str;
 
     /// Write the codeplug file(s) rooted at `path`, returning channels written.
+    /// Channels arrive by reference because the export command filters a larger
+    /// expansion down to the included rows without copying them.
     fn export(
         &self,
         path: &str,
-        channels: &[ExpandedChannel],
+        channels: &[&ExpandedChannel],
         model: &RadioModel,
     ) -> Result<usize, String>;
 }

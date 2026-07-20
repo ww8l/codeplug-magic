@@ -193,17 +193,14 @@ impl CodeplugExporter for AnytoneAtd890uv {
         "anytone_csv"
     }
 
-    /// Write the AnyTone dual-CSV bundle. Adapts the trait's owned-slice input to
-    /// the reference-slice the renderers consume, then delegates to
-    /// [`write_anytone_bundle`]. Returns the channel count written.
+    /// Write the AnyTone dual-CSV bundle, returning the channel count written.
     fn export(
         &self,
         path: &str,
-        channels: &[ExpandedChannel],
+        channels: &[&ExpandedChannel],
         model: &RadioModel,
     ) -> Result<usize, String> {
-        let refs: Vec<&ExpandedChannel> = channels.iter().collect();
-        write_anytone_bundle(path, &refs, model)?;
-        Ok(refs.len())
+        write_anytone_bundle(path, channels, model)?;
+        Ok(channels.len())
     }
 }
