@@ -22,36 +22,39 @@ import type {
 } from "../../lib/types";
 import { Modal } from "../overlays";
 import { Button, Spinner, Select } from "../ui";
+import {
+  driverKeyOf,
+  isProgrammable,
+  useDriverCapabilities,
+  type ProgramDialogProps,
+} from "../../lib/radioProgramming";
 
 /**
- * Direct UV-5R programming.
+ * The generic, capability-driven program dialog — the default any radio gets
+ * (Chunk 3.7), and what the UV-5R uses.
  *
  * Read: identify + download a full backup image. Write: `program_radio`
  * always downloads + backs up the radio first, then writes only the channel +
  * name regions and reads them back to verify. Settings/aux memory are
  * round-tripped untouched.
+ *
+ * It names no radio: the driver comes from `model.driver_key` and the offered
+ * actions from that driver's capability flags, so registering a new driver is
+ * enough to make this dialog work for it.
  */
-/// This dialog is the UV-5R's, so it names the driver it dispatches to.
-/// Threading `driver_key` through the model DTO instead is Chunk 3.7's job
-/// (that's what `radio_models.programming_ui` is for).
-const DRIVER_KEY = "baofeng_uv5r";
-
 export function ProgramRadioDialog({
   open,
   onClose,
   codeplugId,
   codeplugName,
-  isSupported,
-  modelName,
-}: {
-  open: boolean;
-  onClose: () => void;
-  codeplugId: number;
-  codeplugName: string;
-  // Direct programming currently supports the Baofeng UV-5R only.
-  isSupported: boolean;
-  modelName: string;
-}) {
+  model,
+}: ProgramDialogProps) {
+  const driverKey = driverKeyOf(model);
+  const caps = useDriverCapabilities(driverKey || null);
+  const modelName = model?.display_name ?? "this radio";
+  // Programmable at all? Export-only models (no driver) get the "not
+  // supported" message instead of buttons that would fail at the port.
+  const isSupported = isProgrammable(model);
   const [ports, setPorts] = useState<PortInfo[]>([]);
   const [port, setPort] = useState<string>("");
   const [preview, setPreview] = useState<ExportPreview | null>(null);
@@ -109,13 +112,13 @@ export function ProgramRadioDialog({
     run("identify", async () => {
       setDownload(null);
       setProgram(null);
-      setIdent(await api.identifyRadio(DRIVER_KEY, port));
+      setIdent(await api.identifyRadio(driverKey, port));
     });
 
   const doDownload = () =>
     run("download", async () => {
       setProgram(null);
-      setDownload(await api.downloadImage(DRIVER_KEY, port));
+      setDownload(await api.downloadImage(driverKey, port));
     });
 
   const doProgram = () =>
@@ -167,8 +170,8 @@ export function ProgramRadioDialog({
               Direct programming isn’t available for {modelName}.
             </p>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              The cable driver currently supports the Baofeng UV-5R only. Use the
-              Export button for other radios and program them in CHIRP.
+              No cable driver is compiled in for this model. Use the Export
+              button and program it in CHIRP instead.
             </p>
           </div>
         ) : (
@@ -216,18 +219,25 @@ export function ProgramRadioDialog({
                 {busy === "identify" ? <Spinner className="h-3.5 w-3.5" /> : <Search size={14} />}
                 Identify
               </Button>
-              <Button onClick={doDownload} disabled={!port || busy !== null}>
-                {busy === "download" ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
-                Download backup
-              </Button>
-              <Button
-                onClick={doRestore}
-                disabled={!port || busy !== null}
-                title="Flash a previously-saved backup .img back to the radio"
-              >
-                {busy === "restore" ? <Spinner className="h-3.5 w-3.5" /> : <Undo2 size={14} />}
-                Restore backup…
-              </Button>
+              {/* Backup/restore are whole-image operations, so they exist only
+                  on clone radios. A driver that programs from the database
+                  (the AnyTone) takes its own backups inside the program run. */}
+              {caps?.program_image && (
+                <>
+                  <Button onClick={doDownload} disabled={!port || busy !== null}>
+                    {busy === "download" ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
+                    Download backup
+                  </Button>
+                  <Button
+                    onClick={doRestore}
+                    disabled={!port || busy !== null}
+                    title="Flash a previously-saved backup .img back to the radio"
+                  >
+                    {busy === "restore" ? <Spinner className="h-3.5 w-3.5" /> : <Undo2 size={14} />}
+                    Restore backup…
+                  </Button>
+                </>
+              )}
               <div className="ml-auto">
                 <Button
                   variant="primary"

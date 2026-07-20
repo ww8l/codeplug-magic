@@ -494,3 +494,41 @@ fn models() -> Vec<ModelSeed> {
         },
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::radios::registry;
+
+    /// The two registry columns must agree with each other and with what is
+    /// actually compiled in. A typo here fails SILENTLY at runtime — a bad
+    /// `driver_key` only surfaces when the user plugs a radio in, and a bad
+    /// `programming_ui` just falls back to the generic dialog (Chunk 3.7).
+    ///
+    /// ⚠️ `UIS` mirrors the keys of `PROGRAM_DIALOGS` in
+    /// `src/components/codeplugs/programDialogs.ts`; adding a bespoke dialog
+    /// means adding its key in both places.
+    #[test]
+    fn every_seeded_driver_key_resolves_and_pairs_with_a_known_ui() {
+        const UIS: [&str; 3] = ["generic", "tdh3", "anytone"];
+        for m in models() {
+            match (m.driver_key, m.programming_ui) {
+                (Some(key), Some(ui)) => {
+                    assert!(
+                        registry::driver_for_key(key).is_some(),
+                        "{}: no compiled-in driver for '{key}'",
+                        m.model
+                    );
+                    assert!(UIS.contains(&ui), "{}: unknown programming_ui '{ui}'", m.model);
+                }
+                // Export-only models carry neither; one without the other is a
+                // half-migrated row.
+                (None, None) => {}
+                _ => panic!(
+                    "{}: driver_key and programming_ui must be set together",
+                    m.model
+                ),
+            }
+        }
+    }
+}
