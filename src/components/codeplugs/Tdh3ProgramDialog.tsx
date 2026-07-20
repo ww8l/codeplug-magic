@@ -18,7 +18,7 @@ import type {
   DownloadResult,
   RadioIdent,
   Tdh3DecodedChannel,
-  Tdh3ProgramResult,
+  CodeplugProgramReport,
 } from "../../lib/types";
 import { Modal } from "../overlays";
 import { Button, Spinner, Select } from "../ui";
@@ -60,7 +60,7 @@ export function Tdh3ProgramDialog({
   const [busy, setBusy] = useState<null | "identify" | "download" | "program">(null);
   const [ident, setIdent] = useState<RadioIdent | null>(null);
   const [download, setDownload] = useState<DownloadResult | null>(null);
-  const [program, setProgram] = useState<Tdh3ProgramResult | null>(null);
+  const [program, setProgram] = useState<CodeplugProgramReport | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"channels" | "options">("channels");
@@ -123,7 +123,7 @@ export function Tdh3ProgramDialog({
       setConfirming(false);
       setDownload(null);
       setIdent(null);
-      setProgram(await api.programTdh3Codeplug(codeplugId, port));
+      setProgram(await api.programRadio(codeplugId, port));
     });
 
   const writeCount = preview?.included_count ?? 0;
@@ -321,13 +321,13 @@ export function Tdh3ProgramDialog({
 
           {program && (
             <ResultBlock
-              ok={program.verified}
+              ok={program.verified === true}
               heading={
-                program.verified
-                  ? `Programmed ${program.written} channel${program.written === 1 ? "" : "s"} · verified ✓`
-                  : `Wrote ${program.written} channel${program.written === 1 ? "" : "s"} — verification warning`
+                program.verified === true
+                  ? `Programmed ${program.channels_written} channel${program.channels_written === 1 ? "" : "s"} · verified ✓`
+                  : `Wrote ${program.channels_written} channel${program.channels_written === 1 ? "" : "s"} — verification warning`
               }
-              note={program.verify_note ?? undefined}
+              note={program.note ?? undefined}
               backupPath={program.backup_path}
               backupLabel="Pre-write backup"
               channels={program.channels}

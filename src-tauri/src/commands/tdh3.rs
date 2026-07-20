@@ -1,20 +1,22 @@
-//! Tauri command layer for direct TIDRADIO TD-H3 programming.
+//! What is left of the TD-H3 command layer: ONE database-only command.
 //!
-//! The clone protocol, channel encode/decode, and non-channel settings live in
-//! `radios/tidradio_tdh3` since Chunk 3.4 (`ImageProgrammer` in `mod.rs`,
-//! `SettingsReader`/`SettingsWriter` in `settings.rs`); this module is the thin
-//! Tauri layer — DB access, backup-file paths, and the result DTOs.
+//! Everything that talks to the radio now dispatches through the registry, so
+//! nothing model-specific remains here. The protocol and encode/decode have
+//! lived in `radios/tidradio_tdh3` since Chunk 3.4 (`ImageProgrammer` in
+//! `mod.rs`, `SettingsReader`/`SettingsWriter` in `settings.rs`), and the
+//! commands went generic across 3.6d/3.6e:
 //!
-//! Both settings commands that lived here went generic in Chunk 3.6d:
-//! `read_tdh3_settings_for_profile` → `program::read_radio_settings` and
-//! `apply_tdh3_profile` → `program::write_radio_settings`. What remains is the
-//! channel program plus `save_tdh3_settings_to_profile`, which is DB-only (it
-//! never touches a radio) and so has nothing to dispatch. Port enumeration
-//! reuses `program::list_serial_ports` (it is model-agnostic).
+//!   `read_tdh3_settings_for_profile` → `program::read_radio_settings`
+//!   `apply_tdh3_profile`             → `program::write_radio_settings`
+//!   `program_tdh3_codeplug`          → `program::program_radio`
+//!
+//! `save_tdh3_settings_to_profile` stays because it never touches a radio — it
+//! renders the Radio Options form into a profile's JSON — so there is no driver
+//! to dispatch to. It is TD-H3-shaped only because the form is; folding it into
+//! a generic settings-save is a job for the 3.7 dialog registry.
 
 
-use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::State;
 
 use crate::db::AppState;
 use crate::error::MapErrString;
@@ -25,47 +27,6 @@ use crate::radios::tidradio_tdh3::settings::{self as tdh3_settings, Tdh3Settings
 // ============================================================
 // Program channels
 // ============================================================
-
-#[derive(Serialize)]
-pub struct Tdh3ProgramResult {
-    /// Channels written (to channel numbers 1..=written).
-    pub written: usize,
-    /// Channel slots cleared (so the radio matches the codeplug exactly).
-    pub cleared: usize,
-    /// Whether the post-write read-back matched what we intended to write.
-    pub verified: bool,
-    /// Set when verification could not run or found differences.
-    pub verify_note: Option<String>,
-    /// Absolute path of the pre-write backup `.img`.
-    pub backup_path: String,
-    /// Channels present on the radio after writing (read back), sample. Now the
-    /// generic sample shape — the same fields the frontend renders.
-    pub channels: Vec<crate::radios::driver::DecodedChannelSample>,
-}
-
-/// Program a codeplug's channels directly into a connected TD-H3.
-///
-/// Thin wrapper over the generic `program::program_radio` (Chunk 3.6e): the
-/// whole hardware flow now lives in `ImageProgrammer::program_codeplug` on the
-/// driver, unchanged. Kept only so the frontend keeps working untouched; it
-/// retires in 3.6e-2, when `api.ts` moves to `program_radio`.
-#[tauri::command]
-pub async fn program_tdh3_codeplug(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    codeplug_id: i64,
-    port: String,
-) -> Result<Tdh3ProgramResult, String> {
-    let r = crate::commands::program::program_radio(app, state, codeplug_id, port).await?;
-    Ok(Tdh3ProgramResult {
-        written: r.channels_written,
-        cleared: r.slots_cleared,
-        verified: r.verified.unwrap_or(false),
-        verify_note: r.note,
-        backup_path: r.backup_path,
-        channels: r.channels,
-    })
-}
 
 // ============================================================
 // Settings: import radio settings INTO a saved profile

@@ -9,7 +9,8 @@
 //!      to TX/RX sub-tones, power levels back to the mode-byte bits, DMR
 //!      channels expanded per (talkgroup × timeslot) with contact indices
 //!      assigned in first-use order. Drives the preview.
-//!   2. `program_anytone_codeplug` — the hardware session. Reads every region
+//!   2. the hardware session (now `CodeplugProgrammer::program` on the driver,
+//!      reached via `program::program_radio`). Reads every region
 //!      it will touch (whole-bank/0x4000-window RMW, the HW-proven safe write
 //!      unit), computes the patched windows (slots/zones/scan lists/contacts
 //!      beyond the plan are cleared to each region's empty pattern), writes a
@@ -33,7 +34,7 @@ use super::anytone::{
 // The plan/session half moved into the driver in 3.6b; the DTOs it returns are
 // the generic driver-level ones, so the wire shape (and the frontend) is
 // unchanged.
-use crate::radios::driver::{CodeplugPreview, ProgramReport};
+use crate::radios::driver::CodeplugPreview;
 use crate::radios::registry::driver_for_model;
 // run_settings_program + its DTO moved into the driver's settings module in 3.5;
 // re-exported here so `commands::anytone_program::run_settings_program` (the
@@ -75,7 +76,7 @@ fn codeplug_programmer(
     })
 }
 
-/// Preview what `program_anytone_codeplug` would write: counts, skipped
+/// Preview what `program::program_radio` would write to this radio: counts, skipped
 /// channels with reasons, and warnings. Pure DB — no radio needed.
 #[tauri::command]
 pub async fn program_anytone_preview(
@@ -86,42 +87,8 @@ pub async fn program_anytone_preview(
     codeplug_programmer(&resolved.model)?.preview(&resolved.payload())
 }
 
-/// FULL-REPLACE program: assemble the codeplug and write it to the radio as
-/// its entire channel/zone/scan-list/contact set, in one session with a single
-/// END (one reboot). Mandatory backup + expected image are written before any
-/// byte goes to the radio. Brick-capable — UI-gated with an explicit ack.
-///
-/// Thin wrapper over the generic `program::program_radio` (Chunk 3.6e), which
-/// dispatches to this radio's `CodeplugProgrammer::program` — the same driver
-/// method this command already called, so the hardware path is unchanged. Kept
-/// only so the frontend keeps working untouched; it retires in 3.6e-2.
-#[tauri::command]
-pub async fn program_anytone_codeplug(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    codeplug_id: i64,
-    port: String,
-) -> Result<ProgramReport, String> {
-    let r = crate::commands::program::program_radio(app, state, codeplug_id, port).await?;
-    Ok(ProgramReport {
-        channels_written: r.channels_written,
-        slots_cleared: r.slots_cleared,
-        zones_written: r.zones_written,
-        zones_cleared: r.zones_cleared,
-        scan_lists_written: r.scan_lists_written,
-        scan_lists_cleared: r.scan_lists_cleared,
-        contacts_written: r.contacts_written,
-        contacts_cleared: r.contacts_cleared,
-        windows_written: r.windows_written,
-        backup_path: r.backup_path,
-        expected_path: r.expected_path.unwrap_or_default(),
-        warnings: r.warnings,
-        note: r.note.unwrap_or_default(),
-    })
-}
-
 /// Fresh-session byte-verify: strict-read every range in an `.expected.bin`
-/// image (from `program_anytone_codeplug`) and diff against what the radio
+/// image (from `program::program_radio`) and diff against what the radio
 /// actually holds after its commit+reboot. Read-only.
 #[tauri::command]
 pub async fn verify_anytone_program(
@@ -158,7 +125,7 @@ pub async fn verify_anytone_program(
 
 /// The newest program image pair on disk (`anytone-program-{stamp}.bin`
 /// backup + its `.expected.bin`), so Verify/Restore stay reachable even when
-/// the `program_anytone_codeplug` result never made it back to the UI (the
+/// the program result never made it back to the UI (the
 /// commit reboot drops USB, which can disrupt the IPC round-trip).
 #[derive(serde::Serialize)]
 pub struct AnytoneLatestProgram {
@@ -209,7 +176,7 @@ pub async fn latest_anytone_program(
 
 
 /// Safety net: write a program backup (the `[addr][len][data]` file from
-/// `program_anytone_codeplug`) back to the radio, restoring every window it
+/// `program::program_radio`) back to the radio, restoring every window it
 /// captured, then END once. Brick-capable; gated behind the dialog.
 #[tauri::command]
 pub async fn restore_anytone_backup(
