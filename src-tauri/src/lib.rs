@@ -124,26 +124,25 @@ pub fn run() {
             // export
             commands::export::export_preview,
             commands::export::generate_codeplug,
-            // direct radio programming — registry-dispatched, all radios (3.6c)
+            // direct radio programming — registry-dispatched, all radios
+            // (3.6c: identify/download_image; 3.6d: settings + call-sign DB)
             commands::program::list_serial_ports,
             commands::program::identify_radio,
             commands::program::download_image,
+            commands::program::read_radio_settings,
+            commands::program::write_radio_settings,
+            commands::program::write_callsign_db,
             // direct radio programming (UV-5R)
             commands::program::program_codeplug,
-            commands::program::read_radio_settings,
             commands::program::restore_image,
             commands::program::backups_dir,
             // direct radio programming (TIDRADIO TD-H3)
             commands::tdh3::program_tdh3_codeplug,
-            commands::tdh3::read_tdh3_settings_for_profile,
-            commands::tdh3::apply_tdh3_profile,
             commands::tdh3::save_tdh3_settings_to_profile,
             // direct radio programming (AnyTone AT-D890UV) — Stage 1: read-only
             commands::anytone::download_anytone_image,
             // radio download → library import (channels / zones→lists / contacts→TGs)
             commands::import::import_anytone_download,
-            // non-channel settings read: General Settings decode into profile shape
-            commands::anytone_settings::read_anytone_settings_for_profile,
             // Stage 3 write validation: round-trip no-op (gated, mandatory backup)
             // Stage 3 SAFE first write test: committing whole-bank no-op (gated)
             // Stage 3 batch channel write: app-model edits → bank RMW (gated, backup)
@@ -153,8 +152,6 @@ pub fn run() {
             // "Program radio" from the DB: full-replace channel set (gated, backup)
             commands::anytone_program::program_anytone_preview,
             commands::anytone_program::program_anytone_codeplug,
-            commands::anytone_program::program_anytone_settings,
-            commands::anytone_program::program_anytone_callsign_db,
             commands::anytone_program::verify_anytone_program,
             commands::anytone_program::restore_anytone_backup,
             commands::anytone_program::latest_anytone_program,

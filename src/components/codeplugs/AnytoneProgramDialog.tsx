@@ -18,7 +18,8 @@ import { api } from "../../lib/api";
 import type {
   AnytoneProgramPreview,
   AnytoneProgramResult,
-  AnytoneSettingsProgramResult,
+  SettingsWriteReport,
+  CallsignDbReport,
   AnytoneLatestProgram,
   AnytonePatchWriteResult,
   AnytoneVerifyResult,
@@ -47,12 +48,16 @@ export function AnytoneProgramDialog({
   open,
   onClose,
   codeplugId,
+  profileId,
   codeplugName,
   modelName,
 }: {
   open: boolean;
   onClose: () => void;
   codeplugId: number;
+  /// The codeplug's radio profile. Settings and the call-sign DB are written
+  /// per PROFILE (3.6d) — the channel-set program stays codeplug-scoped.
+  profileId: number | null;
   codeplugName: string;
   modelName: string;
 }) {
@@ -65,13 +70,11 @@ export function AnytoneProgramDialog({
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnytoneProgramResult | null>(null);
-  const [settingsResult, setSettingsResult] =
-    useState<AnytoneSettingsProgramResult | null>(null);
+  const [settingsResult, setSettingsResult] = useState<SettingsWriteReport | null>(null);
   const [latest, setLatest] = useState<AnytoneLatestProgram | null>(null);
   const [verify, setVerify] = useState<AnytoneVerifyResult | null>(null);
   const [restored, setRestored] = useState<AnytonePatchWriteResult | null>(null);
-  const [callsignResult, setCallsignResult] =
-    useState<AnytonePatchWriteResult | null>(null);
+  const [callsignResult, setCallsignResult] = useState<CallsignDbReport | null>(null);
 
   // UserDB (Call-sign Database) batch selection — mirrors the DMR-export dialog.
   const [dbCountries, setDbCountries] = useState<string[]>([]);
@@ -93,11 +96,7 @@ export function AnytoneProgramDialog({
   const expectedPath =
     result?.expected_path ?? settingsResult?.expected_path ?? latest?.expected_path ?? null;
   const backupPath =
-    result?.backup_path ??
-    settingsResult?.backup_path ??
-    callsignResult?.backup_path ??
-    latest?.backup_path ??
-    null;
+    result?.backup_path ?? settingsResult?.backup_path ?? latest?.backup_path ?? null;
   const usingLatest = !result && !settingsResult && !callsignResult && latest != null;
 
   const refreshPorts = async () => {
@@ -198,12 +197,19 @@ export function AnytoneProgramDialog({
     setRestored(null);
     setAck(false);
     try {
-      if (payload === "profile") {
-        setSettingsResult(await api.programAnytoneSettings(codeplugId, port));
-      } else if (payload === "userdb") {
-        setCallsignResult(
-          await api.programAnytoneCallsignDb(codeplugId, port, dbMaxCount, dbPriority),
-        );
+      if (payload === "profile" || payload === "userdb") {
+        if (profileId == null) {
+          throw new Error(
+            "This codeplug has no radio profile — attach one under Codeplugs first.",
+          );
+        }
+        if (payload === "profile") {
+          setSettingsResult(await api.writeRadioSettings(port, profileId));
+        } else {
+          setCallsignResult(
+            await api.writeCallsignDb(profileId, port, dbMaxCount, dbPriority),
+          );
+        }
       } else {
         setResult(await api.programAnytoneCodeplug(codeplugId, port));
       }
@@ -662,8 +668,8 @@ export function AnytoneProgramDialog({
             <div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200">
               <div className="flex items-center gap-2 font-semibold">
                 <CheckCircle2 size={14} className="shrink-0" />
-                Wrote settings — {settingsResult.fields_changed} byte
-                {settingsResult.fields_changed === 1 ? "" : "s"} changed across{" "}
+                Wrote settings — {settingsResult.fields_written} byte
+                {settingsResult.fields_written === 1 ? "" : "s"} changed across{" "}
                 {settingsResult.windows_written.length} window
                 {settingsResult.windows_written.length === 1 ? "" : "s"}
               </div>
@@ -679,8 +685,10 @@ export function AnytoneProgramDialog({
             <div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200">
               <div className="flex items-center gap-2 font-semibold">
                 <CheckCircle2 size={14} className="shrink-0" />
-                Wrote the call-sign database — {callsignResult.windows_written.length}{" "}
-                window{callsignResult.windows_written.length === 1 ? "" : "s"} written
+                Wrote the call-sign database — {callsignResult.entries_written}{" "}
+                entr{callsignResult.entries_written === 1 ? "y" : "ies"} across{" "}
+                {callsignResult.windows_written.length} window
+                {callsignResult.windows_written.length === 1 ? "" : "s"}
               </div>
               <p>
                 {callsignResult.note} Verify on the radio itself: an incoming or monitored

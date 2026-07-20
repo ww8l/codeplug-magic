@@ -635,11 +635,24 @@ export interface AnytoneVerifyResult {
 }
 
 // Result of pushing the radio profile's non-channel settings to the AT-D890UV.
-export interface AnytoneSettingsProgramResult {
-  fields_changed: number;
-  windows_written: string[];
+// Outcome of a committed settings write, for every radio (Rust
+// `SettingsWriteReport`). `verified` is null when the driver cannot read back
+// in the same session — the AnyTone reboots on commit, so it verifies via a
+// separate fresh-session byte-diff against `expected_path`.
+export interface SettingsWriteReport {
+  fields_written: number;
+  verified: boolean | null;
+  note: string | null;
   backup_path: string;
-  expected_path: string;
+  expected_path: string | null;
+  windows_written: string[];
+}
+
+// Outcome of a committed call-sign DB write (Rust `CallsignDbReport`). No
+// backup path: the read that would make one is what corrupts a large commit.
+export interface CallsignDbReport {
+  entries_written: number;
+  windows_written: string[];
   note: string;
 }
 
@@ -686,14 +699,6 @@ export interface Tdh3Settings {
   power_on_msg1: string;
   power_on_msg2: string;
   power_on_msg3: string;
-}
-
-export interface Tdh3ProfileApplyResult {
-  applied: number;
-  verified: boolean;
-  verify_note: string | null;
-  backup_path: string;
-  settings: Tdh3Settings;
 }
 
 // Mirrors the Rust `ParsedChannel` — every field that will be imported, shown

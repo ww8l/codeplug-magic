@@ -8,7 +8,7 @@
 //! layer there still owns DB access, backup paths, and result DTOs.
 //!
 //! This module is the `ImageProgrammer` half (channels + full-image clone);
-//! `settings.rs` is the `SettingsProgrammer` half (non-channel settings).
+//! `settings.rs` is the settings half (`SettingsReader` + `SettingsWriter`).
 //!
 //! Protocol notes (ported verbatim from `tdh8.py`):
 //!   - serial: 38400 8N1, 1s timeout.
@@ -36,7 +36,8 @@ use crate::commands::export::SlotChannel;
 use crate::error::MapErrString;
 use crate::models::{Channel, RadioModel};
 use crate::radios::driver::{
-    DecodedChannelSample, ImageProgrammer, RadioDriver, RadioIdentity, SettingsProgrammer,
+    DecodedChannelSample, ImageProgrammer, RadioDriver, RadioIdentity, SettingsReader,
+    SettingsWriter,
 };
 
 const BAUD: u32 = 38400;
@@ -80,17 +81,18 @@ const MIN_IMAGE_LEN: usize = 0x2008;
 const POWER_LEVELS: [&str; 3] = ["Low", "Med", "High"];
 
 // ============================================================
-// Driver registration (RadioDriver + ImageProgrammer + SettingsProgrammer)
+// Driver registration (RadioDriver + ImageProgrammer + settings read/write)
 // ============================================================
 
 /// The TD-H3 driver unit type. All protocol state lives on the serial port; the
 /// driver itself is stateless, so a single static instance serves the registry.
-/// `SettingsProgrammer` is implemented in `settings.rs`.
+/// `SettingsReader`/`SettingsWriter` are implemented in `settings.rs`.
 pub(crate) struct TidradioTdh3;
 
 /// Registry entry (see `radios/registry.rs`). `identify`/`download_image` reach
-/// it through the registry as of 3.6c; the remaining program/settings commands
-/// still call the module functions below directly until 3.6d/3.6e.
+/// it through the registry as of 3.6c and the settings read/write commands as
+/// of 3.6d; the codeplug program command still calls the module functions below
+/// directly until 3.6e.
 pub(crate) static DRIVER: TidradioTdh3 = TidradioTdh3;
 
 impl RadioDriver for TidradioTdh3 {
@@ -120,7 +122,11 @@ impl RadioDriver for TidradioTdh3 {
         Some(self)
     }
 
-    fn as_settings_programmer(&self) -> Option<&dyn SettingsProgrammer> {
+    fn as_settings_reader(&self) -> Option<&dyn SettingsReader> {
+        Some(self)
+    }
+
+    fn as_settings_writer(&self) -> Option<&dyn SettingsWriter> {
         Some(self)
     }
 }
@@ -788,7 +794,8 @@ mod tests {
     fn capabilities_derive_image_and_settings_programmer() {
         let caps = DriverCapabilities::of(&DRIVER);
         assert!(caps.program_image);
-        assert!(caps.program_settings);
+        assert!(caps.read_settings);
+        assert!(caps.write_settings);
         assert!(!caps.write_channels);
         assert!(!caps.write_callsign_db);
         assert!(!caps.export);

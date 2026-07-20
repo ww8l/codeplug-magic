@@ -7,7 +7,7 @@ import {
   UserCog,
 } from "lucide-react";
 import { api } from "../../lib/api";
-import type { RadioProfile, Tdh3ProfileApplyResult } from "../../lib/types";
+import type { RadioProfile, SettingsWriteReport } from "../../lib/types";
 import { Button, Spinner, Select } from "../ui";
 
 /**
@@ -66,13 +66,15 @@ export function Tdh3RadioOptions({
     setConfirming(false);
     setBusy(true);
     try {
-      const res: Tdh3ProfileApplyResult = await api.applyTdh3Profile(port, profileId);
+      const res: SettingsWriteReport = await api.writeRadioSettings(port, profileId);
+      const n = res.fields_written;
+      const applied = `Applied ${n} setting${n === 1 ? "" : "s"} from the profile`;
       setResult({
-        verified: res.verified,
-        message: res.verified
-          ? `Applied ${res.applied} setting${res.applied === 1 ? "" : "s"} from the profile · verified ✓`
-          : res.verify_note ||
-            `Applied ${res.applied} setting${res.applied === 1 ? "" : "s"} — verification warning`,
+        verified: res.verified === true,
+        message:
+          res.verified === true
+            ? `${applied} · verified ✓`
+            : res.note || `${applied} — verification warning`,
       });
     } catch (e) {
       setError(typeof e === "string" ? e : String(e));

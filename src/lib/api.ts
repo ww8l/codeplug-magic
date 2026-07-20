@@ -27,7 +27,8 @@ import type {
   RestoreResult,
   Tdh3ProgramResult,
   Tdh3Settings,
-  Tdh3ProfileApplyResult,
+  SettingsWriteReport,
+  CallsignDbReport,
   AnytoneDownloadResult,
   AnytoneDecodedChannel,
   AnytoneDecodedContact,
@@ -35,7 +36,6 @@ import type {
   AnytoneImportSummary,
   AnytoneProgramPreview,
   AnytoneProgramResult,
-  AnytoneSettingsProgramResult,
   AnytoneVerifyResult,
   AnytoneLatestProgram,
   AnytonePatchWriteResult,
@@ -302,11 +302,28 @@ export const api = {
   downloadImage: (driverKey: string, port: string) =>
     invoke<DownloadResult>("download_image", { driverKey, port }),
 
+  // Settings + call-sign DB (3.6d). No `driverKey` here: these are anchored to
+  // a radio profile, whose model row already carries the key.
+  readRadioSettings: (port: string, profileId: number) =>
+    invoke<RadioSettingsRead>("read_radio_settings", { port, profileId }),
+  writeRadioSettings: (port: string, profileId: number) =>
+    invoke<SettingsWriteReport>("write_radio_settings", { port, profileId }),
+  writeCallsignDb: (
+    profileId: number,
+    port: string,
+    maxCount: number | null,
+    priorityCountries: string[],
+  ) =>
+    invoke<CallsignDbReport>("write_callsign_db", {
+      profileId,
+      port,
+      maxCount,
+      priorityCountries,
+    }),
+
   // ---- direct radio programming (UV-5R) ----
   programCodeplug: (codeplugId: number, port: string) =>
     invoke<ProgramResult>("program_codeplug", { codeplugId, port }),
-  readRadioSettings: (port: string, profileId: number) =>
-    invoke<RadioSettingsRead>("read_radio_settings", { port, profileId }),
   restoreImage: (port: string, path: string) =>
     invoke<RestoreResult>("restore_image", { port, path }),
   backupsDir: () => invoke<string>("backups_dir"),
@@ -314,12 +331,6 @@ export const api = {
   // ---- direct radio programming (TIDRADIO TD-H3) ----
   programTdh3Codeplug: (codeplugId: number, port: string) =>
     invoke<Tdh3ProgramResult>("program_tdh3_codeplug", { codeplugId, port }),
-  readTdh3SettingsForProfile: (port: string, profileId: number) =>
-    invoke<RadioSettingsRead>("read_tdh3_settings_for_profile", { port, profileId }),
-  readAnytoneSettingsForProfile: (port: string, profileId: number) =>
-    invoke<RadioSettingsRead>("read_anytone_settings_for_profile", { port, profileId }),
-  applyTdh3Profile: (port: string, profileId: number) =>
-    invoke<Tdh3ProfileApplyResult>("apply_tdh3_profile", { port, profileId }),
   saveTdh3SettingsToProfile: (
     settings: Tdh3Settings,
     modelId: number,
@@ -352,20 +363,6 @@ export const api = {
     invoke<AnytoneProgramPreview>("program_anytone_preview", { codeplugId }),
   programAnytoneCodeplug: (codeplugId: number, port: string) =>
     invoke<AnytoneProgramResult>("program_anytone_codeplug", { codeplugId, port }),
-  programAnytoneSettings: (codeplugId: number, port: string) =>
-    invoke<AnytoneSettingsProgramResult>("program_anytone_settings", { codeplugId, port }),
-  programAnytoneCallsignDb: (
-    codeplugId: number,
-    port: string,
-    maxCount: number | null,
-    priorityCountries: string[],
-  ) =>
-    invoke<AnytonePatchWriteResult>("program_anytone_callsign_db", {
-      codeplugId,
-      port,
-      maxCount,
-      priorityCountries,
-    }),
   verifyAnytoneProgram: (port: string, expectedPath: string) =>
     invoke<AnytoneVerifyResult>("verify_anytone_program", { port, expectedPath }),
   restoreAnytoneBackup: (port: string, backupPath: string) =>

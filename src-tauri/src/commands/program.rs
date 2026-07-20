@@ -1,21 +1,35 @@
-//! UV-5R programming commands + model-agnostic serial-port enumeration.
+//! Registry-dispatched radio commands + the UV-5R's remaining per-radio ones.
 //!
-//! The UV-5R clone protocol itself (handshake, block reads/writes, channel
-//! encode/decode) lives in `radios/baofeng_uv5r` since Chunk 3.3; this module
-//! is the Tauri command layer on top of it — DB lookups, backup-file naming,
-//! and the result DTOs the frontend renders. `list_serial_ports` is
+//! Two kinds of command live here. The generic ones resolve a driver through
+//! `radios/registry.rs` and serve every radio: `identify_radio` and
+//! `download_image` (Chunk 3.6c), then `read_radio_settings`,
+//! `write_radio_settings`, and `write_callsign_db` (Chunk 3.6d). The rest are
+//! still UV-5R-specific (`program_codeplug`, `restore_image`) and fold into the
+//! generic surface in 3.6e; the UV-5R clone protocol they call has lived in
+//! `radios/baofeng_uv5r` since Chunk 3.3.
+//!
+//! Either way this module is only the Tauri layer — DB lookups, backup-file
+//! naming, and the result DTOs the frontend renders. `list_serial_ports` is
 //! model-agnostic and shared by every radio's dialog.
+//!
+//! Note which commands take a `driver_key` and which do not: the 3.6c pair is
+//! handed a bare port name, which carries no model hint, so the caller must say
+//! what it expects to find. The 3.6d trio is anchored to a radio profile, whose
+//! model row already carries the key.
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
+use crate::commands::dmr_users::select_prioritized_dmr_users;
 use crate::commands::export;
 use crate::db::AppState;
 use crate::error::MapErrString;
 use crate::radios::baofeng_uv5r as uv5r;
 use crate::radios::baofeng_uv5r::settings as uv5r_settings;
 use crate::radios::baofeng_uv5r::DecodedChannel;
-use crate::radios::driver::{DecodedChannelSample, RadioDriver};
+use crate::radios::driver::{
+    CallsignDbReport, CallsignRecord, DecodedChannelSample, RadioDriver, SettingsWriteReport,
+};
 use crate::radios::registry;
 
 // ============================================================
@@ -221,10 +235,74 @@ pub struct RadioSettingsRead {
     pub backup_path: String,
 }
 
+/// What a radio profile resolves to for the settings commands: the driver that
+/// speaks to its radio, the schema its values are keyed by, and the profile's
+/// own name (for backup filenames).
+struct ProfileTarget {
+    driver: &'static dyn RadioDriver,
+    schema: String,
+    profile_name: String,
+}
+
+/// Resolve `profile_id` to its driver + settings schema.
+///
+/// Unlike the 3.6c commands, the settings commands take NO `driver_key`
+/// argument: they are anchored to a profile, and a profile's model row already
+/// carries the key. (`identify`/`download_image` needed one because a bare port
+/// name carries no model hint.)
+async fn profile_target(
+    pool: &sqlx::SqlitePool,
+    profile_id: i64,
+) -> Result<ProfileTarget, String> {
+    let row: Option<(Option<String>, String, Option<String>, String)> = sqlx::query_as(
+        "SELECT rm.driver_key, rm.display_name, rm.non_channel_settings_schema, rp.display_name \
+         FROM radio_profiles rp JOIN radio_models rm ON rm.id = rp.radio_model_id \
+         WHERE rp.id = ?1",
+    )
+    .bind(profile_id)
+    .fetch_optional(pool)
+    .await
+    .estr()?;
+    let (driver_key, model_name, schema, profile_name) = row.ok_or("radio profile not found")?;
+    let driver_key = driver_key
+        .ok_or_else(|| format!("{model_name} has no live-radio driver — it is export-only"))?;
+    let driver = driver(&driver_key)?;
+    let schema = schema
+        .ok_or_else(|| format!("{model_name} has no settings schema to decode into"))?;
+    Ok(ProfileTarget {
+        driver,
+        schema,
+        profile_name,
+    })
+}
+
+/// Slugify a profile name for a backup filename: lowercase alphanumerics, runs
+/// of anything else collapsed to a single dash, capped at 40 chars.
+fn slug(label: &str) -> String {
+    let mut out = String::new();
+    let mut prev_dash = false;
+    for ch in label.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            prev_dash = false;
+        } else if !prev_dash && !out.is_empty() {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    out.trim_end_matches('-').chars().take(40).collect()
+}
+
 /// Read the radio's current non-channel settings into a profile's shape. Lets
 /// the user pull configuration changes they made on the radio back into the
-/// profile (the inverse of writing settings during programming). The full
-/// image is also saved as a backup, exactly like a normal download.
+/// profile (the inverse of writing settings during programming). Whatever the
+/// session read is also saved as a backup, exactly like a normal download.
+///
+/// Registry-dispatched (Chunk 3.6d) — replaces the former
+/// `read_radio_settings` (UV-5R) / `read_tdh3_settings_for_profile` /
+/// `read_anytone_settings_for_profile` trio, which already returned this same
+/// DTO. The backup bytes come back from the driver alongside the decoded
+/// values so the read stays ONE hardware session.
 #[tauri::command]
 pub async fn read_radio_settings(
     app: AppHandle,
@@ -232,49 +310,146 @@ pub async fn read_radio_settings(
     profile_id: i64,
     port: String,
 ) -> Result<RadioSettingsRead, String> {
-    // The profile's model + settings schema decide what we can decode.
-    let row: Option<(String, Option<String>, String)> = sqlx::query_as(
-        "SELECT rm.model, rm.non_channel_settings_schema, rp.name \
-         FROM radio_profiles rp JOIN radio_models rm ON rm.id = rp.radio_model_id \
-         WHERE rp.id = ?1",
-    )
-    .bind(profile_id)
-    .fetch_optional(&state.pool)
-    .await
-    .estr()?;
-    let (model, schema, profile_name) = row.ok_or("radio profile not found")?;
-    if model != "UV-5R" {
-        return Err(format!(
-            "Reading settings from the radio supports the Baofeng UV-5R only (this profile is a {model})."
-        ));
-    }
-    let schema = schema.ok_or("this radio model has no settings schema to decode into")?;
+    let target = profile_target(&state.pool, profile_id).await?;
+    let reader = target.driver.as_settings_reader().ok_or_else(|| {
+        format!(
+            "{} cannot report its settings over the cable",
+            target.driver.display_name()
+        )
+    })?;
 
     let backup_dir = app.path().app_data_dir().estr()?.join("radio-backups");
     std::fs::create_dir_all(&backup_dir).estr()?;
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let backup_path = backup_dir.join(uv5r::backup_filename("settings", &profile_name, &stamp));
+    let key = target.driver.key();
+    let slug = slug(&target.profile_name);
 
     tauri::async_runtime::spawn_blocking(move || {
-        let mut p = uv5r::open_port(&port)?;
-        let (magic, ident) = uv5r::ident_radio(&mut *p)?;
-        if !magic.starts_with("UV5R") {
-            return Err("the connected radio did not identify as a UV-5R".into());
-        }
-        let image = uv5r::download(&mut *p, &ident)?;
-        std::fs::write(&backup_path, &image)
+        let capture = reader.read_settings(&port, &target.schema)?;
+
+        // Named after the driver key, matching `download_image`'s convention, so
+        // a folder of backups stays self-identifying.
+        let ext = capture.backup_ext;
+        let backup_path = backup_dir.join(if slug.is_empty() {
+            format!("{key}-settings-{stamp}.{ext}")
+        } else {
+            format!("{key}-settings-{slug}-{stamp}.{ext}")
+        });
+        std::fs::write(&backup_path, &capture.backup)
             .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
 
-        let settings = uv5r_settings::decode_settings_from_image(&image, &schema)?;
-        let count = settings.as_object().map(|o| o.len()).unwrap_or(0);
+        let count = capture.settings.as_object().map(|o| o.len()).unwrap_or(0);
         Ok(RadioSettingsRead {
-            settings,
+            settings: capture.settings,
             count,
             backup_path: backup_path.to_string_lossy().to_string(),
         })
     })
     .await
     .estr()?
+}
+
+/// Push a saved radio profile's non-channel settings to the connected radio,
+/// leaving channels untouched. Every driver takes a mandatory backup before the
+/// first byte goes out; the returned report says how to verify (in-session
+/// read-back on the clone radios, a fresh-session byte-diff against
+/// `expected_path` on the AnyTone). Brick-capable — UI-gated with an ack.
+///
+/// Registry-dispatched (Chunk 3.6d) — replaces `apply_tdh3_profile` and
+/// `program_anytone_settings`. The AnyTone command took a `codeplug_id` purely
+/// to reach its profile's model; settings belong to the profile, so this one is
+/// profile-anchored like the TD-H3's always was.
+#[tauri::command]
+pub async fn write_radio_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    profile_id: i64,
+    port: String,
+) -> Result<SettingsWriteReport, String> {
+    let target = profile_target(&state.pool, profile_id).await?;
+    let writer = target.driver.as_settings_writer().ok_or_else(|| {
+        format!(
+            "{} cannot have settings written on their own — they go out with the \
+             channels when you program a codeplug.",
+            target.driver.display_name()
+        )
+    })?;
+
+    let saved: Option<String> =
+        sqlx::query_scalar("SELECT non_channel_settings FROM radio_profiles WHERE id = ?1")
+            .bind(profile_id)
+            .fetch_optional(&state.pool)
+            .await
+            .estr()?
+            .flatten();
+    let saved = saved.ok_or(
+        "This profile has no saved settings to apply. Open it under Radios, run \
+         \"Download from radio\", and save first.",
+    )?;
+    let settings: serde_json::Value = serde_json::from_str(&saved)
+        .map_err(|e| format!("saved profile settings are not valid JSON: {e}"))?;
+
+    let backup_dir = app.path().app_data_dir().estr()?.join("radio-backups");
+    std::fs::create_dir_all(&backup_dir).estr()?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        writer.write_settings(&port, &settings, &target.schema, &backup_dir)
+    })
+    .await
+    .estr()?
+}
+
+/// Push the DMR **call-sign database** (caller-ID / "UserDB") to a radio that
+/// has one: pull a capacity-capped, country/continent-prioritized batch from
+/// the local `dmr_users` library and hand it to the driver, which owns the
+/// on-flash layout and the write discipline.
+///
+/// Radio-wide rather than codeplug-scoped, but profile-anchored like the other
+/// settings commands so the driver resolves the same way. Verification is
+/// FUNCTIONAL (the radio's own caller-ID screen) — this region has no golden
+/// image to byte-diff. Brick-capable; UI-gated.
+///
+/// Registry-dispatched (Chunk 3.6d) — replaces `program_anytone_callsign_db`.
+#[tauri::command]
+pub async fn write_callsign_db(
+    state: State<'_, AppState>,
+    profile_id: i64,
+    port: String,
+    max_count: Option<i64>,
+    priority_countries: Vec<String>,
+) -> Result<CallsignDbReport, String> {
+    let target = profile_target(&state.pool, profile_id).await?;
+    let db_writer = target.driver.as_callsign_db_writer().ok_or_else(|| {
+        format!(
+            "{} has no on-board call-sign database",
+            target.driver.display_name()
+        )
+    })?;
+
+    let users = select_prioritized_dmr_users(&state.pool, max_count, &priority_countries).await?;
+    let records: Vec<CallsignRecord> = users
+        .into_iter()
+        .map(|u| CallsignRecord {
+            dmr_id: u.dmr_id as u32,
+            name: u.display_name(),
+            callsign: u.callsign,
+            city: u.city,
+            state: u.state,
+            country: u.country,
+            comment: u.remarks,
+        })
+        .collect();
+    if records.is_empty() {
+        return Err(
+            "No DMR contacts to write — open DMR Contacts and Refresh the library first \
+             (or widen the country selection)."
+                .to_string(),
+        );
+    }
+
+    tauri::async_runtime::spawn_blocking(move || db_writer.write_callsign_db(&port, &records))
+        .await
+        .estr()?
 }
 
 // ============================================================

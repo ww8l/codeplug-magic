@@ -78,8 +78,9 @@ const UV5R_DTCS: [u16; 105] = [
 pub(crate) struct BaofengUv5r;
 
 /// Registry entry (see `radios/registry.rs`). `identify`/`download_image` reach
-/// it through the registry as of 3.6c; the remaining program/settings commands
-/// still call the module functions below directly until 3.6d/3.6e.
+/// it through the registry as of 3.6c and `read_radio_settings` as of 3.6d; the
+/// remaining program commands still call the module functions below directly
+/// until 3.6e.
 pub(crate) static DRIVER: BaofengUv5r = BaofengUv5r;
 
 impl RadioDriver for BaofengUv5r {
@@ -107,6 +108,13 @@ impl RadioDriver for BaofengUv5r {
     }
 
     fn as_image_programmer(&self) -> Option<&dyn ImageProgrammer> {
+        Some(self)
+    }
+
+    /// Read only: the UV-5R has no standalone settings-write path — its profile
+    /// settings are encoded into the image `program_codeplug` uploads, never
+    /// pushed on their own. Hence [`SettingsReader`] without [`SettingsWriter`].
+    fn as_settings_reader(&self) -> Option<&dyn crate::radios::driver::SettingsReader> {
         Some(self)
     }
 }
@@ -804,10 +812,14 @@ mod tests {
     use crate::radios::driver::DriverCapabilities;
 
     #[test]
-    fn capabilities_derive_image_programmer_only() {
+    fn capabilities_derive_image_programmer_and_settings_read() {
         let caps = DriverCapabilities::of(&DRIVER);
         assert!(caps.program_image);
-        assert!(!caps.program_settings);
+        assert!(caps.read_settings);
+        // Read-only settings: the UV-5R's profile settings go out inside the
+        // image `program_codeplug` uploads, never as a standalone push. This is
+        // what the `SettingsReader`/`SettingsWriter` split (3.6d) exists to say.
+        assert!(!caps.write_settings);
         assert!(!caps.write_channels);
         assert!(!caps.write_callsign_db);
         assert!(!caps.export);

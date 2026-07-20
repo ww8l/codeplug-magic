@@ -2,11 +2,15 @@
 //!
 //! The clone protocol, channel encode/decode, and non-channel settings live in
 //! `radios/tidradio_tdh3` since Chunk 3.4 (`ImageProgrammer` in `mod.rs`,
-//! `SettingsProgrammer` in `settings.rs`); this module is the thin Tauri layer —
-//! DB access, backup-file paths, and the result DTOs. Command signatures are
-//! unchanged from before the extraction, so `lib.rs` and the frontend are
-//! untouched (that rewiring is Chunk 3.6/3.7). Port enumeration reuses
-//! `program::list_serial_ports` (it is model-agnostic).
+//! `SettingsReader`/`SettingsWriter` in `settings.rs`); this module is the thin
+//! Tauri layer — DB access, backup-file paths, and the result DTOs.
+//!
+//! Both settings commands that lived here went generic in Chunk 3.6d:
+//! `read_tdh3_settings_for_profile` → `program::read_radio_settings` and
+//! `apply_tdh3_profile` → `program::write_radio_settings`. What remains is the
+//! channel program plus `save_tdh3_settings_to_profile`, which is DB-only (it
+//! never touches a radio) and so has nothing to dispatch. Port enumeration
+//! reuses `program::list_serial_ports` (it is model-agnostic).
 
 use std::time::Duration;
 
@@ -14,7 +18,6 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
 use crate::commands::export;
-use crate::commands::program::RadioSettingsRead;
 use crate::db::AppState;
 use crate::error::MapErrString;
 use crate::models::RadioProfile;
@@ -146,189 +149,6 @@ pub async fn program_tdh3_codeplug(
     .estr()?;
 
     Ok(result)
-}
-
-// ============================================================
-// Settings: read radio → profile editor form
-// ============================================================
-
-/// Read the radio's current settings into a profile's editor form (ident →
-/// download → decode into the schema-keyed JSON the profile stores). The TD-H3
-/// mirror of the UV-5R `read_radio_settings`: non-destructive (reads memory
-/// only), backs up the downloaded image first, and decodes only the keys we can
-/// locate so the editor can merge them over the profile's current values.
-#[tauri::command]
-pub async fn read_tdh3_settings_for_profile(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    profile_id: i64,
-    port: String,
-) -> Result<RadioSettingsRead, String> {
-    // The profile's model + settings schema decide what we can decode.
-    let row: Option<(String, Option<String>, String)> = sqlx::query_as(
-        "SELECT rm.model, rm.non_channel_settings_schema, rp.display_name \
-         FROM radio_profiles rp JOIN radio_models rm ON rm.id = rp.radio_model_id \
-         WHERE rp.id = ?1",
-    )
-    .bind(profile_id)
-    .fetch_optional(&state.pool)
-    .await
-    .estr()?;
-    let (model, schema, profile_name) = row.ok_or("radio profile not found")?;
-    if model != "TD-H3" {
-        return Err(format!(
-            "This radio profile is for {model}, not the TD-H3."
-        ));
-    }
-    let schema = schema.ok_or("the TD-H3 model has no settings schema to decode into")?;
-
-    let backup_dir = app.path().app_data_dir().estr()?.join("radio-backups");
-    std::fs::create_dir_all(&backup_dir).estr()?;
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let slug = tdh3::slug_label(&profile_name);
-    let backup_path = backup_dir.join(if slug.is_empty() {
-        format!("tdh3-settings-{stamp}.img")
-    } else {
-        format!("tdh3-settings-{slug}-{stamp}.img")
-    });
-
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut p = tdh3::open_port(&port)?;
-        let ident = tdh3::do_ident(&mut *p)?;
-        let image = tdh3::download(&mut *p, &ident)?;
-        std::fs::write(&backup_path, &image)
-            .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
-
-        let settings = tdh3_settings::decode_profile_settings(&image, &schema)?;
-        let count = settings.as_object().map(|o| o.len()).unwrap_or(0);
-        Ok(RadioSettingsRead {
-            settings,
-            count,
-            backup_path: backup_path.to_string_lossy().to_string(),
-        })
-    })
-    .await
-    .estr()?
-}
-
-// ============================================================
-// Settings: write edited settings → radio
-// ============================================================
-
-#[derive(Serialize)]
-pub struct Tdh3SettingsWriteResult {
-    /// Whether the post-write read-back matched what we intended to write.
-    pub verified: bool,
-    /// Set when verification could not run or found differences.
-    pub verify_note: Option<String>,
-    /// Absolute path of the pre-write backup `.img`.
-    pub backup_path: String,
-    /// The settings present on the radio after writing (read back).
-    pub settings: Tdh3Settings,
-}
-
-// ============================================================
-// Settings: apply a saved radio profile → radio
-// ============================================================
-
-#[derive(Serialize)]
-pub struct Tdh3ProfileApplyResult {
-    /// Number of profile fields actually written to the radio.
-    pub applied: usize,
-    /// Whether the post-write read-back matched what we intended to write.
-    pub verified: bool,
-    /// Set when verification could not run or found differences.
-    pub verify_note: Option<String>,
-    /// Absolute path of the pre-write backup `.img`.
-    pub backup_path: String,
-    /// The settings present on the radio after applying (read back) — lets the
-    /// Radio Options form refresh to show what the profile set.
-    pub settings: Tdh3Settings,
-}
-
-/// Apply a saved radio profile's non-channel settings to a connected TD-H3,
-/// leaving channels untouched. Same safety model as the other writes: download +
-/// back up the full image first, patch only the profile's settings bits, upload
-/// the whole main range (channels and every unsupported setting preserved as
-/// read), then read back and verify.
-#[tauri::command]
-pub async fn apply_tdh3_profile(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    port: String,
-    profile_id: i64,
-) -> Result<Tdh3ProfileApplyResult, String> {
-    // Pull the profile's model, schema, and saved settings up front (before the
-    // blocking serial work, which can't hold the DB connection).
-    let row: Option<(String, Option<String>, Option<String>, String)> = sqlx::query_as(
-        "SELECT rm.model, rm.non_channel_settings_schema, rp.non_channel_settings, rp.display_name \
-         FROM radio_profiles rp JOIN radio_models rm ON rm.id = rp.radio_model_id WHERE rp.id = ?1",
-    )
-    .bind(profile_id)
-    .fetch_optional(&state.pool)
-    .await
-    .estr()?;
-    let (model, schema, settings, profile_name) = row.ok_or("radio profile not found")?;
-    if model != "TD-H3" {
-        return Err(format!(
-            "This radio profile is for {model}, not the TD-H3."
-        ));
-    }
-    let schema = schema.ok_or("the TD-H3 model has no settings schema")?;
-    let settings = settings
-        .ok_or("This profile has no saved settings to apply. Edit it under Radios first.")?;
-
-    let backup_dir = app.path().app_data_dir().estr()?.join("radio-backups");
-    std::fs::create_dir_all(&backup_dir).estr()?;
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let slug = tdh3::slug_label(&profile_name);
-    let backup_path = backup_dir.join(if slug.is_empty() {
-        format!("tdh3-preprofile-{stamp}.img")
-    } else {
-        format!("tdh3-preprofile-{slug}-{stamp}.img")
-    });
-
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut p = tdh3::open_port(&port)?;
-
-        // 1. Download + back up the current radio contents.
-        let ident = tdh3::do_ident(&mut *p)?;
-        let mut image = tdh3::download(&mut *p, &ident)?;
-        std::fs::write(&backup_path, &image)
-            .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
-
-        // 2. Patch the profile's settings bits into the downloaded image.
-        let applied = tdh3_settings::apply_profile_settings(&mut image, &schema, &settings)?;
-
-        // 3. Re-identify and upload the whole main range, then leave clone mode.
-        std::thread::sleep(Duration::from_secs(1));
-        tdh3::reident(&mut *p)?;
-        tdh3::upload(&mut *p, &image)?;
-
-        // 4. Read back and verify (non-fatal).
-        let (verified, verify_note, result) =
-            match tdh3_settings::verify_settings_after_write(&mut *p, &image) {
-                Ok((ok, note, st)) => (ok, note, st),
-                Err(e) => (
-                    false,
-                    Some(format!(
-                        "Profile written, but read-back verification could not run ({e}). \
-                         Power-cycle the radio and use Read to confirm."
-                    )),
-                    tdh3_settings::decode_settings(&image),
-                ),
-            };
-
-        Ok(Tdh3ProfileApplyResult {
-            applied,
-            verified,
-            verify_note,
-            backup_path: backup_path.to_string_lossy().to_string(),
-            settings: result,
-        })
-    })
-    .await
-    .estr()?
 }
 
 // ============================================================

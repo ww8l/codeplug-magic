@@ -1,5 +1,5 @@
 //! AnyTone AT-D890UV non-channel settings ("radio profile"): the field table,
-//! the General/Boot settings decode + encode, and the SettingsProgrammer device
+//! the General/Boot settings decode + encode, and the settings read/write device
 //! I/O. Moved here from commands/anytone_settings.rs in Chunk 3.5. The Tauri
 //! command layer (commands/anytone_settings.rs) keeps the DB + backup wrapper and
 //! re-exports these items.
@@ -17,7 +17,7 @@ use super::{
     commit_channel_writes, end_session, enter_program_and_ident, open_port, plans_from_pre_read,
     read_block, serialize_backup, AnytoneAtd890uv, BankPlan, RegionPatch, WRITE_WINDOW,
 };
-use crate::radios::driver::SettingsProgrammer;
+use crate::radios::driver::{SettingsCapture, SettingsReader, SettingsWriteReport, SettingsWriter};
 
 /// Base of "Radio Id element 0" — the radio's own DMR ID + name. A `repeat` of
 /// up to 250 records (stride 0x40) at `0x03680000`; each is a 4-byte big-endian
@@ -539,12 +539,17 @@ pub fn run_settings_program(
 
 
 
-impl SettingsProgrammer for AnytoneAtd890uv {
+impl SettingsReader for AnytoneAtd890uv {
     /// Read the General/Boot settings windows off the radio and decode them into
     /// the profile-form JSON (`decode_anytone_settings`). The schema is table-
-    /// driven here, so `schema_json` is unused. Device I/O only; the command layer
-    /// (`read_anytone_settings_for_profile`) owns the DB gate + backup file.
-    fn read_settings(&self, port: &str, _schema_json: &str) -> Result<Value, String> {
+    /// driven here, so `schema_json` is unused. Device I/O only; the command
+    /// layer owns the DB gate and saves the returned bytes as the backup.
+    ///
+    /// The raw windows come back alongside the decoded values so the backup is
+    /// made from THIS session's read — as a self-describing
+    /// `[addr:BE][len:BE][data]` dump, the same shape `parse_dump` and the
+    /// dump/diff tooling consume.
+    fn read_settings(&self, port: &str, _schema_json: &str) -> Result<SettingsCapture, String> {
         let mut p = open_port(port)?;
         let _ident = enter_program_and_ident(&mut *p)?;
         let mut blocks = Vec::new();
@@ -558,21 +563,54 @@ impl SettingsProgrammer for AnytoneAtd890uv {
             }
         }
         let _ = end_session(&mut *p);
-        Ok(decode_anytone_settings(&blocks))
-    }
+        if blocks.is_empty() {
+            return Err("radio returned no settings data".into());
+        }
 
+        let mut backup = Vec::new();
+        for (addr, data) in &blocks {
+            backup.extend_from_slice(&addr.to_be_bytes());
+            backup.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            backup.extend_from_slice(data);
+        }
+        Ok(SettingsCapture {
+            settings: decode_anytone_settings(&blocks),
+            backup,
+            backup_ext: "bin",
+        })
+    }
+}
+
+impl SettingsWriter for AnytoneAtd890uv {
     /// Encode `settings` into the settings windows and write them (backup → write
-    /// → single END/commit) via the shared `run_settings_program`. The trait
-    /// carries no backup directory, so the mandatory pre-write backup + expected
-    /// image go to the system temp dir; the Tauri command
-    /// (`program_anytone_settings`) keeps the app-data `radio-backups` copies.
-    fn write_settings(&self, port: &str, settings: &Value, _schema_json: &str) -> Result<(), String> {
-        let dir = std::env::temp_dir();
-        let pid = std::process::id();
-        let backup = dir.join(format!("anytone-settings-{pid}.bak"));
-        let expected = dir.join(format!("anytone-settings-{pid}.expected"));
-        run_settings_program(port, settings, &backup, &expected)?;
-        Ok(())
+    /// → single END/commit) via the shared `run_settings_program`.
+    ///
+    /// The filenames stay `anytone-settings-write-{stamp}.bin` / `.expected.bin`:
+    /// `latest_anytone_program` finds a Verify/Restore target by scanning that
+    /// exact prefix, so renaming them would strand the user when the commit
+    /// reboot drops USB before the result reaches the UI.
+    fn write_settings(
+        &self,
+        port: &str,
+        settings: &Value,
+        _schema_json: &str,
+        backup_dir: &std::path::Path,
+    ) -> Result<SettingsWriteReport, String> {
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let backup_path = backup_dir.join(format!("anytone-settings-write-{stamp}.bin"));
+        let expected_path = backup_dir.join(format!("anytone-settings-write-{stamp}.expected.bin"));
+        let result = run_settings_program(port, settings, &backup_path, &expected_path)?;
+        Ok(SettingsWriteReport {
+            fields_written: result.fields_changed,
+            // The END/commit reboots the radio and re-enumerates USB, so there
+            // is no in-session read-back — verification is the separate
+            // fresh-session byte-diff against `expected_path`.
+            verified: None,
+            note: Some(result.note),
+            backup_path: result.backup_path,
+            expected_path: Some(result.expected_path),
+            windows_written: result.windows_written,
+        })
     }
 }
 
