@@ -153,15 +153,15 @@ function AnytoneBackupBar({ modelLabel }: { modelLabel: string }) {
     if (!port) return;
     setBusy("identify");
     // No custom error message — surface the real backend error.
-    const res = await withToast(api.identifyAnytone(port));
+    const res = await withToast(api.identifyRadio("anytone_atd890uv", port));
     setBusy("idle");
     if (!res) {
       await refresh(); // a vanished/renamed port self-corrects on the next try
       return;
     }
-    setStatus(`Identified: ${cleanIdent(res.ident_ascii)}`);
+    setStatus(`Identified: ${cleanIdent(res.ident_ascii ?? res.ident_hex)}`);
     const { toast } = await import("sonner");
-    toast.success(`Radio identified as ${cleanIdent(res.ident_ascii)}.`);
+    toast.success(`Radio identified as ${cleanIdent(res.ident_ascii ?? res.ident_hex)}.`);
   };
 
   const download = async () => {

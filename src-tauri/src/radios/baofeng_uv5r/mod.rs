@@ -28,7 +28,7 @@ use crate::commands::export;
 use crate::commands::export::SlotChannel;
 use crate::error::MapErrString;
 use crate::models::{Channel, RadioModel};
-use crate::radios::driver::{ImageProgrammer, RadioDriver, RadioIdentity};
+use crate::radios::driver::{DecodedChannelSample, ImageProgrammer, RadioDriver, RadioIdentity};
 
 const BAUD: u32 = 9600;
 const TIMEOUT: Duration = Duration::from_secs(1);
@@ -77,10 +77,9 @@ const UV5R_DTCS: [u16; 105] = [
 /// driver itself is stateless, so a single static instance serves the registry.
 pub(crate) struct BaofengUv5r;
 
-/// Registry entry (see `radios/registry.rs`). The command layer still calls the
-/// module functions below directly until 3.6 routes dispatch through the
-/// registry, so the static is only reachable through `all_drivers()` for now.
-#[allow(dead_code)] // remove when 3.6 dispatches commands via the registry
+/// Registry entry (see `radios/registry.rs`). `identify`/`download_image` reach
+/// it through the registry as of 3.6c; the remaining program/settings commands
+/// still call the module functions below directly until 3.6d/3.6e.
 pub(crate) static DRIVER: BaofengUv5r = BaofengUv5r;
 
 impl RadioDriver for BaofengUv5r {
@@ -96,25 +95,51 @@ impl RadioDriver for BaofengUv5r {
         BAUD
     }
 
+    fn identify(&self, port: &str) -> Result<RadioIdentity, String> {
+        let mut p = open_port(port)?;
+        let (matched, ident) = ident_radio(&mut *p)?;
+        Ok(RadioIdentity {
+            matched,
+            ident_hex: hex(&ident),
+            // The UV-5R ident is a binary magic, not a printable model token.
+            ident_ascii: None,
+        })
+    }
+
     fn as_image_programmer(&self) -> Option<&dyn ImageProgrammer> {
         Some(self)
     }
 }
 
 impl ImageProgrammer for BaofengUv5r {
-    fn identify(&self, port: &str) -> Result<RadioIdentity, String> {
+    fn download_image(&self, port: &str) -> Result<(RadioIdentity, Vec<u8>), String> {
         let mut p = open_port(port)?;
         let (matched, ident) = ident_radio(&mut *p)?;
-        Ok(RadioIdentity {
-            matched,
-            details: Some(hex(&ident)),
-        })
+        let image = download(&mut *p, &ident)?;
+        Ok((
+            RadioIdentity {
+                matched,
+                ident_hex: hex(&ident),
+                ident_ascii: None,
+            },
+            image,
+        ))
     }
 
-    fn download_image(&self, port: &str) -> Result<Vec<u8>, String> {
-        let mut p = open_port(port)?;
-        let (_magic, ident) = ident_radio(&mut *p)?;
-        download(&mut *p, &ident)
+    fn decode_sample(&self, image: &[u8]) -> Vec<DecodedChannelSample> {
+        decode_channels(image)
+            .into_iter()
+            .map(|c| DecodedChannelSample {
+                index: c.index,
+                name: c.name,
+                rx_mhz: c.rx_mhz,
+                // The UV-5R decoder reports neither shift nor bandwidth.
+                shift: None,
+                tone: c.tone,
+                power: c.power,
+                mode: None,
+            })
+            .collect()
     }
 
     fn upload_image(&self, port: &str, image: &[u8]) -> Result<(), String> {

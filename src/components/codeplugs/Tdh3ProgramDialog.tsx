@@ -14,9 +14,10 @@ import { api } from "../../lib/api";
 import type {
   ExportPreview,
   PortInfo,
+  DecodedChannelSample,
+  DownloadResult,
+  RadioIdent,
   Tdh3DecodedChannel,
-  Tdh3DownloadResult,
-  Tdh3Ident,
   Tdh3ProgramResult,
 } from "../../lib/types";
 import { Modal } from "../overlays";
@@ -35,6 +36,9 @@ const TDH3_CAPACITY = 199;
  * whole main range (so all other settings are preserved), and reads back to
  * verify. The radio's non-channel settings are written back untouched.
  */
+/// See the note in `ProgramRadioDialog` — per-dialog until 3.7.
+const DRIVER_KEY = "tidradio_tdh3";
+
 export function Tdh3ProgramDialog({
   open,
   onClose,
@@ -54,8 +58,8 @@ export function Tdh3ProgramDialog({
   const [port, setPort] = useState<string>("");
   const [preview, setPreview] = useState<ExportPreview | null>(null);
   const [busy, setBusy] = useState<null | "identify" | "download" | "program">(null);
-  const [ident, setIdent] = useState<Tdh3Ident | null>(null);
-  const [download, setDownload] = useState<Tdh3DownloadResult | null>(null);
+  const [ident, setIdent] = useState<RadioIdent | null>(null);
+  const [download, setDownload] = useState<DownloadResult | null>(null);
   const [program, setProgram] = useState<Tdh3ProgramResult | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,13 +109,13 @@ export function Tdh3ProgramDialog({
     run("identify", async () => {
       setDownload(null);
       setProgram(null);
-      setIdent(await api.identifyTdh3(port));
+      setIdent(await api.identifyRadio(DRIVER_KEY, port));
     });
 
   const doDownload = () =>
     run("download", async () => {
       setProgram(null);
-      setDownload(await api.downloadTdh3Image(port));
+      setDownload(await api.downloadImage(DRIVER_KEY, port));
     });
 
   const doProgram = () =>
@@ -294,7 +298,7 @@ export function Tdh3ProgramDialog({
               <span>
                 Radio responded. Ident:{" "}
                 <span className="font-mono">{ident.ident_hex}</span>
-                {ident.ident_ascii.trim() && (
+                {ident.ident_ascii?.trim() && (
                   <>
                     {" "}
                     (<span className="font-mono">{ident.ident_ascii}</span>)
@@ -357,7 +361,9 @@ function ResultBlock({
   note?: string;
   backupPath: string;
   backupLabel: string;
-  channels: Tdh3DecodedChannel[];
+  // Both the generic download sample and the TD-H3 program result feed this;
+  // the sample nulls `shift`/`mode` on radios that don't decode them.
+  channels: (Tdh3DecodedChannel | DecodedChannelSample)[];
   footer?: string;
 }) {
   return (
@@ -412,7 +418,7 @@ function ResultBlock({
                     <td className="px-3 py-1 font-mono">{c.rx_mhz.toFixed(4)}</td>
                     <td className="px-3 py-1 font-mono">{c.shift || "—"}</td>
                     <td className="px-3 py-1">{c.tone}</td>
-                    <td className="px-3 py-1">{c.mode}</td>
+                    <td className="px-3 py-1">{c.mode || "—"}</td>
                     <td className="px-3 py-1">{c.power}</td>
                   </tr>
                 ))}

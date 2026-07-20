@@ -25,12 +25,9 @@ import type {
   RadioIdent,
   RadioSettingsRead,
   RestoreResult,
-  Tdh3Ident,
-  Tdh3DownloadResult,
   Tdh3ProgramResult,
   Tdh3Settings,
   Tdh3ProfileApplyResult,
-  AnytoneIdent,
   AnytoneDownloadResult,
   AnytoneDecodedChannel,
   AnytoneDecodedContact,
@@ -296,12 +293,16 @@ export const api = {
   generateCodeplug: (codeplugId: number, path: string) =>
     invoke<number>("generate_codeplug", { codeplugId, path }),
 
-  // ---- direct radio programming (UV-5R, Phase A: read-only) ----
+  // ---- direct radio programming: registry-dispatched, all radios (3.6c) ----
+  // `driverKey` is the radio's `radio_models.driver_key`; the port alone carries
+  // no model hint, so the caller says which radio it expects to find.
   listSerialPorts: () => invoke<PortInfo[]>("list_serial_ports"),
-  identifyRadio: (port: string) =>
-    invoke<RadioIdent>("identify_radio", { port }),
-  downloadImage: (port: string) =>
-    invoke<DownloadResult>("download_image", { port }),
+  identifyRadio: (driverKey: string, port: string) =>
+    invoke<RadioIdent>("identify_radio", { driverKey, port }),
+  downloadImage: (driverKey: string, port: string) =>
+    invoke<DownloadResult>("download_image", { driverKey, port }),
+
+  // ---- direct radio programming (UV-5R) ----
   programCodeplug: (codeplugId: number, port: string) =>
     invoke<ProgramResult>("program_codeplug", { codeplugId, port }),
   readRadioSettings: (port: string, profileId: number) =>
@@ -311,10 +312,6 @@ export const api = {
   backupsDir: () => invoke<string>("backups_dir"),
 
   // ---- direct radio programming (TIDRADIO TD-H3) ----
-  identifyTdh3: (port: string) =>
-    invoke<Tdh3Ident>("identify_tdh3", { port }),
-  downloadTdh3Image: (port: string) =>
-    invoke<Tdh3DownloadResult>("download_tdh3_image", { port }),
   programTdh3Codeplug: (codeplugId: number, port: string) =>
     invoke<Tdh3ProgramResult>("program_tdh3_codeplug", { codeplugId, port }),
   readTdh3SettingsForProfile: (port: string, profileId: number) =>
@@ -337,8 +334,6 @@ export const api = {
     }),
 
   // ---- direct radio programming (AnyTone AT-D890UV, Stage 1: read-only) ----
-  identifyAnytone: (port: string) =>
-    invoke<AnytoneIdent>("identify_anytone", { port }),
   downloadAnytoneImage: (port: string) =>
     invoke<AnytoneDownloadResult>("download_anytone_image", { port }),
   importAnytoneDownload: (

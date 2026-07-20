@@ -34,7 +34,7 @@ use serialport::{ClearBuffer, SerialPort};
 use crate::error::MapErrString;
 use crate::radios::driver::{
     CallsignDbWriter, CodeplugExporter, CodeplugProgrammer, DriverDiagnostics, RadioDriver,
-    SettingsProgrammer,
+    RadioIdentity, SettingsProgrammer,
 };
 
 pub(crate) mod callsign_db;
@@ -52,10 +52,9 @@ pub(crate) mod settings;
 /// each is extracted in Chunk 3.5).
 pub(crate) struct AnytoneAtd890uv;
 
-/// Registry entry (see `radios/registry.rs`). The command layer still calls the
-/// module functions directly (re-exported through `commands::anytone`) until 3.6
-/// routes dispatch through the registry.
-#[allow(dead_code)] // remove when 3.6 dispatches commands via the registry
+/// Registry entry (see `radios/registry.rs`). `identify` reaches it through the
+/// registry as of 3.6c; the remaining commands still call the module functions
+/// directly (re-exported through `commands::anytone`) until 3.6d/3.6e.
 pub(crate) static DRIVER: AnytoneAtd890uv = AnytoneAtd890uv;
 
 impl RadioDriver for AnytoneAtd890uv {
@@ -69,6 +68,19 @@ impl RadioDriver for AnytoneAtd890uv {
 
     fn baud(&self) -> u32 {
         BAUD
+    }
+
+    fn identify(&self, port: &str) -> Result<RadioIdentity, String> {
+        let mut p = open_port(port)?;
+        let ident = enter_program_and_ident(&mut *p)?;
+        // END reboots the radio and re-enumerates the USB port, so it must be
+        // the last thing this session does — see `anytone-direct-cable-programming`.
+        let _ = end_session(&mut *p);
+        Ok(RadioIdentity {
+            matched: ascii(&ident),
+            ident_hex: hex(&ident),
+            ident_ascii: Some(ascii(&ident)),
+        })
     }
 
     // Capabilities the driver advertises. `as_channel_writer` stays unset on
@@ -2049,8 +2061,12 @@ mod tests {
         assert!(caps.write_callsign_db);
         assert!(caps.export);
         assert!(caps.diagnostics);
-        // Deferred to 3.6 (the DB-driven full-codeplug program stays in the
-        // command layer) and not applicable (AnyTone is not an image-clone radio):
+        // The DB-driven full-codeplug program moved into the driver in 3.6b.
+        assert!(caps.program_codeplug);
+        // Not applicable: this radio's programming unit is the whole codeplug,
+        // not channels alone, and it is not an image-clone radio. `program_image`
+        // staying false is what makes `download_image` reject it by name rather
+        // than opening the port (see `commands/program.rs`, 3.6c).
         assert!(!caps.write_channels);
         assert!(!caps.program_image);
         assert_eq!(DRIVER.key(), "anytone_atd890uv");

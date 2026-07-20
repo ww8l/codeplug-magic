@@ -31,6 +31,11 @@ import { Button, Spinner, Select } from "../ui";
  * name regions and reads them back to verify. Settings/aux memory are
  * round-tripped untouched.
  */
+/// This dialog is the UV-5R's, so it names the driver it dispatches to.
+/// Threading `driver_key` through the model DTO instead is Chunk 3.7's job
+/// (that's what `radio_models.programming_ui` is for).
+const DRIVER_KEY = "baofeng_uv5r";
+
 export function ProgramRadioDialog({
   open,
   onClose,
@@ -104,13 +109,13 @@ export function ProgramRadioDialog({
     run("identify", async () => {
       setDownload(null);
       setProgram(null);
-      setIdent(await api.identifyRadio(port));
+      setIdent(await api.identifyRadio(DRIVER_KEY, port));
     });
 
   const doDownload = () =>
     run("download", async () => {
       setProgram(null);
-      setDownload(await api.downloadImage(port));
+      setDownload(await api.downloadImage(DRIVER_KEY, port));
     });
 
   const doProgram = () =>
