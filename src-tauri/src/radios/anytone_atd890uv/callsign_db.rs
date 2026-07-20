@@ -46,7 +46,7 @@
 //!     stopped at ~38. Writing full 300k data with truncation fixes it.
 
 use super::{bcd_be_encode, run_patch_writes_direct, AnytoneAtd890uv, RegionPatch};
-use crate::radios::driver::{CallsignDbWriter, CallsignRecord};
+use crate::radios::driver::{CallsignDbReport, CallsignDbWriter, CallsignRecord};
 
 /// Call-sign Database Limits record (Entry Count + End-of-DB address + 8 pad).
 pub const LIMITS_BASE: u32 = 0x0700_0000;
@@ -252,8 +252,16 @@ impl CallsignDbWriter for AnytoneAtd890uv {
     /// Encode `records` into the three caller-ID regions and write them via the
     /// DIRECT (no read-modify-write) path — the RMW read phase corrupts large
     /// flash commits, and the DB region is fully overwritten so nothing needs
-    /// preserving (see `run_patch_writes_direct`). Returns the entry count written.
-    fn write_callsign_db(&self, port: &str, records: &[CallsignRecord]) -> Result<usize, String> {
+    /// preserving (see `run_patch_writes_direct`).
+    ///
+    /// No backup is taken: the read that would make one is the very thing that
+    /// corrupts a large commit, and the region is self-contained and
+    /// regenerable from the local DMR library.
+    fn write_callsign_db(
+        &self,
+        port: &str,
+        records: &[CallsignRecord],
+    ) -> Result<CallsignDbReport, String> {
         let entries: Vec<CallsignDbEntry> = records
             .iter()
             .filter(|r| r.dmr_id > 0 && r.dmr_id <= 99_999_999)
@@ -264,16 +272,20 @@ impl CallsignDbWriter for AnytoneAtd890uv {
                 call: r.callsign.clone(),
                 state: r.state.clone().unwrap_or_default(),
                 country: r.country.clone().unwrap_or_default(),
-                comment: String::new(),
+                comment: r.comment.clone().unwrap_or_default(),
             })
             .collect();
         if entries.is_empty() {
             return Err("no valid DMR IDs in the batch".to_string());
         }
-        let count = entries.len();
+        let entries_written = entries.len();
         let patches = encode_callsign_db(&entries)?;
-        run_patch_writes_direct(port, &patches)?;
-        Ok(count)
+        let result = run_patch_writes_direct(port, &patches)?;
+        Ok(CallsignDbReport {
+            entries_written,
+            windows_written: result.windows_written,
+            note: result.note,
+        })
     }
 }
 

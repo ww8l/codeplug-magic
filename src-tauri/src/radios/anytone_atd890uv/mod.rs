@@ -11,7 +11,7 @@
 //! This module (`mod.rs`) is the core protocol + channel encode/decode + the
 //! read-modify-write bank/window write engine. The capability halves live in
 //! submodules: `program` (ChannelWriter + DB→plan assembly), `settings`
-//! (SettingsProgrammer), `callsign_db` (CallsignDbWriter), `export`
+//! (SettingsReader + SettingsWriter), `callsign_db` (CallsignDbWriter), `export`
 //! (CodeplugExporter). See `codeplug-magic-launch-plan.md` Chunk 3.
 //!
 //! Protocol notes (documented by the reald/anytone-flash-tools project and the
@@ -34,7 +34,7 @@ use serialport::{ClearBuffer, SerialPort};
 use crate::error::MapErrString;
 use crate::radios::driver::{
     CallsignDbWriter, CodeplugExporter, CodeplugProgrammer, DriverDiagnostics, RadioDriver,
-    RadioIdentity, SettingsProgrammer,
+    RadioIdentity, SettingsReader, SettingsWriter,
 };
 
 pub(crate) mod callsign_db;
@@ -91,7 +91,11 @@ impl RadioDriver for AnytoneAtd890uv {
         Some(self)
     }
 
-    fn as_settings_programmer(&self) -> Option<&dyn SettingsProgrammer> {
+    fn as_settings_reader(&self) -> Option<&dyn SettingsReader> {
+        Some(self)
+    }
+
+    fn as_settings_writer(&self) -> Option<&dyn SettingsWriter> {
         Some(self)
     }
 
@@ -2057,7 +2061,8 @@ mod tests {
         use crate::radios::driver::DriverCapabilities;
         let caps = DriverCapabilities::of(&DRIVER);
         // Advertised now (Chunk 3.5):
-        assert!(caps.program_settings);
+        assert!(caps.read_settings);
+        assert!(caps.write_settings);
         assert!(caps.write_callsign_db);
         assert!(caps.export);
         assert!(caps.diagnostics);

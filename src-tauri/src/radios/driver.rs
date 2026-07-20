@@ -21,8 +21,8 @@
 //!
 //! All three drivers live under `radios/<key>/`: 3.3 (UV-5R), 3.4 (TD-H3), 3.5
 //! (AnyTone D890UV). The command layer dispatches through the registry for
-//! `identify`/`download_image` (3.6c); settings, call-sign DB, and the
-//! remaining per-radio commands follow in 3.6d/3.6e.
+//! `identify`/`download_image` (3.6c) and for settings read/write + the
+//! call-sign DB (3.6d); the remaining per-radio commands follow in 3.6e.
 //!
 //! `dead_code` is still allowed here: [`ChannelWriter`] has no implementor yet
 //! (no shipping radio is programmed channels-only), and a few trait methods are
@@ -83,6 +83,9 @@ pub(crate) struct CallsignRecord {
     pub city: Option<String>,
     pub state: Option<String>,
     pub country: Option<String>,
+    /// Free-text remarks from the source library, for radios with a comment
+    /// column in their DB entry.
+    pub comment: Option<String>,
 }
 
 /// Base trait every live-USB radio driver implements. Object-safe: stored as
@@ -116,7 +119,10 @@ pub(crate) trait RadioDriver: Send + Sync {
     fn as_image_programmer(&self) -> Option<&dyn ImageProgrammer> {
         None
     }
-    fn as_settings_programmer(&self) -> Option<&dyn SettingsProgrammer> {
+    fn as_settings_reader(&self) -> Option<&dyn SettingsReader> {
+        None
+    }
+    fn as_settings_writer(&self) -> Option<&dyn SettingsWriter> {
         None
     }
     fn as_channel_writer(&self) -> Option<&dyn ChannelWriter> {
@@ -183,19 +189,81 @@ pub(crate) trait ImageProgrammer: Send + Sync {
     }
 }
 
-/// Radios whose non-channel settings (General Settings, keys, display, …) are
-/// read and written against a JSON schema (TD-H3, AnyTone D890UV).
-pub(crate) trait SettingsProgrammer {
-    /// Read current settings off the radio, decoded into the schema's shape.
-    fn read_settings(&self, port: &str, schema_json: &str) -> Result<serde_json::Value, String>;
+/// What one settings-read session captured.
+///
+/// The raw bytes come back alongside the decoded values because the read is a
+/// *single* hardware session: the clone radios decode settings out of the very
+/// image they just downloaded, and the AnyTone out of the windows it just read.
+/// Handing the command layer only `settings` would force it to open the port a
+/// second time to produce the safety backup — the same one-session rule that
+/// shaped [`ImageProgrammer::download_image`].
+pub(crate) struct SettingsCapture {
+    /// Decoded settings, keyed and shaped like the profile form.
+    pub settings: serde_json::Value,
+    /// Everything the session read, for the command layer to save as a backup.
+    /// Driver-defined format: the whole memory image on clone radios, a
+    /// `[addr:BE][len:BE][data]` window dump on the AnyTone.
+    pub backup: Vec<u8>,
+    /// Extension for that backup file, without the dot (`"img"`, `"bin"`).
+    pub backup_ext: &'static str,
+}
 
-    /// Encode `settings` per the schema and write them to the radio.
+/// Outcome of a committed settings write. The union of what the per-radio write
+/// paths report; fields a given radio cannot produce are `None`/empty.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SettingsWriteReport {
+    /// Settings fields actually written to the radio.
+    pub fields_written: usize,
+    /// Whether an in-session read-back matched. `None` when the driver cannot
+    /// read back in the same session (the AnyTone reboots on END/commit, so its
+    /// verify is a separate fresh-session byte-diff against `expected_path`).
+    pub verified: Option<bool>,
+    /// How to interpret the result — set when verification could not run, found
+    /// differences, or the radio needs post-write handling.
+    pub note: Option<String>,
+    /// Absolute path of the mandatory pre-write backup.
+    pub backup_path: String,
+    /// Absolute path of an `.expected.bin` image for a fresh-session byte
+    /// verify, on drivers that write one.
+    pub expected_path: Option<String>,
+    /// Flash regions rewritten, as hex addresses — driver-defined granularity.
+    /// Empty on whole-image clone radios, which rewrite the entire main range.
+    pub windows_written: Vec<String>,
+}
+
+/// Radios whose non-channel settings (General Settings, keys, display, …) can be
+/// READ off the radio and decoded into a profile's shape (UV-5R, TD-H3, AnyTone
+/// D890UV).
+///
+/// Split from [`SettingsWriter`] because reading and writing settings are not
+/// the same capability: the UV-5R has no standalone settings-write path (its
+/// settings go out inside `program_codeplug`), so folding both halves into one
+/// trait would force it to advertise a write it cannot perform.
+/// `Send + Sync`: the command layer resolves the driver on the async side and
+/// moves the `&'static dyn` into `spawn_blocking`.
+pub(crate) trait SettingsReader: Send + Sync {
+    /// Read current settings off the radio, decoded into the schema's shape,
+    /// with the raw bytes the session captured. Drivers with a built-in field
+    /// table may ignore `schema_json`.
+    fn read_settings(&self, port: &str, schema_json: &str) -> Result<SettingsCapture, String>;
+}
+
+/// Radios that can have a saved profile's settings pushed to them on their own,
+/// without rewriting channels (TD-H3, AnyTone D890UV).
+///
+/// The driver owns the backup filenames (they differ per radio and some are
+/// scanned by name — see `latest_anytone_program`), so it is handed the
+/// directory rather than finished paths.
+pub(crate) trait SettingsWriter: Send + Sync {
+    /// Encode `settings` per the schema and write them to the radio, taking the
+    /// mandatory pre-write backup under `backup_dir` first.
     fn write_settings(
         &self,
         port: &str,
         settings: &serde_json::Value,
         schema_json: &str,
-    ) -> Result<(), String>;
+        backup_dir: &Path,
+    ) -> Result<SettingsWriteReport, String>;
 }
 
 /// Everything a driver needs to program a whole codeplug, resolved from the
@@ -308,12 +376,27 @@ pub(crate) trait ChannelWriter {
     ) -> Result<usize, String>;
 }
 
+/// Outcome of a committed call-sign DB write.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CallsignDbReport {
+    /// Entries actually encoded and written.
+    pub entries_written: usize,
+    /// Flash regions rewritten, as hex addresses.
+    pub windows_written: Vec<String>,
+    /// How to verify — this region has no golden image to byte-diff, so
+    /// verification is functional (the radio's own caller-ID screen).
+    pub note: String,
+}
+
 /// Radios with an on-board DMR contacts / call-sign database (AnyTone D890UV).
-pub(crate) trait CallsignDbWriter {
-    /// Encode and write `records` to the radio's call-sign DB region, returning
-    /// the number of entries written.
-    fn write_callsign_db(&self, port: &str, records: &[CallsignRecord])
-        -> Result<usize, String>;
+/// `Send + Sync` for the same `spawn_blocking` reason as the other capabilities.
+pub(crate) trait CallsignDbWriter: Send + Sync {
+    /// Encode and write `records` to the radio's call-sign DB region.
+    fn write_callsign_db(
+        &self,
+        port: &str,
+        records: &[CallsignRecord],
+    ) -> Result<CallsignDbReport, String>;
 }
 
 /// File-format exporters (CHIRP-style CSV, AnyTone dual-CSV bundle, …). The
@@ -344,7 +427,8 @@ pub(crate) trait DriverDiagnostics {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct DriverCapabilities {
     pub program_image: bool,
-    pub program_settings: bool,
+    pub read_settings: bool,
+    pub write_settings: bool,
     pub write_channels: bool,
     pub program_codeplug: bool,
     pub write_callsign_db: bool,
@@ -357,7 +441,8 @@ impl DriverCapabilities {
     pub fn of(driver: &dyn RadioDriver) -> Self {
         Self {
             program_image: driver.as_image_programmer().is_some(),
-            program_settings: driver.as_settings_programmer().is_some(),
+            read_settings: driver.as_settings_reader().is_some(),
+            write_settings: driver.as_settings_writer().is_some(),
             write_channels: driver.as_channel_writer().is_some(),
             program_codeplug: driver.as_codeplug_programmer().is_some(),
             write_callsign_db: driver.as_callsign_db_writer().is_some(),

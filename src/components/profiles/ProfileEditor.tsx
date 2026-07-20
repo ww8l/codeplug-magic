@@ -656,13 +656,7 @@ export function ProfileEditor({
                 <RadioSyncBar
                   profileId={profile.id}
                   modelLabel={model.display_name}
-                  read={
-                    model.model === "TD-H3"
-                      ? api.readTdh3SettingsForProfile
-                      : model.model === "AT-D890UV"
-                        ? api.readAnytoneSettingsForProfile
-                        : api.readRadioSettings
-                  }
+                  read={api.readRadioSettings}
                   onLoaded={(s) => setValues((v) => ({ ...v, ...s }))}
                 />
               )}

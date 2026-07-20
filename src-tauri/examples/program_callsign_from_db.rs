@@ -1,4 +1,4 @@
-//! BRICK-CAPABLE test writer: mirror the `program_anytone_callsign_db` Tauri
+//! BRICK-CAPABLE test writer: mirror the `write_callsign_db` Tauri
 //! command from the CLI — pull the first N `dmr_users` (dmr_id ascending),
 //! encode with `encode_callsign_db`, and push via `run_patch_writes` in one
 //! PC-mode session. Lets us iterate write→read without driving the UI.

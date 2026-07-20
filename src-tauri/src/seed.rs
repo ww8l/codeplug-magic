@@ -489,7 +489,7 @@ fn models() -> Vec<ModelSeed> {
             // from the dmr-tools d890uv v1.05 definition by
             // scratchpad/gen_anytone_settings.py — same source as the Rust
             // decode table (commands/anytone_settings_table.rs) so UI + decoder
-            // can't drift. Read via read_anytone_settings_for_profile.
+            // can't drift. Read via the generic `read_radio_settings` command.
             non_channel_settings_schema: include_str!("anytone_settings_schema.json"),
         },
     ]

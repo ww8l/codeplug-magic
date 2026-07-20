@@ -16,7 +16,7 @@ use serde_json::Value;
 use serialport::SerialPort;
 
 use crate::error::MapErrString;
-use crate::radios::driver::SettingsProgrammer;
+use crate::radios::driver::{SettingsCapture, SettingsReader, SettingsWriteReport, SettingsWriter};
 
 use super::{do_ident, download, open_port, reident, upload, TidradioTdh3};
 
@@ -25,36 +25,81 @@ const POWERON_MSG_BASE: usize = 0x1C08;
 const MSG_LEN: usize = 16;
 
 // ============================================================
-// SettingsProgrammer (schema/JSON path)
+// SettingsReader / SettingsWriter (schema/JSON path)
 // ============================================================
 
-impl SettingsProgrammer for TidradioTdh3 {
-    fn read_settings(&self, port: &str, schema_json: &str) -> Result<Value, String> {
+impl SettingsReader for TidradioTdh3 {
+    /// Download the full image and decode the profile's settings out of it. The
+    /// image doubles as the backup the command layer saves — one session.
+    fn read_settings(&self, port: &str, schema_json: &str) -> Result<SettingsCapture, String> {
         let mut p = open_port(port)?;
         let ident = do_ident(&mut *p)?;
         let image = download(&mut *p, &ident)?;
-        decode_profile_settings(&image, schema_json)
+        let settings = decode_profile_settings(&image, schema_json)?;
+        Ok(SettingsCapture {
+            settings,
+            backup: image,
+            backup_ext: "img",
+        })
     }
+}
 
+impl SettingsWriter for TidradioTdh3 {
+    /// Download + back up the current image, patch only the profile's settings
+    /// bits, upload the whole main range (channels and every unmodeled setting
+    /// preserved as read), then read back and verify in the SAME session — the
+    /// TD-H3 stays in clone mode after a write, so the verify costs no second
+    /// handshake. Verification failure is non-fatal: the write already happened,
+    /// so it is reported in `note` rather than raised as an error.
     fn write_settings(
         &self,
         port: &str,
         settings: &Value,
         schema_json: &str,
-    ) -> Result<(), String> {
+        backup_dir: &std::path::Path,
+    ) -> Result<SettingsWriteReport, String> {
         let settings_json = serde_json::to_string(settings).estr()?;
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let backup_path = backup_dir.join(format!("tdh3-preprofile-{stamp}.img"));
+
         let mut p = open_port(port)?;
 
-        // Download the current image, patch only the profile's settings bits, and
-        // write the whole main range back (channels + unsupported settings kept).
+        // 1. Download + back up the current radio contents.
         let ident = do_ident(&mut *p)?;
         let mut image = download(&mut *p, &ident)?;
-        apply_profile_settings(&mut image, schema_json, &settings_json)?;
+        std::fs::write(&backup_path, &image)
+            .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
 
+        // 2. Patch the profile's settings bits into the downloaded image.
+        let fields_written = apply_profile_settings(&mut image, schema_json, &settings_json)?;
+
+        // 3. Re-identify and upload the whole main range, then leave clone mode.
         std::thread::sleep(Duration::from_secs(1));
         reident(&mut *p)?;
         upload(&mut *p, &image)?;
-        Ok(())
+
+        // 4. Read back and verify (non-fatal).
+        let (verified, note) = match verify_settings_after_write(&mut *p, &image) {
+            Ok((ok, note, _settings)) => (ok, note),
+            Err(e) => (
+                false,
+                Some(format!(
+                    "Profile written, but read-back verification could not run ({e}). \
+                     Power-cycle the radio and use Read to confirm."
+                )),
+            ),
+        };
+
+        Ok(SettingsWriteReport {
+            fields_written,
+            verified: Some(verified),
+            note,
+            backup_path: backup_path.to_string_lossy().to_string(),
+            // Clone radios rewrite the whole main range and verify in-session,
+            // so there is no per-window list and no `.expected.bin` to diff.
+            expected_path: None,
+            windows_written: Vec::new(),
+        })
     }
 }
 
