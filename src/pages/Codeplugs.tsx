@@ -647,6 +647,7 @@ export function CodeplugDetail() {
           open={programOpen}
           onClose={() => setProgramOpen(false)}
           codeplugId={codeplugId}
+          profileId={codeplug.radio_profile_id}
           codeplugName={codeplug.name}
           modelName={model?.display_name ?? "this radio"}
         />

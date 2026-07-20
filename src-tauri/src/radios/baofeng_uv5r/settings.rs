@@ -25,6 +25,30 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
+use crate::radios::driver::{SettingsCapture, SettingsReader};
+
+use super::{download, ident_radio, open_port, BaofengUv5r};
+
+impl SettingsReader for BaofengUv5r {
+    /// Download the full image and decode the profile's settings out of it. One
+    /// session: the image doubles as the backup the command layer saves, so the
+    /// port is never opened twice for a single read.
+    fn read_settings(&self, port: &str, schema_json: &str) -> Result<SettingsCapture, String> {
+        let mut p = open_port(port)?;
+        let (magic, ident) = ident_radio(&mut *p)?;
+        if !magic.starts_with("UV5R") {
+            return Err("the connected radio did not identify as a UV-5R".into());
+        }
+        let image = download(&mut *p, &ident)?;
+        let settings = decode_settings_from_image(&image, schema_json)?;
+        Ok(SettingsCapture {
+            settings,
+            backup: image,
+            backup_ext: "img",
+        })
+    }
+}
+
 // Aux-block relocation: the bytes read from radio 0x1EC0 onward are stored in
 // the image immediately after the main block + names (which end at 0x1808).
 pub const AUX_IMAGE_BASE: usize = 0x1808;

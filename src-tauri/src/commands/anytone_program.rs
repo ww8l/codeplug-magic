@@ -28,9 +28,8 @@ use crate::models::RadioModel;
 
 use super::anytone::{
     diff_dumps, end_session, enter_program_and_ident, open_port, parse_dump, read_block,
-    run_patch_writes_direct, write_block, AnytoneDumpDiff, AnytonePatchWriteResult, WRITE_WINDOW,
+    write_block, AnytoneDumpDiff, AnytonePatchWriteResult, WRITE_WINDOW,
 };
-use super::anytone_callsign_db::{encode_callsign_db, CallsignDbEntry};
 // The plan/session half moved into the driver in 3.6b; the DTOs it returns are
 // the generic driver-level ones, so the wire shape (and the frontend) is
 // unchanged.
@@ -42,7 +41,6 @@ use crate::radios::registry::driver_for_model;
 pub use super::anytone_settings::{
     encode_anytone_settings, run_settings_program, AnytoneSettingsProgramResult, SETTINGS_WINDOWS,
 };
-use super::dmr_users::select_prioritized_dmr_users;
 use super::export::resolve_codeplug_payload;
 
 /// Result of a fresh-session byte-verify against an `.expected.bin` image.
@@ -51,137 +49,6 @@ pub struct AnytoneVerifyResult {
     pub ok: bool,
     pub bytes_checked: usize,
     pub mismatches: Vec<AnytoneDumpDiff>,
-}
-
-// ============================================================
-// Settings (radio profile) write path
-// ============================================================
-
-/// Push the radio profile's non-channel settings (the "radio profile") to the
-/// AT-D890UV. Model-gated to the AT-D890UV; loads the codeplug's profile
-/// settings JSON (the same shape "Download from radio" produces + saves), then
-/// runs the single-session backup→write→commit path. Brick-capable — UI-gated
-/// with an explicit ack, like `program_anytone_codeplug`.
-#[tauri::command]
-pub async fn program_anytone_settings(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    codeplug_id: i64,
-    port: String,
-) -> Result<AnytoneSettingsProgramResult, String> {
-    let row: Option<(String, Option<String>)> = sqlx::query_as(
-        "SELECT rm.model, rp.non_channel_settings \
-         FROM codeplugs cp \
-         JOIN radio_profiles rp ON rp.id = cp.radio_profile_id \
-         JOIN radio_models rm ON rm.id = rp.radio_model_id \
-         WHERE cp.id = ?1",
-    )
-    .bind(codeplug_id)
-    .fetch_optional(&state.pool)
-    .await
-    .estr()?;
-    let (model, settings_json) = row.ok_or("codeplug or its radio profile not found")?;
-    if model != "AT-D890UV" {
-        return Err(format!(
-            "Writing settings over the AnyTone cable supports the AT-D890UV only (this profile is a {model})."
-        ));
-    }
-    let settings_json = settings_json.ok_or(
-        "this profile has no saved settings — open the profile editor and run \
-         \"Download from radio\" first, then save.",
-    )?;
-    let values: serde_json::Value = serde_json::from_str(&settings_json)
-        .map_err(|e| format!("saved profile settings are not valid JSON: {e}"))?;
-
-    let backup_dir = app.path().app_data_dir().estr()?.join("radio-backups");
-    std::fs::create_dir_all(&backup_dir).estr()?;
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let backup_path = backup_dir.join(format!("anytone-settings-write-{stamp}.bin"));
-    let expected_path = backup_dir.join(format!("anytone-settings-write-{stamp}.expected.bin"));
-
-    tauri::async_runtime::spawn_blocking(move || {
-        run_settings_program(&port, &values, &backup_path, &expected_path)
-    })
-    .await
-    .estr()?
-}
-
-/// Push the DMR **Call-sign Database** (caller-ID / "UserDB") to the AT-D890UV:
-/// pull a capacity-capped, country/continent-prioritized batch from the local
-/// `dmr_users` library (session 34's selection logic), encode it with
-/// [`encode_callsign_db`], and write it in one PC-mode session via
-/// [`run_patch_writes_direct`] — a DIRECT write-only path (no read-modify-write).
-/// The RMW path drops interior flash banks on large writes (HW-proven), so this
-/// fully-overwritten region is written without the corrupting read phase.
-///
-/// Model-gated to the AT-D890UV (the region layout is model-specific). This is a
-/// radio-wide database, not codeplug-scoped, but `codeplug_id` gives us the
-/// model to gate on and keeps the call consistent with the other Program paths.
-/// Verification is FUNCTIONAL (the radio's own caller-ID screen) — this region
-/// has no golden image to byte-diff, and no backup is taken (the read to make
-/// one is the very thing that corrupts the commit). Brick-capable; UI-gated.
-#[tauri::command]
-pub async fn program_anytone_callsign_db(
-    state: State<'_, AppState>,
-    codeplug_id: i64,
-    port: String,
-    max_count: Option<i64>,
-    priority_countries: Vec<String>,
-) -> Result<AnytonePatchWriteResult, String> {
-    let model: Option<(String,)> = sqlx::query_as(
-        "SELECT rm.model \
-         FROM codeplugs cp \
-         JOIN radio_profiles rp ON rp.id = cp.radio_profile_id \
-         JOIN radio_models rm ON rm.id = rp.radio_model_id \
-         WHERE cp.id = ?1",
-    )
-    .bind(codeplug_id)
-    .fetch_optional(&state.pool)
-    .await
-    .estr()?;
-    let model = model.ok_or("codeplug or its radio profile not found")?.0;
-    if model != "AT-D890UV" {
-        return Err(format!(
-            "Writing the call-sign database over the AnyTone cable supports the AT-D890UV only (this profile is a {model})."
-        ));
-    }
-
-    let users = select_prioritized_dmr_users(&state.pool, max_count, &priority_countries).await?;
-    if users.is_empty() {
-        return Err(
-            "No DMR contacts to write — open DMR Contacts and Refresh the library first \
-             (or widen the country selection)."
-                .to_string(),
-        );
-    }
-    let entries: Vec<CallsignDbEntry> = users
-        .into_iter()
-        .filter(|u| u.dmr_id > 0 && u.dmr_id <= 99_999_999)
-        .map(|u| CallsignDbEntry {
-            dmr_id: u.dmr_id as u32,
-            name: u.display_name(),
-            city: u.city.clone().unwrap_or_default(),
-            call: u.callsign.clone(),
-            state: u.state.clone().unwrap_or_default(),
-            country: u.country.clone().unwrap_or_default(),
-            comment: u.remarks.clone().unwrap_or_default(),
-        })
-        .collect();
-    if entries.is_empty() {
-        return Err("No valid DMR IDs in the selected batch.".to_string());
-    }
-
-    let patches = encode_callsign_db(&entries)?;
-
-    // Direct write-only (no read-modify-write): the caller-ID DB region is fully
-    // overwritten, so nothing needs preserving — and crucially the RMW read
-    // phase corrupts large flash commits (HW-proven: interior map/DB banks come
-    // back empty via RMW, fully intact via the direct path). See
-    // `run_patch_writes_direct`. No backup is taken (the read to make one is what
-    // breaks the commit); the region is self-contained and regenerable.
-    tauri::async_runtime::spawn_blocking(move || run_patch_writes_direct(&port, &patches))
-        .await
-        .estr()?
 }
 
 // ============================================================

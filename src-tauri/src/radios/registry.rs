@@ -9,8 +9,9 @@
 //!
 //! All three drivers are registered: `baofeng_uv5r` (3.3), `tidradio_tdh3`
 //! (3.4), `anytone_atd890uv` (3.5). `driver_for_key` is live as of 3.6c —
-//! `identify_radio` and `download_image` dispatch through it — so a lookup
-//! returning `None` now means a bad `driver_key`, not an unmigrated radio.
+//! `identify_radio` and `download_image` dispatch through it, joined by the
+//! settings and call-sign DB commands in 3.6d — so a lookup returning `None`
+//! now means a bad `driver_key`, not an unmigrated radio.
 
 use super::driver::RadioDriver;
 use crate::models::RadioModel;
@@ -60,6 +61,43 @@ mod tests {
         keys.sort_unstable();
         keys.dedup();
         assert_eq!(keys.len(), before, "duplicate driver_key in the registry");
+    }
+
+    /// The generic settings commands (3.6d) dispatch on these two accessors, so
+    /// the read/write split is what decides which radios each command accepts.
+    /// Every driver reads settings; the UV-5R cannot write them on its own (its
+    /// settings ride along in the image `program_codeplug` uploads), which is
+    /// exactly why `SettingsReader` and `SettingsWriter` are separate traits.
+    #[test]
+    fn every_driver_reads_settings_but_the_uv5r_cannot_write_them() {
+        for d in all_drivers() {
+            assert!(
+                d.as_settings_reader().is_some(),
+                "{} should read settings",
+                d.key()
+            );
+            let expect_write = d.key() != "baofeng_uv5r";
+            assert_eq!(
+                d.as_settings_writer().is_some(),
+                expect_write,
+                "{} settings-write capability",
+                d.key()
+            );
+        }
+    }
+
+    /// Only the AnyTone carries an on-board call-sign DB, so `write_callsign_db`
+    /// must reject the others by name rather than opening their port.
+    #[test]
+    fn only_the_anytone_writes_a_callsign_db() {
+        for d in all_drivers() {
+            assert_eq!(
+                d.as_callsign_db_writer().is_some(),
+                d.key() == "anytone_atd890uv",
+                "{} call-sign DB capability",
+                d.key()
+            );
+        }
     }
 
     /// `identify` lives on the base trait precisely so the AnyTone — which has no
