@@ -17,7 +17,7 @@ import {
 import { api } from "../../lib/api";
 import type {
   AnytoneProgramPreview,
-  AnytoneProgramResult,
+  CodeplugProgramReport,
   SettingsWriteReport,
   CallsignDbReport,
   AnytoneLatestProgram,
@@ -69,7 +69,7 @@ export function AnytoneProgramDialog({
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<AnytoneProgramResult | null>(null);
+  const [result, setResult] = useState<CodeplugProgramReport | null>(null);
   const [settingsResult, setSettingsResult] = useState<SettingsWriteReport | null>(null);
   const [latest, setLatest] = useState<AnytoneLatestProgram | null>(null);
   const [verify, setVerify] = useState<AnytoneVerifyResult | null>(null);
@@ -211,7 +211,7 @@ export function AnytoneProgramDialog({
           );
         }
       } else {
-        setResult(await api.programAnytoneCodeplug(codeplugId, port));
+        setResult(await api.programRadio(codeplugId, port));
       }
     } catch (e) {
       // The write may well have committed — the radio reboots and drops USB on

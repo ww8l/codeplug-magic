@@ -134,11 +134,9 @@ pub fn run() {
             commands::program::write_callsign_db,
             commands::program::program_radio,
             // direct radio programming (UV-5R)
-            commands::program::program_codeplug,
             commands::program::restore_image,
             commands::program::backups_dir,
             // direct radio programming (TIDRADIO TD-H3)
-            commands::tdh3::program_tdh3_codeplug,
             commands::tdh3::save_tdh3_settings_to_profile,
             // direct radio programming (AnyTone AT-D890UV) — Stage 1: read-only
             commands::anytone::download_anytone_image,
@@ -152,7 +150,6 @@ pub fn run() {
             // Integrity-structure investigation: deterministic dump + diff (read-only)
             // "Program radio" from the DB: full-replace channel set (gated, backup)
             commands::anytone_program::program_anytone_preview,
-            commands::anytone_program::program_anytone_codeplug,
             commands::anytone_program::verify_anytone_program,
             commands::anytone_program::restore_anytone_backup,
             commands::anytone_program::latest_anytone_program,

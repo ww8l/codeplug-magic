@@ -4,10 +4,10 @@
 //! `radios/registry.rs` and serve every radio: `identify_radio` and
 //! `download_image` (Chunk 3.6c), then `read_radio_settings`,
 //! `write_radio_settings`, and `write_callsign_db` (Chunk 3.6d), and
-//! `program_radio` (Chunk 3.6e). `program_codeplug` is now a thin wrapper over
-//! `program_radio` that preserves the old wire shape until the frontend moves
-//! across in 3.6e-2; `restore_image` is still genuinely UV-5R-specific. The
-//! UV-5R clone protocol they call has lived in `radios/baofeng_uv5r` since 3.3.
+//! `program_radio` (Chunk 3.6e). `restore_image` is the last genuinely
+//! UV-5R-specific one — it writes a CHIRP-format `.img` straight back, which
+//! only means anything on a clone radio; the protocol it calls has lived in
+//! `radios/baofeng_uv5r` since 3.3.
 //!
 //! `program_radio` dispatches on CAPABILITY, not on a driver key: clone radios
 //! (`ImageProgrammer`) are programmed from a patched memory image, the AnyTone
@@ -598,53 +598,6 @@ fn program_report_to_generic(r: ProgramReport) -> CodeplugProgramReport {
         skipped: Vec::new(),
         warnings: r.warnings,
     }
-}
-
-#[derive(Serialize)]
-pub struct ProgramResult {
-    /// Channels written to slots 0..written.
-    pub written: usize,
-    /// Slots cleared (written..128) so the radio matches the codeplug exactly.
-    pub cleared: usize,
-    /// Number of non-channel settings written from the radio profile, or `None`
-    /// if the profile had no settings and only channels/names were written.
-    pub settings_written: Option<usize>,
-    /// Whether a post-write read-back matched what we intended to write.
-    pub verified: bool,
-    /// Set when verification could not be completed or found differences.
-    pub verify_note: Option<String>,
-    /// Absolute path of the pre-write backup `.img`.
-    pub backup_path: String,
-    /// Channels actually present on the radio after writing (read back). Now
-    /// the generic sample shape — a superset of the UV-5R's own
-    /// `DecodedChannel`, so the frontend's declared type still reads every
-    /// field it renders.
-    pub channels: Vec<DecodedChannelSample>,
-}
-
-/// Program a codeplug directly into a connected UV-5R.
-///
-/// Thin wrapper over the generic [`program_radio`] (Chunk 3.6e): the whole
-/// hardware flow now lives in `ImageProgrammer::program_codeplug` on the driver,
-/// unchanged. Kept only so the frontend keeps working untouched; it retires in
-/// 3.6e-2, when `api.ts` moves to `program_radio` and the unified report.
-#[tauri::command]
-pub async fn program_codeplug(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    codeplug_id: i64,
-    port: String,
-) -> Result<ProgramResult, String> {
-    let r = program_radio(app, state, codeplug_id, port).await?;
-    Ok(ProgramResult {
-        written: r.channels_written,
-        cleared: r.slots_cleared,
-        settings_written: r.settings_written,
-        verified: r.verified.unwrap_or(false),
-        verify_note: r.note,
-        backup_path: r.backup_path,
-        channels: r.channels,
-    })
 }
 
 #[derive(Serialize)]
