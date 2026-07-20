@@ -12,8 +12,11 @@
 //! `identify_radio` and `download_image` dispatch through it, joined by the
 //! settings and call-sign DB commands in 3.6d — so a lookup returning `None`
 //! now means a bad `driver_key`, not an unmigrated radio.
+//!
+//! File export (3.8) looks up by `export_format` instead — see
+//! [`exporter_for_format`] for why that is not the same lookup.
 
-use super::driver::RadioDriver;
+use super::driver::{CodeplugExporter, RadioDriver};
 use crate::models::RadioModel;
 
 /// Every driver compiled into the app. Order is not significant — lookups are
@@ -39,6 +42,21 @@ pub(crate) fn driver_for_key(key: &str) -> Option<&'static dyn RadioDriver> {
 /// (NULL `driver_key`) or any key without a compiled-in driver.
 pub(crate) fn driver_for_model(model: &RadioModel) -> Option<&'static dyn RadioDriver> {
     driver_for_key(model.driver_key.as_deref()?)
+}
+
+/// Resolve a `radio_models.export_format` key to the exporter that handles it.
+///
+/// Deliberately keyed on the FORMAT, not on the model's driver: an export-only
+/// model (NULL `driver_key`) has no driver to route through, but it still names
+/// a format, and any driver's exporter that claims that format can write it.
+/// `None` means no exporter claims the key — the caller falls back to the
+/// shared CHIRP-style CSV.
+pub(crate) fn exporter_for_format(format: &str) -> Option<&'static dyn CodeplugExporter> {
+    all_drivers()
+        .iter()
+        .copied()
+        .filter_map(|d| d.as_codeplug_exporter())
+        .find(|e| e.export_format() == format)
 }
 
 #[cfg(test)]
@@ -98,6 +116,30 @@ mod tests {
                 d.key()
             );
         }
+    }
+
+    /// `generate_codeplug` (3.8) resolves an exporter from the model's
+    /// `export_format` string, so a renamed key silently downgrades a DMR export
+    /// to the CHIRP analog CSV instead of failing. Lock the key, and lock the
+    /// fact that no exporter claims `chirp_csv` — that path is the fallback, not
+    /// a driver's.
+    #[test]
+    fn export_formats_are_unique_and_chirp_stays_the_fallback() {
+        let anytone = exporter_for_format("anytone_csv").expect("no exporter for 'anytone_csv'");
+        assert_eq!(anytone.export_format(), "anytone_csv");
+        assert!(exporter_for_format("chirp_csv").is_none());
+        assert!(exporter_for_format("nonesuch").is_none());
+
+        let mut formats: Vec<&str> = all_drivers()
+            .iter()
+            .copied()
+            .filter_map(|d| d.as_codeplug_exporter())
+            .map(|e| e.export_format())
+            .collect();
+        let before = formats.len();
+        formats.sort_unstable();
+        formats.dedup();
+        assert_eq!(formats.len(), before, "two exporters claim one export_format");
     }
 
     /// `identify` lives on the base trait precisely so the AnyTone — which has no
