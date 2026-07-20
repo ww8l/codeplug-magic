@@ -28,7 +28,10 @@ use crate::commands::export;
 use crate::commands::export::SlotChannel;
 use crate::error::MapErrString;
 use crate::models::{Channel, RadioModel};
-use crate::radios::driver::{DecodedChannelSample, ImageProgrammer, RadioDriver, RadioIdentity};
+use crate::radios::driver::{
+    CodeplugProgramReport, DecodedChannelSample, ImageProgramRequest, ImageProgrammer,
+    RadioDriver, RadioIdentity,
+};
 
 const BAUD: u32 = 9600;
 const TIMEOUT: Duration = Duration::from_secs(1);
@@ -135,19 +138,7 @@ impl ImageProgrammer for BaofengUv5r {
     }
 
     fn decode_sample(&self, image: &[u8]) -> Vec<DecodedChannelSample> {
-        decode_channels(image)
-            .into_iter()
-            .map(|c| DecodedChannelSample {
-                index: c.index,
-                name: c.name,
-                rx_mhz: c.rx_mhz,
-                // The UV-5R decoder reports neither shift nor bandwidth.
-                shift: None,
-                tone: c.tone,
-                power: c.power,
-                mode: None,
-            })
-            .collect()
+        decode_channels(image).into_iter().map(decoded_to_sample).collect()
     }
 
     fn upload_image(&self, port: &str, image: &[u8]) -> Result<(), String> {
@@ -186,6 +177,132 @@ impl ImageProgrammer for BaofengUv5r {
         let mut image = base.to_vec();
         patch_image(&mut image, channels);
         Ok(image)
+    }
+
+    /// Moved verbatim from `commands::program::program_codeplug` in Chunk 3.6e.
+    /// Hardware-proven flow, unchanged: download + back up the current image,
+    /// patch channels/names (and the profile's settings, if any) into THAT
+    /// image so every untouched byte goes back exactly as read, upload, verify.
+    ///
+    /// Which ranges get uploaded depends on whether settings are written —
+    /// CHIRP's full main + aux ranges when they are, channels + names alone when
+    /// they are not. Keeping the blast radius that small is deliberate.
+    fn program_codeplug(
+        &self,
+        port: &str,
+        req: &ImageProgramRequest,
+    ) -> Result<CodeplugProgramReport, String> {
+        if req.channels.len() > CHANNEL_COUNT {
+            return Err(format!(
+                "Codeplug has {} programmable channels, but the UV-5R holds only {CHANNEL_COUNT}.",
+                req.channels.len()
+            ));
+        }
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let backup_path = req
+            .backup_dir
+            .join(backup_filename("prewrite", req.label, &stamp));
+
+        let mut p = open_port(port)?;
+
+        // 1. Download + back up the current radio contents.
+        let (magic, ident) = ident_radio(&mut *p)?;
+        if !magic.starts_with("UV5R") {
+            return Err("the connected radio did not identify as a UV-5R".into());
+        }
+        let mut image = download(&mut *p, &ident)?;
+        std::fs::write(&backup_path, &image)
+            .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
+
+        // 2. Patch the channel + name regions in the downloaded image.
+        let channels_written = req.channels.len();
+        patch_image(&mut image, req.channels);
+
+        // 2b. Patch the radio profile's non-channel settings into the image, if
+        //     the profile carries them. This makes the profile authoritative:
+        //     every editable setting is written from the profile.
+        let settings_written = match req.settings {
+            Some((settings, schema)) => {
+                let settings_json = serde_json::to_string(settings).estr()?;
+                Some(settings::apply_profile_settings(
+                    &mut image,
+                    schema,
+                    &settings_json,
+                )?)
+            }
+            None => None,
+        };
+
+        // 3. Upload the patched regions (re-identify to start a clone session).
+        //    The radio may take a moment to be ready to talk again after the
+        //    full read, so settle first, then retry the identify.
+        std::thread::sleep(Duration::from_secs(1));
+        reident_with_retry(&mut *p)?;
+        if settings_written.is_some() {
+            for &(start, end) in settings::SETTINGS_MAIN_RANGES {
+                write_region(&mut *p, &image, start, end)?;
+            }
+            for &(start, end) in settings::SETTINGS_AUX_RANGES {
+                write_aux_region(&mut *p, &image, start, end)?;
+            }
+        } else {
+            write_region(&mut *p, &image, CHANNEL_ADDR.0, CHANNEL_ADDR.1)?;
+            write_region(&mut *p, &image, NAME_ADDR.0, NAME_ADDR.1)?;
+        }
+
+        // 4. Read back and verify (non-fatal: a write that ack'd every block
+        //    succeeded; verification is a best-effort confirmation).
+        let (verified, note, channels) = match verify_after_write(&mut *p, &image) {
+            Ok((ok, note, ch)) => (ok, note, ch),
+            Err(e) => (
+                false,
+                Some(format!(
+                    "Write completed, but read-back verification could not run ({e}). \
+                     Power-cycle the radio and use Download to confirm."
+                )),
+                decode_channels(&image),
+            ),
+        };
+
+        Ok(CodeplugProgramReport {
+            channels_written,
+            slots_cleared: CHANNEL_COUNT - channels_written,
+            settings_written,
+            verified: Some(verified),
+            note,
+            backup_path: backup_path.to_string_lossy().to_string(),
+            channels: channels
+                .into_iter()
+                .take(20)
+                .map(decoded_to_sample)
+                .collect(),
+            // The UV-5R programs channels + settings only, and rewrites whole
+            // ranges rather than addressed windows.
+            zones_written: 0,
+            zones_cleared: 0,
+            scan_lists_written: 0,
+            scan_lists_cleared: 0,
+            contacts_written: 0,
+            contacts_cleared: 0,
+            expected_path: None,
+            windows_written: Vec::new(),
+            skipped: Vec::new(),
+            warnings: Vec::new(),
+        })
+    }
+}
+
+/// Narrow the driver's own richer decode to the generic sanity-sample shape.
+fn decoded_to_sample(c: DecodedChannel) -> DecodedChannelSample {
+    DecodedChannelSample {
+        index: c.index,
+        name: c.name,
+        rx_mhz: c.rx_mhz,
+        // The UV-5R decoder reports neither shift nor bandwidth.
+        shift: None,
+        tone: c.tone,
+        power: c.power,
+        mode: None,
     }
 }
 

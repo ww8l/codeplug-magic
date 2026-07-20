@@ -90,6 +90,11 @@ pub async fn program_anytone_preview(
 /// its entire channel/zone/scan-list/contact set, in one session with a single
 /// END (one reboot). Mandatory backup + expected image are written before any
 /// byte goes to the radio. Brick-capable — UI-gated with an explicit ack.
+///
+/// Thin wrapper over the generic `program::program_radio` (Chunk 3.6e), which
+/// dispatches to this radio's `CodeplugProgrammer::program` — the same driver
+/// method this command already called, so the hardware path is unchanged. Kept
+/// only so the frontend keeps working untouched; it retires in 3.6e-2.
 #[tauri::command]
 pub async fn program_anytone_codeplug(
     app: AppHandle,
@@ -97,27 +102,22 @@ pub async fn program_anytone_codeplug(
     codeplug_id: i64,
     port: String,
 ) -> Result<ProgramReport, String> {
-    let resolved = resolve_codeplug_payload(&state.pool, codeplug_id).await?;
-    let programmer = codeplug_programmer(&resolved.model)?;
-    let backup_dir = app.path().app_data_dir().estr()?.join("radio-backups");
-
-    // `resolved` owns every row the planner needs, so it moves into the
-    // blocking task wholesale — the payload borrows from it in there.
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        programmer.program(&port, &resolved.payload(), &backup_dir)
+    let r = crate::commands::program::program_radio(app, state, codeplug_id, port).await?;
+    Ok(ProgramReport {
+        channels_written: r.channels_written,
+        slots_cleared: r.slots_cleared,
+        zones_written: r.zones_written,
+        zones_cleared: r.zones_cleared,
+        scan_lists_written: r.scan_lists_written,
+        scan_lists_cleared: r.scan_lists_cleared,
+        contacts_written: r.contacts_written,
+        contacts_cleared: r.contacts_cleared,
+        windows_written: r.windows_written,
+        backup_path: r.backup_path,
+        expected_path: r.expected_path.unwrap_or_default(),
+        warnings: r.warnings,
+        note: r.note.unwrap_or_default(),
     })
-    .await
-    .estr()??;
-
-    sqlx::query(
-        "UPDATE codeplugs SET last_exported = CURRENT_TIMESTAMP, last_export_kind = 'radio' WHERE id = ?1",
-    )
-    .bind(codeplug_id)
-    .execute(&state.pool)
-    .await
-    .estr()?;
-
-    Ok(result)
 }
 
 /// Fresh-session byte-verify: strict-read every range in an `.expected.bin`

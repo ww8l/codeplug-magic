@@ -132,6 +132,7 @@ pub fn run() {
             commands::program::read_radio_settings,
             commands::program::write_radio_settings,
             commands::program::write_callsign_db,
+            commands::program::program_radio,
             // direct radio programming (UV-5R)
             commands::program::program_codeplug,
             commands::program::restore_image,

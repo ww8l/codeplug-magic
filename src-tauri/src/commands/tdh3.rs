@@ -12,18 +12,15 @@
 //! never touches a radio) and so has nothing to dispatch. Port enumeration
 //! reuses `program::list_serial_ports` (it is model-agnostic).
 
-use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
-use crate::commands::export;
 use crate::db::AppState;
 use crate::error::MapErrString;
 use crate::models::RadioProfile;
 use crate::radios::tidradio_tdh3 as tdh3;
 use crate::radios::tidradio_tdh3::settings::{self as tdh3_settings, Tdh3Settings};
-use tdh3::Tdh3DecodedChannel;
 
 // ============================================================
 // Program channels
@@ -41,18 +38,17 @@ pub struct Tdh3ProgramResult {
     pub verify_note: Option<String>,
     /// Absolute path of the pre-write backup `.img`.
     pub backup_path: String,
-    /// Channels present on the radio after writing (read back), sample.
-    pub channels: Vec<Tdh3DecodedChannel>,
+    /// Channels present on the radio after writing (read back), sample. Now the
+    /// generic sample shape — the same fields the frontend renders.
+    pub channels: Vec<crate::radios::driver::DecodedChannelSample>,
 }
 
 /// Program a codeplug's channels directly into a connected TD-H3.
 ///
-/// Safety model (mirrors the UV-5R path): download the full image and save it as
-/// a backup FIRST, patch only the channel/name regions and the used/scan bitmaps
-/// into that downloaded image, upload the whole main range (so every untouched
-/// byte — including all radio settings — is written back exactly as read), then
-/// read the radio back to confirm. This writes channels only; the radio's
-/// non-channel settings are preserved as-is (see the settings commands).
+/// Thin wrapper over the generic `program::program_radio` (Chunk 3.6e): the
+/// whole hardware flow now lives in `ImageProgrammer::program_codeplug` on the
+/// driver, unchanged. Kept only so the frontend keeps working untouched; it
+/// retires in 3.6e-2, when `api.ts` moves to `program_radio`.
 #[tauri::command]
 pub async fn program_tdh3_codeplug(
     app: AppHandle,
@@ -60,95 +56,15 @@ pub async fn program_tdh3_codeplug(
     codeplug_id: i64,
     port: String,
 ) -> Result<Tdh3ProgramResult, String> {
-    let (model, slots) = export::resolve_codeplug_slots(&state.pool, codeplug_id).await?;
-    if model.model != "TD-H3" {
-        return Err(format!(
-            "This programmer is for the TIDRADIO TD-H3 (this codeplug targets {}).",
-            model.display_name
-        ));
-    }
-    if slots.len() > tdh3::MAX_CHANNEL {
-        return Err(format!(
-            "Codeplug has {} programmable channels, but the TD-H3 holds only {}.",
-            slots.len(),
-            tdh3::MAX_CHANNEL
-        ));
-    }
-
-    let codeplug_name: String = sqlx::query_scalar("SELECT name FROM codeplugs WHERE id = ?1")
-        .bind(codeplug_id)
-        .fetch_one(&state.pool)
-        .await
-        .estr()?;
-
-    let backup_dir = app.path().app_data_dir().estr()?.join("radio-backups");
-    std::fs::create_dir_all(&backup_dir).estr()?;
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    // Slug the codeplug name into the backup filename so multiple codeplugs for
-    // the radio stay distinguishable when restoring.
-    let slug = tdh3::slug_label(&codeplug_name);
-    let backup_path = backup_dir.join(if slug.is_empty() {
-        format!("tdh3-prewrite-{stamp}.img")
-    } else {
-        format!("tdh3-prewrite-{slug}-{stamp}.img")
-    });
-
-    let result = tauri::async_runtime::spawn_blocking(move || -> Result<Tdh3ProgramResult, String> {
-        let mut p = tdh3::open_port(&port)?;
-
-        // 1. Download + back up the current radio contents.
-        let ident = tdh3::do_ident(&mut *p)?;
-        let mut image = tdh3::download(&mut *p, &ident)?;
-        std::fs::write(&backup_path, &image)
-            .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
-
-        // 2. Patch channels/names + used/scan bitmaps into the downloaded image.
-        let written = slots.len();
-        tdh3::patch_image(&mut image, &slots);
-
-        // 3. Re-identify (the radio settles after a full read) and upload the
-        //    whole main range, then exit programming mode.
-        std::thread::sleep(Duration::from_secs(1));
-        tdh3::reident(&mut *p)?;
-        tdh3::upload(&mut *p, &image)?;
-
-        // 4. Read back and verify (non-fatal — every block was ack'd).
-        let (verified, verify_note, channels) = match tdh3::verify_after_write(&mut *p, &image) {
-            Ok((ok, note, ch)) => (ok, note, ch),
-            Err(e) => (
-                false,
-                Some(format!(
-                    "Write completed, but read-back verification could not run ({e}). \
-                     Power-cycle the radio and use Download to confirm."
-                )),
-                tdh3::decode_channels(&image),
-            ),
-        };
-
-        Ok(Tdh3ProgramResult {
-            written,
-            cleared: tdh3::MAX_CHANNEL - written,
-            verified,
-            verify_note,
-            backup_path: backup_path.to_string_lossy().to_string(),
-            channels: channels.into_iter().take(20).collect(),
-        })
+    let r = crate::commands::program::program_radio(app, state, codeplug_id, port).await?;
+    Ok(Tdh3ProgramResult {
+        written: r.channels_written,
+        cleared: r.slots_cleared,
+        verified: r.verified.unwrap_or(false),
+        verify_note: r.note,
+        backup_path: r.backup_path,
+        channels: r.channels,
     })
-    .await
-    .estr()??;
-
-    // The write ack'd every block, so stamp the codeplug's last program time
-    // (the Codeplugs screen shows "Programmed <date>"). Verification is
-    // best-effort and doesn't gate the stamp.
-    sqlx::query(
-        "UPDATE codeplugs SET last_exported = CURRENT_TIMESTAMP, last_export_kind = 'radio' WHERE id = ?1",
-    )
-    .bind(codeplug_id)
-    .execute(&state.pool)
-    .await
-    .estr()?;
-
-    Ok(result)
 }
 
 // ============================================================

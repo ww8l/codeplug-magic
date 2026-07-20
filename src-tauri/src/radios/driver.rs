@@ -173,20 +173,77 @@ pub(crate) trait ImageProgrammer: Send + Sync {
         base: &[u8],
     ) -> Result<Vec<u8>, String>;
 
-    /// Full clone-mode program: read the current image, patch the channels in,
-    /// write it back. Returns the image that was written. Default composition of
-    /// the three primitives above — most drivers won't override it.
+    /// Full clone-mode program: back up, patch channels (and the profile's
+    /// settings, when it carries them), write, and read back to verify — all in
+    /// ONE session, which is why this is a single trait method rather than the
+    /// caller composing the primitives above. Verification is best-effort: a
+    /// write whose blocks all ack'd succeeded, so a failed read-back is reported
+    /// in `note`, not raised as an error.
     fn program_codeplug(
         &self,
         port: &str,
-        model: &RadioModel,
-        channels: &[SlotChannel],
-    ) -> Result<Vec<u8>, String> {
-        let (_ident, base) = self.download_image(port)?;
-        let image = self.build_image(model, channels, &base)?;
-        self.upload_image(port, &image)?;
-        Ok(image)
-    }
+        req: &ImageProgramRequest,
+    ) -> Result<CodeplugProgramReport, String>;
+}
+
+/// Everything a clone radio needs to program a codeplug, resolved from the
+/// database by the command layer (drivers never query). Mirrors
+/// [`CodeplugPayload`]'s role for [`CodeplugProgrammer`] radios.
+pub(crate) struct ImageProgramRequest<'a> {
+    pub model: &'a RadioModel,
+    /// Slot-resolved channels, packed from slot 0 (see
+    /// `export::resolve_codeplug_slots`).
+    pub channels: &'a [SlotChannel],
+    /// The radio profile's non-channel settings and the model's schema, when the
+    /// profile carries them. `None` writes channels + names only. Passing them
+    /// makes the profile authoritative over every editable setting.
+    pub settings: Option<(&'a serde_json::Value, &'a str)>,
+    /// Where the mandatory pre-write backup goes; the driver names the file.
+    pub backup_dir: &'a Path,
+    /// Codeplug name, slugged into that filename so several codeplugs for one
+    /// radio stay distinguishable when restoring.
+    pub label: &'a str,
+}
+
+/// Unified outcome of a codeplug program, for every radio. The union of what
+/// the clone-mode and DB-driven paths report; fields a given radio cannot
+/// produce are `None`/zero/empty.
+///
+/// Clone radios fill `verified`/`channels` (they read back in the same session)
+/// and leave the zone/scan-list/contact counts at zero — they program channels
+/// and settings only. The AnyTone is the inverse: it reboots on commit, so it
+/// reports `expected_path` for a fresh-session byte-diff instead of `verified`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CodeplugProgramReport {
+    pub channels_written: usize,
+    /// Previously-programmed slots beyond the new channel set that were blanked.
+    pub slots_cleared: usize,
+    /// Non-channel settings written from the radio profile, or `None` when the
+    /// profile carried none and only channels/names went out.
+    pub settings_written: Option<usize>,
+    pub zones_written: usize,
+    pub zones_cleared: usize,
+    pub scan_lists_written: usize,
+    pub scan_lists_cleared: usize,
+    pub contacts_written: usize,
+    pub contacts_cleared: usize,
+    /// Whether an in-session read-back matched. `None` when the driver cannot
+    /// read back in the same session (the AnyTone reboots on commit).
+    pub verified: Option<bool>,
+    /// Set when verification could not run, found differences, or the radio
+    /// needs post-write handling.
+    pub note: Option<String>,
+    pub backup_path: String,
+    /// Image for a fresh-session byte-verify, on drivers that write one.
+    pub expected_path: Option<String>,
+    /// Flash regions rewritten, as hex addresses — driver-defined granularity.
+    /// Empty on clone radios, which rewrite whole ranges.
+    pub windows_written: Vec<String>,
+    /// A sample of the channels actually on the radio after writing, read back.
+    pub channels: Vec<DecodedChannelSample>,
+    /// Channels that could not be programmed, and why.
+    pub skipped: Vec<SkippedChannel>,
+    pub warnings: Vec<String>,
 }
 
 /// What one settings-read session captured.
