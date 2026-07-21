@@ -40,7 +40,8 @@ use super::{
     AnytoneChannelEdit, AnytoneSubTone, AnytoneToneEdit, BankPlan, RegionPatch,
     ScanListRecordSettings, BANK_STEP, CHANNEL_BASE, CH_PER_BANK, CH_REC_LEN, CONTACT_BASE,
     CONTACT_REC_LEN, MAX_CONTACTS_READ, MAX_SCAN_LISTS, MAX_ZONES, NUM_BANKS, SCAN_LIST_BASE,
-    SCAN_LIST_STEP, SCAN_MAX_CHANNELS, WRITE_WINDOW, ZONE_BITMAP_BASE, ZONE_BITMAP_BYTES,
+    SCAN_BITMAP_BASE, SCAN_BITMAP_BYTES, SCAN_LIST_STEP, SCAN_MAX_CHANNELS, WRITE_WINDOW,
+    ZONE_BITMAP_BASE, ZONE_BITMAP_BYTES,
     ZONE_LIST_BASE, ZONE_LIST_STEP, ZONE_MAX_CHANNELS, ZONE_NAME_BASE, ZONE_NAME_CHARS,
     ZONE_NAME_STEP,
 };
@@ -678,11 +679,12 @@ fn zone_count_in(name_window: &[u8]) -> usize {
         .map_or(0, |i| i + 1)
 }
 
-/// The `ZONE_BITMAP_BYTES`-byte zone-present bitmap for `n` zones: bits `0..n`
-/// set (LSB = zone 1), all higher bits cleared so stale zones are removed.
-fn zone_present_bitmap(n: usize) -> Vec<u8> {
-    let mut bitmap = vec![0u8; ZONE_BITMAP_BYTES];
-    for z in 0..n.min(ZONE_BITMAP_BYTES * 8) {
+/// A present-bitmap for `n` records: bits `0..n` set (LSB = record 1), all
+/// higher bits cleared so stale records are removed. Shared by the zone bitmap
+/// at `ZONE_BITMAP_BASE` and the scan-list bitmap at `SCAN_BITMAP_BASE`.
+fn present_bitmap(n: usize, bytes: usize) -> Vec<u8> {
+    let mut bitmap = vec![0u8; bytes];
+    for z in 0..n.min(bytes * 8) {
         bitmap[z / 8] |= 1 << (z % 8);
     }
     bitmap
@@ -768,12 +770,21 @@ fn run_program(
         // planned zone is activated. (HW-verified 2026-07-09.)
         patches.push(RegionPatch {
             addr: ZONE_BITMAP_BASE,
-            data: zone_present_bitmap(plan.zones.len()),
+            data: present_bitmap(plan.zones.len(), ZONE_BITMAP_BYTES),
+        });
+        // Scan lists are gated the same way (SCAN_BITMAP_BASE, +0x40 from the
+        // zone bitmap): without this the records land but the radio surfaces
+        // only the lists whose stale bits happen to be set — the symptom in the
+        // #21 follow-up, where three written lists showed up as one.
+        patches.push(RegionPatch {
+            addr: SCAN_BITMAP_BASE,
+            data: present_bitmap(plan.scan_lists.len(), SCAN_BITMAP_BYTES),
         });
 
         let mut originals = std::collections::BTreeMap::new();
         originals.insert(ZONE_NAME_BASE, name_window);
-        // The bitmap lives in the settings window; read it for the RMW/backup.
+        // Both present-bitmaps live in the same settings window; read it for
+        // the RMW/backup.
         let bitmap_window = ZONE_BITMAP_BASE & !(WRITE_WINDOW as u32 - 1);
         originals.insert(bitmap_window, read_block(&mut *p, bitmap_window, WRITE_WINDOW)?);
         // Zone list windows covering every zone written or cleared.
@@ -1095,21 +1106,21 @@ mod tests {
     }
 
     #[test]
-    fn zone_present_bitmap_sets_low_bits_and_clears_the_rest() {
+    fn present_bitmap_sets_low_bits_and_clears_the_rest() {
         // Full width, LSB = zone 1.
-        assert_eq!(zone_present_bitmap(0), vec![0u8; ZONE_BITMAP_BYTES]);
+        assert_eq!(present_bitmap(0, ZONE_BITMAP_BYTES), vec![0u8; ZONE_BITMAP_BYTES]);
         // 11 zones → bits 0..11: 0xFF (z1-8) then 0x07 (z9-11), rest zero.
-        let b = zone_present_bitmap(11);
+        let b = present_bitmap(11, ZONE_BITMAP_BYTES);
         assert_eq!(b.len(), ZONE_BITMAP_BYTES);
         assert_eq!(b[0], 0xFF);
         assert_eq!(b[1], 0x07);
         assert!(b[2..].iter().all(|&x| x == 0));
         // One zone → only bit 0 (matches the HW-observed 0x01 for a lone zone).
-        assert_eq!(zone_present_bitmap(1)[0], 0x01);
+        assert_eq!(present_bitmap(1, ZONE_BITMAP_BYTES)[0], 0x01);
         // Adding a 2nd zone flips exactly bit 1 (the HW-observed 0x01→0x03).
-        assert_eq!(zone_present_bitmap(2)[0], 0x03);
+        assert_eq!(present_bitmap(2, ZONE_BITMAP_BYTES)[0], 0x03);
         // Never overflows the fixed-width bitmap.
-        assert_eq!(zone_present_bitmap(MAX_ZONES).len(), ZONE_BITMAP_BYTES);
+        assert_eq!(present_bitmap(MAX_ZONES, ZONE_BITMAP_BYTES).len(), ZONE_BITMAP_BYTES);
     }
 
     // --- window splicing + expected-file round-trip -------------------------
