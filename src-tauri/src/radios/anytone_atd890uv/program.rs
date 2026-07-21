@@ -501,37 +501,23 @@ pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<AnytoneProgramPl
         .map(|(si, &id)| (id, si as u8))
         .collect();
 
-    // Explicit per-channel assignments (radio channel field 0x1B). Keyed by DB
-    // channel id, they apply to every radio slot the channel owns and win even
-    // when the channel is NOT a member of the target list ("launches list X but
-    // isn't scanned in X"). An assignment to a list not planned for this codeplug
-    // (unassigned/empty/over-cap) is ignored with a warning.
-    let override_rows = payload.scan_list_overrides;
-    // A list with ANY explicit assignment is manually managed: only its assigned
-    // channels launch it, so it is excluded from membership-derivation below.
-    // (Otherwise a list whose members span the whole codeplug would stamp every
-    // channel, drowning out the one explicit assignment.)
-    let manual_lists: std::collections::HashSet<i64> =
-        override_rows.iter().map(|o| o.scan_list_id).collect();
-
-    // Stamp each channel's scan-list byte. Default = membership-derivation for
-    // lists WITHOUT explicit assignments: the first such planned scan list that
-    // contains the slot wins; everything else stays the explicit 0xFF (none).
-    for (si, sl) in scan_lists.iter().enumerate() {
-        if manual_lists.contains(&scan_list_ids[si]) {
-            continue;
-        }
-        for &slot0 in &sl.member_slots {
-            let pc = &mut channels[slot0 as usize];
-            if pc.edit.scan_list_index == Some(0xFF) {
-                pc.edit.scan_list_index = Some(si as u8);
-            }
-        }
-    }
+    // The channel's scan-list byte (radio channel field 0x1B) comes from ONE
+    // place: the explicit per-channel assignment in `codeplug_channel_scan_lists`.
+    // Membership in a scan list does NOT imply the byte — a channel can be
+    // scanned in list X without launching it, and can launch X without being
+    // scanned in it. A channel with no assignment programs as 0xFF (none).
+    //
+    // Earlier builds derived the byte from membership when a list had no explicit
+    // assignments, which made the two concepts fight: derivation drowned out a
+    // dedicated launch channel (s52), and the per-list rule added to stop that
+    // wiped the byte off every other channel (issue #21). Neither can happen now.
+    //
+    // An assignment to a list not planned for this codeplug (unassigned/empty/
+    // over-cap) is ignored with a warning.
     for &crate::commands::export::ChannelScanListOverride {
         channel_id,
         scan_list_id: list_id,
-    } in override_rows
+    } in payload.scan_list_overrides
     {
         let Some(slots) = slots_by_channel.get(&channel_id) else {
             continue; // channel isn't in this codeplug's programmed set
@@ -546,6 +532,21 @@ pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<AnytoneProgramPl
                 "a channel is assigned to a scan list that isn't programmed in this codeplug — assignment ignored"
                     .to_string(),
             ),
+        }
+    }
+    // The byte is assignment-only, so a codeplug can carry scan lists that no
+    // channel launches. That is legal but rarely intended — surface it before
+    // the write rather than after.
+    if !scan_lists.is_empty() {
+        let unassigned = channels
+            .iter()
+            .filter(|c| c.edit.scan_list_index == Some(0xFF))
+            .count();
+        if unassigned > 0 {
+            warnings.push(format!(
+                "{unassigned} of {} channels have no scan list assigned — pressing Scan on them does nothing",
+                channels.len()
+            ));
         }
     }
 
@@ -1313,13 +1314,15 @@ mod tests {
         assert_eq!(plan.zones[0].name, "NOCO DMR");
         assert_eq!(plan.zones[0].member_slots, vec![0, 1, 2, 3]);
 
-        // Scan list: ch2's slot (2) + ch3's slot (3), and those channels'
-        // scan-list byte points at scan list 0 while ch1's stays cleared.
+        // Scan list: ch2's slot (2) + ch3's slot (3). Membership alone never
+        // sets the per-channel byte, so with no explicit assignments every
+        // channel programs as 0xFF (none).
         assert_eq!(plan.scan_lists.len(), 1);
         assert_eq!(plan.scan_lists[0].member_slots, vec![2, 3]);
-        assert_eq!(plan.channels[2].edit.scan_list_index, Some(0));
-        assert_eq!(plan.channels[3].edit.scan_list_index, Some(0));
-        assert_eq!(plan.channels[0].edit.scan_list_index, Some(0xFF));
+        assert!(plan
+            .channels
+            .iter()
+            .all(|c| c.edit.scan_list_index == Some(0xFF)));
 
         // The 900 MHz channel is skipped with a frequency reason.
         assert_eq!(plan.skipped.len(), 1);
@@ -1333,9 +1336,10 @@ mod tests {
         );
     }
 
-    /// The explicit per-channel scan-list assignment (radio byte 0x1B) wins over
-    /// membership-derivation and applies even when the channel isn't a member of
-    /// the target list.
+    /// The per-channel scan-list assignment (radio byte 0x1B) is the only source
+    /// of the byte: it applies whether or not the channel is a member of the
+    /// target list, and an unassigned channel gets none even when it is a member
+    /// of a programmed list.
     #[tokio::test]
     async fn explicit_channel_scan_list_overrides_membership() {
         let pool = fixture_pool("ovr").await;
@@ -1390,8 +1394,7 @@ mod tests {
         .unwrap();
         // Explicit assignments:
         //  - ch1 → list 21 (index 1) even though ch1 is a member of list 20.
-        //  - ch2 → no override; both lists are manually managed (each has an
-        //    explicit assignment), so NO derivation applies → none (0xFF).
+        //  - ch2 → unassigned, so none (0xFF) despite being a member of list 20.
         //  - ch3 → list 20 (index 0) even though ch3 is NOT a member of list 20.
         sqlx::query(
             "INSERT INTO codeplug_channel_scan_lists (codeplug_id, channel_id, scan_list_id)
@@ -1406,18 +1409,17 @@ mod tests {
         assert_eq!(plan.channels.len(), 3);
         // ch1 (slot 0): override to index 1, beats membership in list 0.
         assert_eq!(plan.channels[0].edit.scan_list_index, Some(1));
-        // ch2 (slot 1): no override, and both lists are manually managed →
-        // membership in list 0 does NOT derive an assignment.
+        // ch2 (slot 1): unassigned → membership in list 0 implies nothing.
         assert_eq!(plan.channels[1].edit.scan_list_index, Some(0xFF));
         // ch3 (slot 2): override to index 0 despite not being a member of it.
         assert_eq!(plan.channels[2].edit.scan_list_index, Some(0));
     }
 
-    /// A scan list with any explicit assignment is manually managed: derivation
-    /// is skipped for THAT list only, so its members without an assignment get
-    /// none (0xFF) — while an untouched list still derives from membership.
+    /// Issue #21: assigning a launch channel to one list must not touch any
+    /// other channel's byte. A list with an assignment and a list without one
+    /// behave identically for every channel the user didn't assign.
     #[tokio::test]
-    async fn manual_list_suppresses_derivation_per_list() {
+    async fn assignment_on_one_list_leaves_other_channels_alone() {
         let pool = fixture_pool("manual").await;
         let cp = d890_codeplug(&pool).await;
 
@@ -1448,8 +1450,8 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        // List 20 (index 0) contains ch1 & ch2 and is manually managed (ch1
-        // assigned). List 21 (index 1) contains ch3 and has no assignments.
+        // List 20 (index 0) contains ch1 & ch2, with ch1 assigned as its launch
+        // channel. List 21 (index 1) contains ch3 and has no assignments.
         sqlx::query("INSERT INTO scan_lists (id, name) VALUES (20, 'SCAN A'), (21, 'SCAN B')")
             .execute(&pool)
             .await
@@ -1480,14 +1482,19 @@ mod tests {
         assert_eq!(plan.channels.len(), 3);
         // ch1: explicitly assigned to list 0.
         assert_eq!(plan.channels[0].edit.scan_list_index, Some(0));
-        // ch2: member of manually-managed list 0 but not assigned → none.
+        // ch2 & ch3: unassigned, so ch1's assignment changed nothing for them —
+        // membership in list 0 / list 1 respectively implies no byte either way.
         assert_eq!(plan.channels[1].edit.scan_list_index, Some(0xFF));
-        // ch3: member of untouched list 1 → still derived from membership.
-        assert_eq!(plan.channels[2].edit.scan_list_index, Some(1));
+        assert_eq!(plan.channels[2].edit.scan_list_index, Some(0xFF));
+        // …and the user is told before the write, not after.
+        assert!(plan
+            .warnings
+            .iter()
+            .any(|w| w.contains("2 of 3 channels have no scan list")));
     }
 
     /// An assignment to a scan list not programmed in the codeplug is ignored
-    /// with a warning; the channel falls back to the derived default.
+    /// with a warning; the channel programs with no scan list.
     #[tokio::test]
     async fn override_to_unplanned_list_is_ignored_with_warning() {
         let pool = fixture_pool("ovrbad").await;
