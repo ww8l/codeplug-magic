@@ -392,7 +392,10 @@ pub(crate) fn exclusion_reason(channel: &Channel, model: &RadioModel) -> Option<
         ));
     }
 
-    // Frequency / band coverage.
+    // Frequency: the min/max pair is one contiguous span, so it cannot describe
+    // a radio with a hole in the middle (a UV-5R is 136–520 but dead between
+    // 174 and 400). Check the band-coverage flags too, or a 224 MHz channel
+    // sails through 136–520 onto a radio that cannot transmit on it.
     if let (Some(min), Some(max)) = (model.freq_min, model.freq_max) {
         if channel.rx_freq < min || channel.rx_freq > max {
             return Some(format!(
@@ -401,8 +404,31 @@ pub(crate) fn exclusion_reason(channel: &Channel, model: &RadioModel) -> Option<
             ));
         }
     }
+    if let Some((covered, band)) = band_coverage(model, channel.rx_freq) {
+        if !covered {
+            return Some(format!(
+                "Frequency {:.4} MHz is in the {band} band, which {} does not cover",
+                channel.rx_freq, model.display_name
+            ));
+        }
+    }
 
     None
+}
+
+/// Which `covers_*` flag governs a frequency, and whether the model sets it.
+/// Returns `None` for frequencies in no band we track (the 174–219 and 225–400
+/// stretches, anything above 928) — those are judged by `freq_min`/`freq_max`
+/// alone rather than guessed at.
+fn band_coverage(model: &RadioModel, freq: f64) -> Option<(bool, &'static str)> {
+    match freq {
+        f if f < 30.0 => Some((model.covers_hf, "HF")),
+        f if (30.0..=174.0).contains(&f) => Some((model.covers_vhf, "VHF")),
+        f if (219.0..=225.0).contains(&f) => Some((model.covers_220, "220 MHz")),
+        f if (400.0..=520.0).contains(&f) => Some((model.covers_uhf, "UHF")),
+        f if (902.0..=928.0).contains(&f) => Some((model.covers_900, "900 MHz")),
+        _ => None,
+    }
 }
 
 /// One programmable memory slot for the direct radio programmer. `slot` is the
@@ -428,13 +454,18 @@ pub(crate) async fn resolve_codeplug_slots(
     let model = codeplug_model(pool, codeplug_id).await?;
     let channels = codeplug_channels(pool, codeplug_id).await?;
     let expanded = expand_for_export(pool, channels).await?;
-    let slots = expanded
+    let included: Vec<&ExpandedChannel> = expanded
         .iter()
         .filter(|ec| exclusion_reason(&ec.channel, &model).is_none())
+        .collect();
+    let names = expanded_names(included.iter().copied(), &model);
+    let slots = included
+        .into_iter()
+        .zip(names)
         .enumerate()
-        .map(|(slot, ec)| SlotChannel {
+        .map(|(slot, (ec, name))| SlotChannel {
             slot,
-            name: expanded_name(ec, &model),
+            name,
             channel: ec.channel.clone(),
         })
         .collect();
@@ -454,9 +485,29 @@ pub async fn export_preview(
     let mut included = 0usize;
     let mut excluded = 0usize;
 
-    for ec in &expanded {
-        let reason = exclusion_reason(&ec.channel, &model);
+    // Dedup runs over the included set only — those are the names that share a
+    // radio — so the preview shows exactly what programming will write.
+    let reasons: Vec<Option<String>> = expanded
+        .iter()
+        .map(|ec| exclusion_reason(&ec.channel, &model))
+        .collect();
+    let mut included_names = expanded_names(
+        expanded
+            .iter()
+            .zip(&reasons)
+            .filter(|(_, r)| r.is_none())
+            .map(|(ec, _)| ec),
+        &model,
+    )
+    .into_iter();
+
+    for (ec, reason) in expanded.iter().zip(reasons) {
         let is_included = reason.is_none();
+        let name = if is_included {
+            included_names.next().unwrap_or_default()
+        } else {
+            expanded_name(ec, &model)
+        };
         if is_included {
             included += 1;
         } else {
@@ -464,7 +515,7 @@ pub async fn export_preview(
         }
         rows.push(ExportPreviewRow {
             channel_id: ec.channel.id,
-            name: expanded_name(ec, &model),
+            name,
             rx_freq: ec.channel.rx_freq,
             mode: ec.channel.mode.clone(),
             included: is_included,
@@ -530,17 +581,148 @@ pub async fn generate_codeplug(
 /// talkgroup label for expanded DMR rows ("W0XYZ Colorado"), then truncating to
 /// the radio's max name length.
 pub(crate) fn expanded_name(ec: &ExpandedChannel, model: &RadioModel) -> String {
-    let max = model.max_name_length.unwrap_or(16);
-    let base = if max <= 7 {
-        ec.channel.name_short.clone().unwrap_or_default()
-    } else {
-        ec.channel.name_long.clone().unwrap_or_default()
-    };
-    let full = match &ec.tg_label {
+    let max = model.max_name_length.unwrap_or(16) as usize;
+    let compose = |base: &str| match &ec.tg_label {
         Some(tg) => format!("{base} {tg}").trim().to_string(),
-        None => base,
+        None => base.to_string(),
     };
-    full.chars().take(max as usize).collect()
+    let long = compose(ec.channel.name_long.as_deref().unwrap_or_default());
+    let short = compose(ec.channel.name_short.as_deref().unwrap_or_default());
+
+    // Take the long name only when the whole thing fits. Truncating it to a
+    // narrow radio is how two different repeaters both ended up as "W0QEY Fo"
+    // on an 8-char TD-H3 while the 7-char UV-5R showed clean callsigns — the
+    // short name is already a distinct label, so prefer it over a stump.
+    let chosen = if !long.is_empty() && long.chars().count() <= max {
+        long
+    } else if !short.is_empty() {
+        short
+    } else {
+        long
+    };
+    chosen.chars().take(max).collect()
+}
+
+/// Name every channel that will reach the radio, then pull apart any that came
+/// out identical. Callers pass the *included* set in slot order — dedup is only
+/// meaningful across the channels that share one radio's memory.
+pub(crate) fn expanded_names<'a, I>(ecs: I, model: &RadioModel) -> Vec<String>
+where
+    I: IntoIterator<Item = &'a ExpandedChannel>,
+{
+    let max = model.max_name_length.unwrap_or(16) as usize;
+    let mut rows: Vec<(String, f64)> = ecs
+        .into_iter()
+        .map(|ec| (expanded_name(ec, model), ec.channel.rx_freq))
+        .collect();
+    disambiguate_names(&mut rows, max);
+    rows.into_iter().map(|(name, _)| name).collect()
+}
+
+/// Make `(name, rx_freq)` rows unique in place, marking collisions by the thing
+/// that actually distinguishes the channels — the frequency. Two W0QEY
+/// repeaters on different bands become "W0QEY U" / "W0QEY V"; a same-band pair
+/// falls back to the frequency's hundredths ("W0QEY 85" / "W0QEY 58"), and an
+/// unresolvable tie to a counter. Names are re-truncated to `max`, so the
+/// marker always displaces base characters rather than overrunning the radio.
+pub(crate) fn disambiguate_names(rows: &mut [(String, f64)], max: usize) {
+    use std::collections::{HashMap, HashSet};
+
+    let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, (name, _)) in rows.iter().enumerate() {
+        groups.entry(name.clone()).or_default().push(i);
+    }
+    let mut collisions: Vec<Vec<usize>> = groups.into_values().filter(|g| g.len() > 1).collect();
+    // HashMap order is arbitrary; process by first appearance so the output is
+    // reproducible run to run.
+    collisions.sort_by_key(|g| g[0]);
+
+    let mut taken: HashSet<String> = rows.iter().map(|(n, _)| n.clone()).collect();
+
+    for group in collisions {
+        let base = rows[group[0]].0.clone();
+        // Everything in this group currently answers to `base`; free it so a
+        // candidate is only rejected for clashing with some *other* name.
+        taken.remove(&base);
+
+        let mut applied = false;
+        for level in 0..2 {
+            let candidates: Vec<String> = group
+                .iter()
+                .map(|&i| {
+                    let marker = match level {
+                        0 => band_marker(rows[i].1).to_string(),
+                        _ => freq_marker(rows[i].1),
+                    };
+                    with_marker(&base, &marker, max)
+                })
+                .collect();
+            let distinct: HashSet<&String> = candidates.iter().collect();
+            if distinct.len() == group.len() && !candidates.iter().any(|c| taken.contains(c)) {
+                for (&i, name) in group.iter().zip(candidates) {
+                    taken.insert(name.clone());
+                    rows[i].0 = name;
+                }
+                applied = true;
+                break;
+            }
+        }
+
+        if !applied {
+            // Last resort: the first keeps the bare name, the rest are counted.
+            taken.insert(base.clone());
+            let mut n = 2;
+            for &i in group.iter().skip(1) {
+                let name = loop {
+                    let candidate = with_marker(&base, &n.to_string(), max);
+                    n += 1;
+                    if !taken.contains(&candidate) || n > 99 {
+                        break candidate;
+                    }
+                };
+                taken.insert(name.clone());
+                rows[i].0 = name;
+            }
+        }
+    }
+}
+
+/// Single-character band tag: the coarsest thing that tells two same-named
+/// channels apart, and the one an operator can read off the front panel.
+fn band_marker(freq: f64) -> &'static str {
+    match freq {
+        f if f < 30.0 => "H",
+        f if f < 174.0 => "V",
+        f if f < 300.0 => "2",
+        f if f < 902.0 => "U",
+        _ => "9",
+    }
+}
+
+/// The frequency's first two decimal digits, read straight off the number the
+/// operator sees — 449.850 → "85", 146.625 → "62". Never rounded: 146.625 must
+/// not come back as "63", or the marker stops matching the dial.
+fn freq_marker(freq: f64) -> String {
+    let text = format!("{:.4}", freq.abs());
+    let decimals = text.split('.').nth(1).unwrap_or("00");
+    decimals.chars().take(2).collect()
+}
+
+/// Fit `base` + `marker` into `max` characters, keeping a separating space when
+/// the base can spare it and dropping it when it cannot.
+fn with_marker(base: &str, marker: &str, max: usize) -> String {
+    let marker_len = marker.chars().count();
+    if marker_len + 1 > max {
+        return marker.chars().take(max).collect();
+    }
+    for sep in [" ", ""] {
+        let keep = max - marker_len - sep.len();
+        if keep >= 2 || (sep.is_empty() && keep >= 1) {
+            let head: String = base.chars().take(keep).collect();
+            return format!("{}{sep}{marker}", head.trim_end());
+        }
+    }
+    marker.chars().take(max).collect()
 }
 
 /// Render the included (already-expanded) channels as a CHIRP-compatible CSV.
@@ -571,6 +753,7 @@ fn render_chirp_csv(channels: &[&ExpandedChannel], model: &RadioModel) -> Result
     ])
     .estr()?;
 
+    let names = expanded_names(channels.iter().copied(), model);
     for (i, ec) in channels.iter().enumerate() {
         let c = &ec.channel;
         let duplex = match c.duplex.as_deref() {
@@ -622,7 +805,7 @@ fn render_chirp_csv(channels: &[&ExpandedChannel], model: &RadioModel) -> Result
 
         wtr.write_record([
             i.to_string(),
-            expanded_name(ec, model),
+            names[i].clone(),
             format!("{:.6}", c.rx_freq),
             duplex.to_string(),
             format!("{:.6}", c.offset.unwrap_or(0.0).abs()),
@@ -814,7 +997,9 @@ mod tests {
 
         assert_eq!(expanded[0].tg_number, Some(3108));
         assert_eq!(expanded[0].timeslot, Some(2));
-        assert_eq!(expanded_name(&expanded[0], &model), "W0XYZ Denver Col");
+        // "W0XYZ Denver Colorado" overruns 16, so the short name carries the
+        // talkgroup instead of shipping a truncated stump (issue #26).
+        assert_eq!(expanded_name(&expanded[0], &model), "W0XYZ Colorado");
         assert_eq!(expanded[1].tg_number, Some(91));
         assert!(expanded[2].tg_label.is_none()); // FM passthrough
 
@@ -916,5 +1101,173 @@ mod tests {
         assert!(tg_csv.contains(",91,Worldwide,Group Call,None"));
 
         let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// A radio model with just the fields the name/exclusion rules read.
+    fn model_with(max_name_length: i64) -> RadioModel {
+        RadioModel {
+            display_name: "Test Radio".into(),
+            analog_capable: true,
+            covers_vhf: true,
+            covers_uhf: true,
+            freq_min: Some(136.0),
+            freq_max: Some(520.0),
+            max_name_length: Some(max_name_length),
+            ..Default::default()
+        }
+    }
+
+    fn expanded(name_long: &str, name_short: &str, tg: Option<&str>) -> ExpandedChannel {
+        ExpandedChannel {
+            channel: Channel {
+                name_long: Some(name_long.into()),
+                name_short: Some(name_short.into()),
+                rx_freq: 146.94,
+                ..Default::default()
+            },
+            tg_label: tg.map(Into::into),
+            timeslot: None,
+            tg_number: None,
+            tg_call_type: None,
+            tg_inline: false,
+        }
+    }
+
+    /// Issue #26: an 8-char radio used to truncate the long name, so two
+    /// different repeaters both shipped as "W0QEY Fo". The short name wins
+    /// whenever the long one does not fit whole.
+    #[test]
+    fn short_name_wins_when_the_long_one_would_be_truncated() {
+        let ec = expanded("W0QEY Fort Collins", "W0QEY", None);
+        assert_eq!(expanded_name(&ec, &model_with(8)), "W0QEY");
+        assert_eq!(expanded_name(&ec, &model_with(7)), "W0QEY");
+        // Room for the whole long name — take it, it is more informative.
+        assert_eq!(expanded_name(&ec, &model_with(18)), "W0QEY Fort Collins");
+        assert_eq!(expanded_name(&ec, &model_with(16)), "W0QEY");
+    }
+
+    #[test]
+    fn name_falls_back_and_still_respects_the_limit() {
+        // No short name: truncating the long one is all that is left.
+        let no_short = expanded("W0QEY Fort Collins", "", None);
+        assert_eq!(expanded_name(&no_short, &model_with(8)), "W0QEY Fo");
+        // Short name longer than the radio allows is truncated too.
+        let long_short = expanded("", "WW8LREPEATER", None);
+        assert_eq!(expanded_name(&long_short, &model_with(8)), "WW8LREPE");
+        // The talkgroup label counts toward the fit test.
+        let dmr = expanded("W0QEY Fort Collins", "W0QEY", Some("Colorado"));
+        assert_eq!(expanded_name(&dmr, &model_with(16)), "W0QEY Colorado");
+    }
+
+    /// Issue #25: 224 MHz sits inside a UV-5R's 136–520 span but the radio has
+    /// no 220 band, so the range check alone let it through.
+    #[test]
+    fn band_flags_exclude_channels_the_range_check_admits() {
+        let mut model = model_with(7);
+        model.covers_220 = false;
+        let ch = Channel {
+            rx_freq: 224.840,
+            mode: Some("FM".into()),
+            ..Default::default()
+        };
+        let reason = exclusion_reason(&ch, &model).expect("224 MHz must be excluded");
+        assert!(reason.contains("220 MHz"), "unexpected reason: {reason}");
+
+        model.covers_220 = true;
+        assert!(exclusion_reason(&ch, &model).is_none());
+    }
+
+    /// The real UV-5R case: W0QEY on 449.850 and on 147.360 both shipped as
+    /// "W0QEY" with no way to tell them apart on the front panel.
+    #[test]
+    fn duplicate_names_are_split_by_band_then_by_frequency() {
+        let mut rows = vec![
+            ("W0QEY".to_string(), 449.850),
+            ("W0QEY".to_string(), 147.360),
+            ("W0LRA".to_string(), 146.940),
+        ];
+        disambiguate_names(&mut rows, 7);
+        assert_eq!(rows[0].0, "W0QEY U");
+        assert_eq!(rows[1].0, "W0QEY V");
+        assert_eq!(rows[2].0, "W0LRA"); // untouched — it never collided
+
+        // Same band: the band letter cannot split them, so the frequency does.
+        let mut same_band = vec![
+            ("W0QEY".to_string(), 449.850),
+            ("W0QEY".to_string(), 449.575),
+        ];
+        disambiguate_names(&mut same_band, 8);
+        assert_eq!(same_band[0].0, "W0QEY 85");
+        assert_eq!(same_band[1].0, "W0QEY 57");
+    }
+
+    /// The marker is the digits as they read on the dial, not a rounded value:
+    /// 146.625 is "62". Rounding it to "63" would name a frequency the operator
+    /// cannot find anywhere on the radio.
+    #[test]
+    fn frequency_markers_truncate_rather_than_round() {
+        assert_eq!(freq_marker(146.625), "62");
+        assert_eq!(freq_marker(449.575), "57");
+        assert_eq!(freq_marker(449.850), "85");
+        assert_eq!(freq_marker(147.360), "36");
+        assert_eq!(freq_marker(146.940), "94");
+        assert_eq!(freq_marker(224.840), "84");
+        assert_eq!(freq_marker(146.600), "60");
+    }
+
+    #[test]
+    fn markers_displace_characters_rather_than_overrun_the_limit() {
+        let mut rows = vec![
+            ("W0QEY REPEATER".to_string(), 449.850),
+            ("W0QEY REPEATER".to_string(), 147.360),
+        ];
+        disambiguate_names(&mut rows, 7);
+        assert_eq!(rows[0].0, "W0QEY U");
+        assert_eq!(rows[1].0, "W0QEY V");
+        assert!(rows.iter().all(|(n, _)| n.chars().count() <= 7));
+    }
+
+    /// Identical name AND identical frequency (the same repeater reached by two
+    /// routes) has nothing left to distinguish it — count them.
+    #[test]
+    fn unsplittable_duplicates_fall_back_to_a_counter() {
+        let mut rows = vec![
+            ("W0QEY".to_string(), 449.850),
+            ("W0QEY".to_string(), 449.850),
+            ("W0QEY".to_string(), 449.850),
+        ];
+        disambiguate_names(&mut rows, 8);
+        assert_eq!(rows[0].0, "W0QEY");
+        assert_eq!(rows[1].0, "W0QEY 2");
+        assert_eq!(rows[2].0, "W0QEY 3");
+    }
+
+    #[test]
+    fn disambiguation_never_creates_a_new_collision() {
+        // "W0QEY U" is already spoken for, so the pair must route around it.
+        let mut rows = vec![
+            ("W0QEY U".to_string(), 448.000),
+            ("W0QEY".to_string(), 449.850),
+            ("W0QEY".to_string(), 449.575),
+        ];
+        disambiguate_names(&mut rows, 8);
+        let names: HashSet<&String> = rows.iter().map(|(n, _)| n).collect();
+        assert_eq!(names.len(), 3, "names not unique: {rows:?}");
+    }
+
+    #[test]
+    fn in_band_and_untracked_frequencies_still_pass() {
+        let model = model_with(7);
+        for freq in [146.94, 449.850, 380.0] {
+            let ch = Channel {
+                rx_freq: freq,
+                mode: Some("FM".into()),
+                ..Default::default()
+            };
+            assert!(
+                exclusion_reason(&ch, &model).is_none(),
+                "{freq} should be included"
+            );
+        }
     }
 }
