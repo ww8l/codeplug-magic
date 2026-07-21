@@ -280,7 +280,7 @@ export interface ScanListSettings {
 }
 
 /** A channel's explicit scan-list assignment within one codeplug (radio byte
- *  0x1B). Channels with no assignment fall back to membership-derivation. */
+ *  0x1B). Channels with no assignment program with no scan list. */
 export interface ChannelScanListAssignment {
   channel_id: number;
   scan_list_id: number;
