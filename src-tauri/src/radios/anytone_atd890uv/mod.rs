@@ -972,7 +972,9 @@ pub(crate) const CH_TX_COLOR_CODE: usize = 0x43;
 ///
 /// HW-PROVEN by front-panel differential dump on a real D890UV: toggling one
 /// analog channel's Squelch Mode between "CDT" and "SQ" moved this byte and
-/// NOTHING else (0x10 -> 0x00). Note this is NOT where qdmr's D878-family
+/// NOTHING else (0x10 -> 0x00). The full program path — encode, write, and
+/// tone squelch actually working on air — is HW-verified too. Note this is
+/// NOT where qdmr's D878-family
 /// layout puts squelch mode (0x1A) — that byte is 0x00 in all 3994 archived
 /// channel records and did not move. Do not "correct" it to match qdmr.
 pub(crate) const CH_SQUELCH_MODE: usize = 0x19;
