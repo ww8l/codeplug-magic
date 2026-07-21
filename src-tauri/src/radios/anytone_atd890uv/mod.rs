@@ -193,6 +193,17 @@ pub(crate) const ZONE_BITMAP_BYTES: usize = 32;
 pub(crate) const SCAN_LIST_BASE: u32 = 0x0210_0000;
 pub(crate) const SCAN_LIST_STEP: u32 = 0x0000_0200;
 pub(crate) const MAX_SCAN_LISTS: usize = 250;
+/// Scan-list-present bitmap — the scan-list twin of [`ZONE_BITMAP_BASE`]: the
+/// radio surfaces a list iff its bit is set here, whatever the record says.
+/// Third in a run of 32-byte bitmaps (zones @0x2C00, unknown @0x2C20, radio IDs
+/// @0x2C40 — see `settings::RADIO_ID_BITMAP_BASE`, do not confuse them).
+/// Evidenced 2026-07-21 from the 2026-07-11 pre-write dump, where the bits set
+/// here were [0..10, 12..22] and the non-empty scan-list records were exactly
+/// 1..11, 13..23 — the same 23 entries with the same hole. Every program since
+/// wrote records without this bitmap, which is why a codeplug with three scan
+/// lists read back as one.
+pub(crate) const SCAN_BITMAP_BASE: u32 = 0x0348_2C60;
+pub(crate) const SCAN_BITMAP_BYTES: usize = 32;
 /// Functional member cap: AnyTone documents 50 channels per scan list, so we
 /// validate/truncate at 50 even though the record's array has 100 slots.
 pub(crate) const SCAN_MAX_CHANNELS: usize = 50;
