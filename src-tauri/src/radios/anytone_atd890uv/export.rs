@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 
-use crate::commands::export::{expanded_name, tx_frequency, ExpandedChannel};
+use crate::commands::export::{expanded_names, tx_frequency, ExpandedChannel};
 use crate::error::MapErrString;
 use crate::models::RadioModel;
 use crate::radios::driver::CodeplugExporter;
@@ -86,6 +86,7 @@ pub(crate) fn render_anytone_channels(
     ])
     .estr()?;
 
+    let names = expanded_names(channels.iter().copied(), model);
     for (i, ec) in channels.iter().enumerate() {
         let c = &ec.channel;
         let is_dmr = c.mode.as_deref() == Some("DMR");
@@ -129,7 +130,7 @@ pub(crate) fn render_anytone_channels(
 
         wtr.write_record([
             (i + 1).to_string(),
-            expanded_name(ec, model),
+            names[i].clone(),
             format!("{:.5}", c.rx_freq),
             format!("{:.5}", tx_frequency(c)),
             channel_type.to_string(),
