@@ -160,7 +160,9 @@ pub(crate) const NUM_BANKS: usize = 32;
 /// Channel-present bitmap: 1 bit per channel (LSB = channel 1), 500 bytes for
 /// the radio's 4000 channels, at the head of the run of present-bitmaps that
 /// continues with zones/radio-IDs/scan-lists at 0x03482C00+. The radio shows a
-/// channel iff its bit is set, whatever the record holds. Pinned 2026-07-21 by
+/// channel iff its bit is set, whatever the record holds. HW-PROVEN 2026-07-21:
+/// writing it turned a radio showing 29 channels into one showing all 59.
+/// Pinned by
 /// diffing this window across archived dumps: it is the only region besides
 /// those bitmaps that tracks record counts (427 bits set when the radio carried
 /// a full CPS codeplug, 29 after ours wrote 59 channel records and never
@@ -208,6 +210,7 @@ pub(crate) const SCAN_LIST_STEP: u32 = 0x0000_0200;
 pub(crate) const MAX_SCAN_LISTS: usize = 250;
 /// Scan-list-present bitmap — the scan-list twin of [`ZONE_BITMAP_BASE`]: the
 /// radio surfaces a list iff its bit is set here, whatever the record says.
+/// HW-PROVEN 2026-07-21: three programmed scan lists went from 1 shown to 3.
 /// Third in a run of 32-byte bitmaps (zones @0x2C00, unknown @0x2C20, radio IDs
 /// @0x2C40 — see `settings::RADIO_ID_BITMAP_BASE`, do not confuse them).
 /// Evidenced 2026-07-21 from the 2026-07-11 pre-write dump, where the bits set
