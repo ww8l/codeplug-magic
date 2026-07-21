@@ -40,7 +40,8 @@ use super::{
     AnytoneChannelEdit, AnytoneSubTone, AnytoneToneEdit, BankPlan, RegionPatch,
     ScanListRecordSettings, BANK_STEP, CHANNEL_BASE, CH_PER_BANK, CH_REC_LEN, CONTACT_BASE,
     CONTACT_REC_LEN, MAX_CONTACTS_READ, MAX_SCAN_LISTS, MAX_ZONES, NUM_BANKS, SCAN_LIST_BASE,
-    SCAN_BITMAP_BASE, SCAN_BITMAP_BYTES, SCAN_LIST_STEP, SCAN_MAX_CHANNELS, WRITE_WINDOW,
+    CHANNEL_BITMAP_BASE, CHANNEL_BITMAP_BYTES, MAX_CHANNELS_BITMAP, SCAN_BITMAP_BASE,
+    SCAN_BITMAP_BYTES, SCAN_LIST_STEP, SCAN_MAX_CHANNELS, WRITE_WINDOW,
     ZONE_BITMAP_BASE, ZONE_BITMAP_BYTES,
     ZONE_LIST_BASE, ZONE_LIST_STEP, ZONE_MAX_CHANNELS, ZONE_NAME_BASE, ZONE_NAME_CHARS,
     ZONE_NAME_STEP,
@@ -768,6 +769,13 @@ fn run_program(
         // program — set bits for the planned zones and clear all others — so
         // stale bits from a previous codeplug can't leave phantom zones and every
         // planned zone is activated. (HW-verified 2026-07-09.)
+        // Channels are gated by the same kind of bitmap (CHANNEL_BITMAP_BASE);
+        // without it the radio shows whatever stale bits it carried, which is how
+        // 59 written channel records surfaced as 29.
+        patches.push(RegionPatch {
+            addr: CHANNEL_BITMAP_BASE,
+            data: present_bitmap(plan.channels.len().min(MAX_CHANNELS_BITMAP), CHANNEL_BITMAP_BYTES),
+        });
         patches.push(RegionPatch {
             addr: ZONE_BITMAP_BASE,
             data: present_bitmap(plan.zones.len(), ZONE_BITMAP_BYTES),
@@ -1113,6 +1121,10 @@ mod tests {
         assert_ne!(SCAN_BITMAP_BASE, RADIO_ID_BITMAP_BASE);
         assert!(SCAN_BITMAP_BASE >= RADIO_ID_BITMAP_BASE + 32);
         assert!(SCAN_BITMAP_BASE >= ZONE_BITMAP_BASE + ZONE_BITMAP_BYTES as u32);
+        // The channel bitmap runs up to, but not into, the zone bitmap — and
+        // stops short of the two non-channel bits at its +0x1F4 byte.
+        assert!(CHANNEL_BITMAP_BASE + CHANNEL_BITMAP_BYTES as u32 <= ZONE_BITMAP_BASE);
+        assert_eq!(CHANNEL_BITMAP_BASE + CHANNEL_BITMAP_BYTES as u32, 0x0348_2BF4);
     }
 
     #[test]
@@ -1564,6 +1576,26 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.contains("isn't programmed in this codeplug")));
+    }
+
+    /// Off-by-default diagnostic: assemble a REAL codeplug from a COPY of an app
+    /// database and print its counts, skipped channels and warnings — the fastest
+    /// way to tell "the planner dropped it" from "the radio didn't take it".
+    ///   CPM_DB=/path/copy.sqlite3 CPM_CP=2 cargo test plan_dump -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore = "needs CPM_DB + CPM_CP"]
+    async fn plan_dump() {
+        let db = std::env::var("CPM_DB").unwrap();
+        let cp: i64 = std::env::var("CPM_CP").unwrap().parse().unwrap();
+        let pool = sqlx::SqlitePool::connect(&format!("sqlite:{db}")).await.unwrap();
+        let plan = build_anytone_program(&pool, cp).await.expect("assemble");
+        eprintln!(
+            "channels={} zones={} scan_lists={} contacts={} skipped={}",
+            plan.channels.len(), plan.zones.len(), plan.scan_lists.len(),
+            plan.contacts.len(), plan.skipped.len()
+        );
+        for s in &plan.skipped { eprintln!("  SKIP {} — {}", s.name, s.reason); }
+        for w in &plan.warnings { eprintln!("  WARN {w}"); }
     }
 
     /// Off-by-default integration check: run the assembly against a COPY of a
