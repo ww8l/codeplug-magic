@@ -26,6 +26,15 @@ use crate::radios::driver::{SettingsCapture, SettingsReader, SettingsWriteReport
 /// One ID is all a single-radio setup needs (matches RT Systems' one "Radio ID"
 /// row), so we read/write only element 0.
 pub const RADIO_ID_BASE: u32 = 0x0368_0000;
+/// Radio-ID-present bitmap, sitting 0x40 past the zone-present bitmap (1 bit per
+/// record, LSB = element 0). HW-proven 2026-07-21 the hard way: it reads 0x01 for
+/// a single radio ID, and writing 0x07 there — on the theory that it was the
+/// scan-list twin of the zone bitmap, by analogy with qdmr's D878 map — made
+/// AnyTone's CPS fail its read with `GetPersonFromCommData_Error:1---3680040`,
+/// i.e. choking on the now-"present" empty record at RADIO_ID_BASE + 0x40.
+/// DO NOT write this unless you are actually adding radio IDs. The scan-list
+/// present bitmap, if one exists, is somewhere else and still unfound.
+pub const RADIO_ID_BITMAP_BASE: u32 = 0x0348_2C40;
 /// Base of the mirrored "Primary ID" record (same DMR ID + name, plus a "Used"
 /// flag at +0x26). CPS writes both when you set a single radio ID; we do too.
 pub const PRIMARY_ID_BASE: u32 = 0x0368_4000;

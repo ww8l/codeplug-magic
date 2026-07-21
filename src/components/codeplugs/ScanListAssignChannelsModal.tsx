@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import clsx from "clsx";
 import { Modal } from "../overlays";
-import { TextInput, Spinner } from "../ui";
+import { Button, TextInput, Spinner } from "../ui";
 import { api, withToast } from "../../lib/api";
 import type { Channel, ScanListSummary } from "../../lib/types";
 
@@ -13,9 +13,9 @@ const channelName = (c: Channel) =>
  * Assign a codeplug's channels to ONE scan list — this is the radio's
  * per-channel "scan list" field (byte 0x1B). Each channel points at exactly
  * one scan list within the codeplug, so checking a channel already assigned
- * elsewhere MOVES it here. A list with ANY assignment is manually managed:
- * only its checked channels launch it. Lists with no assignments fall back
- * to membership-derivation when programming.
+ * elsewhere MOVES it here. Membership in a scan list does NOT set this field:
+ * an unchecked channel programs with no scan list, whatever lists it belongs
+ * to.
  */
 export function ScanListAssignChannelsModal({
   open,
@@ -40,6 +40,7 @@ export function ScanListAssignChannelsModal({
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [pending, setPending] = useState<Set<number>>(new Set());
+  const [bulking, setBulking] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -79,6 +80,53 @@ export function ScanListAssignChannelsModal({
     return channels.filter((c) => channelName(c).toLowerCase().includes(q));
   }, [channels, search]);
 
+  const assignedHere = useMemo(
+    () =>
+      scanList
+        ? [...assigned.values()].filter((id) => id === scanList.id).length
+        : 0,
+    [assigned, scanList],
+  );
+  // Bulk targets come from the filtered view, so a search narrows the action.
+  const assignedShown = useMemo(
+    () => filtered.filter((c) => assigned.get(c.id) === scanList?.id),
+    [filtered, assigned, scanList],
+  );
+  const unassignedShown = useMemo(
+    () => filtered.filter((c) => assigned.get(c.id) !== scanList?.id),
+    [filtered, assigned, scanList],
+  );
+
+  /** Assign (or clear) a batch of channels, with one toast for the batch. */
+  const bulkSet = async (batch: Channel[], checked: boolean) => {
+    if (!scanList || batch.length === 0) return;
+    setBulking(true);
+    try {
+      await withToast(
+        (async () => {
+          for (const c of batch) {
+            if (checked) {
+              await api.setChannelScanList(codeplugId, c.id, scanList.id);
+            } else {
+              await api.clearChannelScanList(codeplugId, c.id);
+            }
+          }
+        })(),
+      );
+      setAssigned((prev) => {
+        const next = new Map(prev);
+        for (const c of batch) {
+          if (checked) next.set(c.id, scanList.id);
+          else next.delete(c.id);
+        }
+        return next;
+      });
+      onChanged();
+    } finally {
+      setBulking(false);
+    }
+  };
+
   const toggle = async (c: Channel, checked: boolean) => {
     if (!scanList) return;
     setPending((s) => new Set(s).add(c.id));
@@ -112,9 +160,8 @@ export function ScanListAssignChannelsModal({
           Pick which of this codeplug's channels launch{" "}
           <span className="font-medium">{scanList?.name}</span> when Scan is
           pressed. A channel can point at only one scan list, so checking one
-          that's assigned elsewhere moves it here. Once any channel is checked,
-          only checked channels launch this list; if none are checked, every
-          member channel launches it.
+          that's assigned elsewhere moves it here. Being a member of a scan list
+          doesn't set this — an unchecked channel launches no list at all.
         </p>
 
         <div className="relative">
@@ -129,6 +176,28 @@ export function ScanListAssignChannelsModal({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+        </div>
+
+        <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+          <span>
+            {assignedHere} of {channels.length} channels launch this list
+          </span>
+          <div className="flex gap-1.5">
+            <Button
+              variant="ghost"
+              disabled={bulking || loading || unassignedShown.length === 0}
+              onClick={() => bulkSet(unassignedShown, true)}
+            >
+              {search.trim() ? "Check all shown" : "Check all"}
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={bulking || loading || assignedShown.length === 0}
+              onClick={() => bulkSet(assignedShown, false)}
+            >
+              {search.trim() ? "Uncheck all shown" : "Uncheck all"}
+            </Button>
+          </div>
         </div>
 
         <div className="max-h-72 min-h-[6rem] overflow-auto rounded-md border border-slate-200 dark:border-slate-700">
@@ -158,7 +227,7 @@ export function ScanListAssignChannelsModal({
                   <input
                     type="checkbox"
                     checked={here}
-                    disabled={pending.has(c.id)}
+                    disabled={bulking || pending.has(c.id)}
                     onChange={(e) => toggle(c, e.target.checked)}
                     className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 dark:border-slate-600"
                   />

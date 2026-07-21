@@ -157,6 +157,21 @@ pub(crate) const PROBE_REGIONS: &[(&str, u32, u32)] = &[
 pub(crate) const CHANNEL_BASE: u32 = 0x0100_0000;
 pub(crate) const BANK_STEP: u32 = 0x0008_0000;
 pub(crate) const NUM_BANKS: usize = 32;
+/// Channel-present bitmap: 1 bit per channel (LSB = channel 1), 500 bytes for
+/// the radio's 4000 channels, at the head of the run of present-bitmaps that
+/// continues with zones/radio-IDs/scan-lists at 0x03482C00+. The radio shows a
+/// channel iff its bit is set, whatever the record holds. HW-PROVEN 2026-07-21:
+/// writing it turned a radio showing 29 channels into one showing all 59.
+/// Pinned by
+/// diffing this window across archived dumps: it is the only region besides
+/// those bitmaps that tracks record counts (427 bits set when the radio carried
+/// a full CPS codeplug, 29 after ours wrote 59 channel records and never
+/// touched it — with the same stale hole at bit 22 in both).
+/// NOTE the bits immediately past the bitmap (indices 4000/4001, in the byte at
+/// +0x1F4) are set in every dump and are NOT channels — do not write that byte.
+pub(crate) const CHANNEL_BITMAP_BASE: u32 = 0x0348_2A00;
+pub(crate) const CHANNEL_BITMAP_BYTES: usize = 500;
+pub(crate) const MAX_CHANNELS_BITMAP: usize = CHANNEL_BITMAP_BYTES * 8;
 
 /// Zones, from the dmr-tools `d890uv` map. Channel lists are 250 zones of 250
 /// 0-based channel indices (u16 LE, 0xFFFF = unset) at `ZONE_LIST_BASE` step
@@ -193,6 +208,18 @@ pub(crate) const ZONE_BITMAP_BYTES: usize = 32;
 pub(crate) const SCAN_LIST_BASE: u32 = 0x0210_0000;
 pub(crate) const SCAN_LIST_STEP: u32 = 0x0000_0200;
 pub(crate) const MAX_SCAN_LISTS: usize = 250;
+/// Scan-list-present bitmap — the scan-list twin of [`ZONE_BITMAP_BASE`]: the
+/// radio surfaces a list iff its bit is set here, whatever the record says.
+/// HW-PROVEN 2026-07-21: three programmed scan lists went from 1 shown to 3.
+/// Third in a run of 32-byte bitmaps (zones @0x2C00, unknown @0x2C20, radio IDs
+/// @0x2C40 — see `settings::RADIO_ID_BITMAP_BASE`, do not confuse them).
+/// Evidenced 2026-07-21 from the 2026-07-11 pre-write dump, where the bits set
+/// here were [0..10, 12..22] and the non-empty scan-list records were exactly
+/// 1..11, 13..23 — the same 23 entries with the same hole. Every program since
+/// wrote records without this bitmap, which is why a codeplug with three scan
+/// lists read back as one.
+pub(crate) const SCAN_BITMAP_BASE: u32 = 0x0348_2C60;
+pub(crate) const SCAN_BITMAP_BYTES: usize = 32;
 /// Functional member cap: AnyTone documents 50 channels per scan list, so we
 /// validate/truncate at 50 even though the record's array has 100 slots.
 pub(crate) const SCAN_MAX_CHANNELS: usize = 50;
@@ -967,6 +994,20 @@ pub(crate) const CH_SCAN_LIST: usize = 0x1B;
 /// code at 0x20; the encoder writes both so freshly created slots don't
 /// transmit on CC 0.
 pub(crate) const CH_TX_COLOR_CODE: usize = 0x43;
+/// Squelch-mode flags byte. Bit 4 ([`CH_SQ_CTCSS_DCS`]) selects tone squelch
+/// over carrier squelch; no other bit of this byte has ever been observed set.
+///
+/// HW-PROVEN by front-panel differential dump on a real D890UV: toggling one
+/// analog channel's Squelch Mode between "CDT" and "SQ" moved this byte and
+/// NOTHING else (0x10 -> 0x00). The full program path — encode, write, and
+/// tone squelch actually working on air — is HW-verified too. Note this is
+/// NOT where qdmr's D878-family
+/// layout puts squelch mode (0x1A) — that byte is 0x00 in all 3994 archived
+/// channel records and did not move. Do not "correct" it to match qdmr.
+pub(crate) const CH_SQUELCH_MODE: usize = 0x19;
+/// Bit 4 of [`CH_SQUELCH_MODE`]: set = squelch on CTCSS/DCS ("CDT"), clear =
+/// carrier squelch ("SQ").
+pub(crate) const CH_SQ_CTCSS_DCS: u8 = 0x10;
 
 /// CTCSS tone table, Hz, in the radio's index order (62.5 Hz = index 0).
 /// Confirmed anchors: idx 0x0d=100.0, 0x10=110.9, 0x13=123.0.
@@ -1358,6 +1399,12 @@ pub(crate) fn encode_name_into(field: &mut [u8], name: &str) {
 /// the inverse of [`decode_tone`]. Rebuilds the enable byte's low nibble from
 /// scratch (old tone bits cleared) while preserving its high nibble. CTCSS wins
 /// per side if set; a side left `None` clears that direction's tone.
+///
+/// Also sets the squelch mode ([`CH_SQUELCH_MODE`]), which the radio needs as a
+/// SEPARATE opt-in: an RX sub-tone is decoded but never actually squelches on
+/// unless the mode byte says CTCSS/DCS, so a channel programmed with an RX tone
+/// and carrier squelch just opens on any carrier. Derived, not stored — an RX
+/// tone means tone squelch, no RX tone means carrier.
 pub(crate) fn encode_tone_into(rec: &mut [u8], tone: &AnytoneToneEdit) -> Result<(), String> {
     let mut en = rec[CH_TONE_EN] & 0xF0; // preserve unknown high-nibble flags
     match &tone.tx {
@@ -1385,6 +1432,13 @@ pub(crate) fn encode_tone_into(rec: &mut [u8], tone: &AnytoneToneEdit) -> Result
         None => {}
     }
     rec[CH_TONE_EN] = en;
+    // Tone squelch keys on the RX side only; a TX-only tone still opens on carrier.
+    let sq = rec[CH_SQUELCH_MODE] & !CH_SQ_CTCSS_DCS; // preserve the other bits
+    rec[CH_SQUELCH_MODE] = if tone.rx.is_some() {
+        sq | CH_SQ_CTCSS_DCS
+    } else {
+        sq
+    };
     Ok(())
 }
 
@@ -2541,6 +2595,66 @@ mod tests {
             scan_list_index: None,
         };
         assert_encode_round_trips(&rec, &edit);
+    }
+
+    /// An RX sub-tone is inert unless the squelch-mode byte also opts in, so the
+    /// encoder derives it: RX tone → CTCSS/DCS, no RX tone → carrier. A TX-only
+    /// tone must stay on carrier (nothing to decode on receive), and the byte's
+    /// other bits are preserved rather than clobbered. Offset/bit are HW-proven
+    /// by front-panel differential dump — see [`CH_SQUELCH_MODE`].
+    #[test]
+    fn encode_derives_squelch_mode_from_the_rx_tone() {
+        let ctcss = || Some(AnytoneSubTone::Ctcss(100.0));
+        let dcs = || Some(AnytoneSubTone::Dcs(0x11));
+        let cases = [
+            // (tx, rx, expect tone squelch)
+            (None, None, false),
+            (ctcss(), None, false), // TX-only tone still opens on carrier
+            (None, ctcss(), true),
+            (ctcss(), ctcss(), true),
+            (None, dcs(), true),
+            (dcs(), None, false),
+        ];
+        for (tx, rx, want_tone_sq) in cases {
+            let mut rec = vec![0u8; CH_REC_LEN];
+            // Seed the other bits of the flags byte; they must survive.
+            rec[CH_SQUELCH_MODE] = 0x21;
+            let tone = AnytoneToneEdit {
+                tx: tx.clone(),
+                rx: rx.clone(),
+            };
+            encode_tone_into(&mut rec, &tone).unwrap();
+            let got = rec[CH_SQUELCH_MODE] & CH_SQ_CTCSS_DCS != 0;
+            assert_eq!(
+                got, want_tone_sq,
+                "squelch mode wrong for tx={tx:?} rx={rx:?}"
+            );
+            assert_eq!(
+                rec[CH_SQUELCH_MODE] & !CH_SQ_CTCSS_DCS,
+                0x21,
+                "clobbered the other flags for tx={tx:?} rx={rx:?}"
+            );
+        }
+    }
+
+    /// Clearing a channel's RX tone must also drop it back to carrier squelch —
+    /// otherwise a re-programmed slot keeps tone squelch with no tone to decode
+    /// and goes deaf. Guards the read-modify-write path specifically.
+    #[test]
+    fn encode_clears_squelch_mode_when_the_rx_tone_goes_away() {
+        let mut rec = vec![0u8; CH_REC_LEN];
+        encode_tone_into(
+            &mut rec,
+            &AnytoneToneEdit {
+                tx: None,
+                rx: Some(AnytoneSubTone::Ctcss(100.0)),
+            },
+        )
+        .unwrap();
+        assert_eq!(rec[CH_SQUELCH_MODE] & CH_SQ_CTCSS_DCS, CH_SQ_CTCSS_DCS);
+
+        encode_tone_into(&mut rec, &AnytoneToneEdit::default()).unwrap();
+        assert_eq!(rec[CH_SQUELCH_MODE] & CH_SQ_CTCSS_DCS, 0);
     }
 
     #[test]
