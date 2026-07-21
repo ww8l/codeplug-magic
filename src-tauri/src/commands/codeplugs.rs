@@ -240,7 +240,7 @@ pub async fn remove_scan_list_from_codeplug(
 // ---- Per-channel scan-list assignment (radio channel byte 0x1B) ----
 // Each channel points at exactly one scan list to launch when Scan is pressed,
 // an explicit per-channel setting kept per codeplug. Channels with no row here
-// fall back to membership-derivation when programming.
+// program with no scan list — membership never implies the byte.
 #[derive(serde::Serialize, sqlx::FromRow)]
 pub struct ChannelScanListAssignment {
     pub channel_id: i64,
@@ -284,8 +284,7 @@ pub async fn set_channel_scan_list(
     Ok(())
 }
 
-/// Clear a channel's explicit scan-list assignment; it reverts to
-/// membership-derivation when programming.
+/// Clear a channel's scan-list assignment; it then programs with no scan list.
 #[tauri::command]
 pub async fn clear_channel_scan_list(
     state: State<'_, AppState>,

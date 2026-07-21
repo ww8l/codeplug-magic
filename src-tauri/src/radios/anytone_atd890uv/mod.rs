@@ -157,6 +157,21 @@ pub(crate) const PROBE_REGIONS: &[(&str, u32, u32)] = &[
 pub(crate) const CHANNEL_BASE: u32 = 0x0100_0000;
 pub(crate) const BANK_STEP: u32 = 0x0008_0000;
 pub(crate) const NUM_BANKS: usize = 32;
+/// Channel-present bitmap: 1 bit per channel (LSB = channel 1), 500 bytes for
+/// the radio's 4000 channels, at the head of the run of present-bitmaps that
+/// continues with zones/radio-IDs/scan-lists at 0x03482C00+. The radio shows a
+/// channel iff its bit is set, whatever the record holds. HW-PROVEN 2026-07-21:
+/// writing it turned a radio showing 29 channels into one showing all 59.
+/// Pinned by
+/// diffing this window across archived dumps: it is the only region besides
+/// those bitmaps that tracks record counts (427 bits set when the radio carried
+/// a full CPS codeplug, 29 after ours wrote 59 channel records and never
+/// touched it — with the same stale hole at bit 22 in both).
+/// NOTE the bits immediately past the bitmap (indices 4000/4001, in the byte at
+/// +0x1F4) are set in every dump and are NOT channels — do not write that byte.
+pub(crate) const CHANNEL_BITMAP_BASE: u32 = 0x0348_2A00;
+pub(crate) const CHANNEL_BITMAP_BYTES: usize = 500;
+pub(crate) const MAX_CHANNELS_BITMAP: usize = CHANNEL_BITMAP_BYTES * 8;
 
 /// Zones, from the dmr-tools `d890uv` map. Channel lists are 250 zones of 250
 /// 0-based channel indices (u16 LE, 0xFFFF = unset) at `ZONE_LIST_BASE` step
@@ -193,6 +208,18 @@ pub(crate) const ZONE_BITMAP_BYTES: usize = 32;
 pub(crate) const SCAN_LIST_BASE: u32 = 0x0210_0000;
 pub(crate) const SCAN_LIST_STEP: u32 = 0x0000_0200;
 pub(crate) const MAX_SCAN_LISTS: usize = 250;
+/// Scan-list-present bitmap — the scan-list twin of [`ZONE_BITMAP_BASE`]: the
+/// radio surfaces a list iff its bit is set here, whatever the record says.
+/// HW-PROVEN 2026-07-21: three programmed scan lists went from 1 shown to 3.
+/// Third in a run of 32-byte bitmaps (zones @0x2C00, unknown @0x2C20, radio IDs
+/// @0x2C40 — see `settings::RADIO_ID_BITMAP_BASE`, do not confuse them).
+/// Evidenced 2026-07-21 from the 2026-07-11 pre-write dump, where the bits set
+/// here were [0..10, 12..22] and the non-empty scan-list records were exactly
+/// 1..11, 13..23 — the same 23 entries with the same hole. Every program since
+/// wrote records without this bitmap, which is why a codeplug with three scan
+/// lists read back as one.
+pub(crate) const SCAN_BITMAP_BASE: u32 = 0x0348_2C60;
+pub(crate) const SCAN_BITMAP_BYTES: usize = 32;
 /// Functional member cap: AnyTone documents 50 channels per scan list, so we
 /// validate/truncate at 50 even though the record's array has 100 slots.
 pub(crate) const SCAN_MAX_CHANNELS: usize = 50;
