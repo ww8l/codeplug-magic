@@ -193,15 +193,6 @@ pub(crate) const ZONE_BITMAP_BYTES: usize = 32;
 pub(crate) const SCAN_LIST_BASE: u32 = 0x0210_0000;
 pub(crate) const SCAN_LIST_STEP: u32 = 0x0000_0200;
 pub(crate) const MAX_SCAN_LISTS: usize = 250;
-/// Scan-list-present bitmap, the scan-list twin of [`ZONE_BITMAP_BASE`]: the
-/// radio surfaces a scan list iff its bit is set here, whatever the record at
-/// `SCAN_LIST_BASE` says. Same shape as the zone bitmap (1 bit per list, LSB =
-/// list 1, 32 bytes) and the same +0x40 offset from the zone bitmap that qdmr
-/// documents for the D878. Found 2026-07-21 (issue #21 follow-up): a radio
-/// carrying four written scan-list records showed only the first in AnyTone's
-/// CPS, and this byte read 0x01 while the zone bitmap beside it read 0x0F.
-pub(crate) const SCAN_BITMAP_BASE: u32 = 0x0348_2C40;
-pub(crate) const SCAN_BITMAP_BYTES: usize = 32;
 /// Functional member cap: AnyTone documents 50 channels per scan list, so we
 /// validate/truncate at 50 even though the record's array has 100 slots.
 pub(crate) const SCAN_MAX_CHANNELS: usize = 50;
