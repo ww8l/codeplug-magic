@@ -157,6 +157,19 @@ pub(crate) const PROBE_REGIONS: &[(&str, u32, u32)] = &[
 pub(crate) const CHANNEL_BASE: u32 = 0x0100_0000;
 pub(crate) const BANK_STEP: u32 = 0x0008_0000;
 pub(crate) const NUM_BANKS: usize = 32;
+/// Channel-present bitmap: 1 bit per channel (LSB = channel 1), 500 bytes for
+/// the radio's 4000 channels, at the head of the run of present-bitmaps that
+/// continues with zones/radio-IDs/scan-lists at 0x03482C00+. The radio shows a
+/// channel iff its bit is set, whatever the record holds. Pinned 2026-07-21 by
+/// diffing this window across archived dumps: it is the only region besides
+/// those bitmaps that tracks record counts (427 bits set when the radio carried
+/// a full CPS codeplug, 29 after ours wrote 59 channel records and never
+/// touched it — with the same stale hole at bit 22 in both).
+/// NOTE the bits immediately past the bitmap (indices 4000/4001, in the byte at
+/// +0x1F4) are set in every dump and are NOT channels — do not write that byte.
+pub(crate) const CHANNEL_BITMAP_BASE: u32 = 0x0348_2A00;
+pub(crate) const CHANNEL_BITMAP_BYTES: usize = 500;
+pub(crate) const MAX_CHANNELS_BITMAP: usize = CHANNEL_BITMAP_BYTES * 8;
 
 /// Zones, from the dmr-tools `d890uv` map. Channel lists are 250 zones of 250
 /// 0-based channel indices (u16 LE, 0xFFFF = unset) at `ZONE_LIST_BASE` step
