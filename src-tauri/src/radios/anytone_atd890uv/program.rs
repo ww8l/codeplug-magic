@@ -25,7 +25,9 @@ use std::path::Path;
 
 use serialport::SerialPort;
 
-use crate::commands::export::{exclusion_reason, expanded_name, tx_frequency, ExpandedChannel};
+use crate::commands::export::{
+    disambiguate_names, exclusion_reason, expanded_name, tx_frequency, ExpandedChannel,
+};
 use crate::models::RadioModel;
 use crate::radios::driver::{
     CodeplugPayload, CodeplugPreview, CodeplugProgrammer, ProgramReport, SkippedChannel,
@@ -224,17 +226,41 @@ fn channel_name(ec: &ExpandedChannel, model: &RadioModel, slot: usize) -> String
     truncate(&base, NAME_CHARS)
 }
 
+/// Name every row before assembling the plan. Collisions can only be pulled
+/// apart by looking at the whole radio at once (issue #26), so the names are
+/// decided up front and the loop just spends them. Indexes match `expanded`;
+/// excluded rows keep their plain name — they never reach the radio, the name
+/// is only there to say which channel was skipped.
+fn plan_channel_names(expanded: &[ExpandedChannel], model: &RadioModel) -> Vec<String> {
+    let mut names: Vec<String> = expanded
+        .iter()
+        .enumerate()
+        .map(|(i, ec)| channel_name(ec, model, i + 1))
+        .collect();
+
+    let included: Vec<usize> = (0..expanded.len())
+        .filter(|&i| exclusion_reason(&expanded[i].channel, model).is_none())
+        .collect();
+    let mut rows: Vec<(String, f64)> = included
+        .iter()
+        .map(|&i| (names[i].clone(), expanded[i].channel.rx_freq))
+        .collect();
+    disambiguate_names(&mut rows, NAME_CHARS);
+    for (&i, (name, _)) in included.iter().zip(rows) {
+        names[i] = name;
+    }
+    names
+}
+
 /// Invert one expanded row to a channel edit. `contact_index` is the radio
 /// contact slot assigned to the row's talkgroup (0 when the row has none).
 fn invert_channel(
     ec: &ExpandedChannel,
-    model: &RadioModel,
-    slot: usize,
+    name: String,
     contact_index: u16,
     warnings: &mut Vec<String>,
 ) -> AnytoneChannelEdit {
     let c = &ec.channel;
-    let name = channel_name(ec, model, slot);
     let mode_str = c.mode.as_deref().unwrap_or("FM").to_uppercase();
     let digital = mode_str == "DMR";
 
@@ -310,10 +336,11 @@ pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<AnytoneProgramPl
     let mut slots_by_channel: HashMap<i64, Vec<u16>> = HashMap::new();
 
     let max_slots = (model.memory_channels.unwrap_or(4000) as usize).min(NUM_BANKS * CH_PER_BANK);
-    for ec in expanded {
+    let planned_names = plan_channel_names(expanded, model);
+    for (i, ec) in expanded.iter().enumerate() {
         if let Some(reason) = exclusion_reason(&ec.channel, model) {
             skipped.push(SkippedChannel {
-                name: channel_name(ec, model, 0),
+                name: planned_names[i].clone(),
                 reason,
             });
             continue;
@@ -351,14 +378,14 @@ pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<AnytoneProgramPl
                 if is_dmr {
                     warnings.push(format!(
                         "{}: DMR channel has no talkgroup — programmed pointing at contact 1",
-                        channel_name(ec, model, slot)
+                        planned_names[i]
                     ));
                 }
                 0
             }
         };
 
-        let edit = invert_channel(ec, model, slot, contact_index, &mut warnings);
+        let edit = invert_channel(ec, planned_names[i].clone(), contact_index, &mut warnings);
         slots_by_channel
             .entry(ec.channel.id)
             .or_default()
@@ -1277,11 +1304,11 @@ mod tests {
             vec![1, 2, 3, 4]
         );
         // Curated expansion appends the TG label; timeslot from the assignment.
-        assert_eq!(plan.channels[0].edit.name, "W0XYZ Denver Col");
+        assert_eq!(plan.channels[0].edit.name, "W0XYZ Colorado");
         assert_eq!(plan.channels[0].edit.time_slot, 2);
         assert_eq!(plan.channels[0].edit.mode, 1);
         assert!((plan.channels[0].edit.tx_mhz - 454.0).abs() < 1e-9);
-        assert_eq!(plan.channels[1].edit.name, "W0XYZ Denver Wor");
+        assert_eq!(plan.channels[1].edit.name, "W0XYZ Worldwide");
         assert_eq!(plan.channels[1].edit.time_slot, 1);
         // Inline fallback keeps the original name and its stored TS/CC.
         assert_eq!(plan.channels[2].edit.name, "RMH700-FOCOBUCK");
