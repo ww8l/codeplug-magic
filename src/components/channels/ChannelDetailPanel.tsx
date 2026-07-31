@@ -13,6 +13,7 @@ import type {
 import {
   CROSS_MODES,
   CTCSS_TONES,
+  DMR_NETWORKS,
   DTCS_CODES,
   DTCS_POLARITIES,
   DUPLEX_OPTIONS,
@@ -25,8 +26,10 @@ import {
   USE_TYPES,
   fmtFreq,
   fmtOffset,
+  presentFacet,
 } from "../../lib/constants";
 import { SlideOver } from "../overlays";
+import { TalkgroupModal } from "../talkgroups/TalkgroupModal";
 import { Button, Select, TextInput, Badge } from "../ui";
 
 function blankInput(): ChannelInput {
@@ -793,10 +796,19 @@ function TalkgroupAssignments({ channelId }: { channelId: number }) {
   const [pickTg, setPickTg] = useState("");
   const [pickTs, setPickTs] = useState(1);
   const [busy, setBusy] = useState(false);
+  // Non-null while the "create a missing talkgroup" dialog is open; the value
+  // is the number typed into the picker, prefilled into the form.
+  const [creating, setCreating] = useState<string | null>(null);
 
   const reload = async () => {
     setAssignments(await api.getRepeaterTalkgroups(channelId));
   };
+
+  // Networks the library already uses, so a custom one stays offered here too.
+  const networks = useMemo(
+    () => presentFacet(library.map((t) => t.network), DMR_NETWORKS),
+    [library],
+  );
 
   useEffect(() => {
     let active = true;
@@ -874,46 +886,52 @@ function TalkgroupAssignments({ channelId }: { channelId: number }) {
         </>
       )}
 
-      {library.length === 0 ? (
-        <p className="text-[11px] text-slate-400">
-          No talkgroups in the library yet — add some on the Talkgroups page.
-        </p>
-      ) : (
-        <div className="flex items-end gap-2">
-          <label className="flex flex-1 flex-col gap-1">
-            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-              Talkgroup
-            </span>
-            <TalkgroupCombobox
-              talkgroups={library}
-              value={pickTg}
-              onChange={setPickTg}
-            />
-          </label>
-          <label className="flex w-20 flex-col gap-1">
-            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-              Slot
-            </span>
-            <Select
-              value={String(pickTs)}
-              onChange={(e) => setPickTs(Number(e.target.value))}
-            >
-              {TIMESLOTS.map((ts) => (
-                <option key={ts} value={ts}>
-                  TS{ts}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <Button
-            variant="primary"
-            onClick={add}
-            disabled={busy || pickTg === ""}
+      <div className="flex items-end gap-2">
+        <label className="flex flex-1 flex-col gap-1">
+          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+            Talkgroup
+          </span>
+          <TalkgroupCombobox
+            talkgroups={library}
+            value={pickTg}
+            onChange={setPickTg}
+            onCreate={setCreating}
+          />
+        </label>
+        <label className="flex w-20 flex-col gap-1">
+          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+            Slot
+          </span>
+          <Select
+            value={String(pickTs)}
+            onChange={(e) => setPickTs(Number(e.target.value))}
           >
-            <Plus size={14} /> Add
-          </Button>
-        </div>
-      )}
+            {TIMESLOTS.map((ts) => (
+              <option key={ts} value={ts}>
+                TS{ts}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <Button variant="primary" onClick={add} disabled={busy || pickTg === ""}>
+          <Plus size={14} /> Add
+        </Button>
+      </div>
+
+      <TalkgroupModal
+        open={creating !== null}
+        onClose={() => setCreating(null)}
+        title="New Talkgroup"
+        networks={networks}
+        initialNumber={creating ?? ""}
+        onSaved={async (tg) => {
+          setCreating(null);
+          // Pull the library back in sorted order, then select the new entry so
+          // it only takes the Add button to put it on this repeater.
+          setLibrary(await api.listTalkgroups());
+          setPickTg(String(tg.id));
+        }}
+      />
     </div>
   );
 }
@@ -931,10 +949,14 @@ function TalkgroupCombobox({
   talkgroups,
   value,
   onChange,
+  onCreate,
 }: {
   talkgroups: Talkgroup[];
   value: string;
   onChange: (id: string) => void;
+  // Called with the typed talkgroup number (or "" when nothing numeric was
+  // typed) to add a talkgroup the library doesn't have yet.
+  onCreate?: (number: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -969,6 +991,28 @@ function TalkgroupCombobox({
     return out;
   }, [talkgroups, query, selected]);
 
+  // A talkgroup number that was typed but isn't in the library gets an offer to
+  // create it, so a missing talkgroup doesn't mean leaving the channel. Also
+  // offered when nothing matches at all, so an empty library isn't a dead end.
+  const createNumber = useMemo(() => {
+    if (!onCreate) return null;
+    const q = query.trim();
+    const numeric = /^\d+$/.test(q);
+    if (numeric) {
+      return talkgroups.some((t) => String(t.tg_number) === q) ? null : q;
+    }
+    return results.length === 0 ? "" : null;
+  }, [onCreate, query, talkgroups, results.length]);
+
+  // Rows the arrow keys walk: the matches, then the create row if it's showing.
+  const rowCount = results.length + (createNumber !== null ? 1 : 0);
+
+  const startCreate = () => {
+    setOpen(false);
+    inputRef.current?.blur();
+    onCreate?.(createNumber ?? "");
+  };
+
   // Close on outside click, restoring the input to the current selection.
   useEffect(() => {
     if (!open) return;
@@ -984,8 +1028,8 @@ function TalkgroupCombobox({
 
   // Keep the active row in bounds whenever the result set changes.
   useEffect(() => {
-    setActive((a) => Math.min(a, Math.max(0, results.length - 1)));
-  }, [results.length]);
+    setActive((a) => Math.min(a, Math.max(0, rowCount - 1)));
+  }, [rowCount]);
 
   const choose = (t: Talkgroup) => {
     onChange(String(t.id));
@@ -998,14 +1042,18 @@ function TalkgroupCombobox({
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setOpen(true);
-      setActive((a) => Math.min(a + 1, results.length - 1));
+      setActive((a) => Math.min(a + 1, rowCount - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((a) => Math.max(a - 1, 0));
     } else if (e.key === "Enter") {
-      if (open && results[active]) {
+      if (!open) return;
+      if (results[active]) {
         e.preventDefault();
         choose(results[active]);
+      } else if (createNumber !== null && active === results.length) {
+        e.preventDefault();
+        startCreate();
       }
     } else if (e.key === "Escape") {
       setOpen(false);
@@ -1035,7 +1083,9 @@ function TalkgroupCombobox({
       {open && (
         <div className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
           {results.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-slate-400">No matches</div>
+            createNumber === null && (
+              <div className="px-3 py-2 text-xs text-slate-400">No matches</div>
+            )
           ) : (
             results.map((t, i) => (
               <button
@@ -1070,6 +1120,29 @@ function TalkgroupCombobox({
             <div className="border-t border-slate-100 px-3 py-1.5 text-[11px] text-slate-400 dark:border-slate-700">
               Showing first {TG_MATCH_LIMIT} — keep typing to narrow.
             </div>
+          )}
+          {createNumber !== null && (
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                startCreate();
+              }}
+              onMouseEnter={() => setActive(results.length)}
+              className={clsx(
+                "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-sky-600 dark:text-sky-400",
+                results.length > 0 &&
+                  "border-t border-slate-100 dark:border-slate-700",
+                active === results.length
+                  ? "bg-sky-50 dark:bg-sky-950/50"
+                  : "hover:bg-slate-50 dark:hover:bg-slate-700/40",
+              )}
+            >
+              <Plus size={13} className="shrink-0" />
+              {createNumber === ""
+                ? "Create a new talkgroup…"
+                : `Create talkgroup ${createNumber}…`}
+            </button>
           )}
         </div>
       )}
