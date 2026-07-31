@@ -68,6 +68,19 @@ export const DMR_NETWORKS = ["Brandmeister", "TGIF", "DMR-MARC", "Other"];
 export const CALL_TYPES = ["Group", "Private"];
 export const TIMESLOTS = [1, 2];
 
+// Keep only the canonical options actually present in the data, preserving the
+// canonical order; append any non-canonical values (sorted) so nothing is lost.
+export function presentFacet(
+  values: (string | null | undefined)[],
+  canonical: readonly string[],
+): string[] {
+  const present = new Set<string>();
+  for (const v of values) if (v != null && v !== "") present.add(v);
+  const ordered = canonical.filter((c) => present.has(c));
+  const extras = [...present].filter((v) => !canonical.includes(v)).sort();
+  return [...ordered, ...extras];
+}
+
 /** Format a frequency in MHz, trimming trailing zeros (146.94000 -> "146.94"). */
 export function fmtFreq(n: number | null | undefined): string {
   if (n == null) return "";
