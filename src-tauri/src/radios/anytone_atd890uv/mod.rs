@@ -239,6 +239,16 @@ pub(crate) const SCAN_REVERT: usize = SCAN_MEMBERS + SCAN_MEMBER_SLOTS * 2; // 0
 /// multi-MB read.
 pub(crate) const CONTACT_BASE: u32 = 0x03A0_0000;
 pub(crate) const CONTACT_REC_LEN: usize = 0xC8;
+
+/// Contact INDEX TABLE — the structure the radio actually walks. A `u32`-LE
+/// array of contact-record indices, terminated by 0xFFFFFFFF, filling its whole
+/// 0x4000 window (every other byte is 0xFF). The radio's Contacts menu and
+/// every channel's contact lookup read THIS, not the bank: with 26 records on
+/// flash but a stale 5-entry table of `[0,1,2,3,4]`, the radio listed exactly 5
+/// contacts and silently resolved every other channel to contact 0 (issue #11).
+/// HW-proven 2026-08-03 by diffing a keypad "add contact" against a baseline —
+/// the firmware rewrote this table, so the address is observed, not inferred.
+pub(crate) const CONTACT_INDEX_BASE: u32 = 0x0390_0000;
 pub(crate) const CONTACT_CALL_TYPE: usize = 0x00;
 pub(crate) const CONTACT_DMR_ID: usize = 0x02;
 pub(crate) const CONTACT_NAME: usize = 0x06;
