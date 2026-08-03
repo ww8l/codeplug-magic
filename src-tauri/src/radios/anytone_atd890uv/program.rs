@@ -41,6 +41,7 @@ use super::{
     plans_from_pre_read, read_block, serialize_backup,
     AnytoneChannelEdit, AnytoneSubTone, AnytoneToneEdit, BankPlan, RegionPatch,
     ScanListRecordSettings, BANK_STEP, CHANNEL_BASE, CH_PER_BANK, CH_REC_LEN, CONTACT_BASE,
+    CONTACT_BITMAP_BASE, CONTACT_BITMAP_BYTES,
     CONTACT_INDEX_BASE, CONTACT_REC_LEN, MAX_CONTACTS_READ, MAX_SCAN_LISTS, MAX_ZONES, NUM_BANKS,
     SCAN_LIST_BASE,
     CHANNEL_BITMAP_BASE, CHANNEL_BITMAP_BYTES, MAX_CHANNELS_BITMAP, SCAN_BITMAP_BASE,
@@ -754,6 +755,17 @@ fn present_bitmap(n: usize, bytes: usize) -> Vec<u8> {
     bitmap
 }
 
+/// The contact twin of [`present_bitmap`], but **inverted**: the contact bitmap
+/// at `CONTACT_BITMAP_BASE` marks a record present with a CLEAR bit, so absent
+/// records are 1s (the flash erase state). See that constant for the HW proof.
+fn contact_present_bitmap(n: usize, bytes: usize) -> Vec<u8> {
+    let mut bitmap = vec![0xFFu8; bytes];
+    for z in 0..n.min(bytes * 8) {
+        bitmap[z / 8] &= !(1 << (z % 8));
+    }
+    bitmap
+}
+
 /// Highest 1-based scan-list number with a non-empty record across the read
 /// windows (record-aligned: 0x200 divides the window size).
 fn scan_count_in(windows: &std::collections::BTreeMap<u32, Vec<u8>>) -> usize {
@@ -915,10 +927,10 @@ fn run_program(
         }
         originals.extend(contact_windows);
 
-        // The contact index table gates everything above: the bank can be
-        // perfect and the radio still shows only as many contacts as this array
-        // lists. Rewrite the whole window — entries 0..N then 0xFF fill — so a
-        // stale longer table can't leave phantom contacts behind.
+        // The contact index table drives the radio's Contacts MENU listing: the
+        // bank can be perfect and the menu still shows only as many contacts as
+        // this array lists. Rewrite the whole window — entries 0..N then 0xFF
+        // fill — so a stale longer table can't leave phantom contacts behind.
         let mut index_table = Vec::with_capacity(WRITE_WINDOW);
         for i in 0..plan.contacts.len() {
             index_table.extend_from_slice(&(i as u32).to_le_bytes());
@@ -928,6 +940,21 @@ fn run_program(
         originals.insert(
             CONTACT_INDEX_BASE,
             read_block(&mut *p, CONTACT_INDEX_BASE, WRITE_WINDOW)?,
+        );
+
+        // …and the contact PRESENT bitmap gates channel→contact resolution,
+        // which the index table does NOT. Without it the radio (and AnyTone's
+        // own CPS) see only as many contacts as this bitmap marks and silently
+        // resolve every channel above that to contact 0 — issue #11. Inverted:
+        // a clear bit means present. Patch just the bitmap, not the window, so
+        // the 13 bytes CPS writes at +0x04E3 survive untouched.
+        patches.push(RegionPatch {
+            addr: CONTACT_BITMAP_BASE,
+            data: contact_present_bitmap(plan.contacts.len(), CONTACT_BITMAP_BYTES),
+        });
+        originals.insert(
+            CONTACT_BITMAP_BASE,
+            read_block(&mut *p, CONTACT_BITMAP_BASE, WRITE_WINDOW)?,
         );
 
         all_plans.extend(plans_from_pre_read(&originals, &patches)?);
@@ -1302,6 +1329,29 @@ mod tests {
         assert_eq!(present_bitmap(2, ZONE_BITMAP_BYTES)[0], 0x03);
         // Never overflows the fixed-width bitmap.
         assert_eq!(present_bitmap(MAX_ZONES, ZONE_BITMAP_BYTES).len(), ZONE_BITMAP_BYTES);
+    }
+
+    /// The contact bitmap is INVERTED, and these three byte patterns are all
+    /// HW-observed on Tim's D890UV (issue #11) — they are the evidence the fix
+    /// rests on, so pin them exactly.
+    #[test]
+    fn contact_present_bitmap_is_inverted_and_matches_hw_captures() {
+        // 6 contacts → 0xC0 0xFF: the state our own 26-record write left behind,
+        // and AnyTone CPS reading that radio listed exactly 6.
+        let b = contact_present_bitmap(6, CONTACT_BITMAP_BYTES);
+        assert_eq!(&b[..2], &[0xC0, 0xFF]);
+        // 10 contacts → 0x00 0xFC: what a CPS write of 10 contacts produced.
+        assert_eq!(&contact_present_bitmap(10, CONTACT_BITMAP_BYTES)[..2], &[0x00, 0xFC]);
+        // 5 → 0xE0, the pre-keypad-add state; adding one contact gave 0xC0.
+        assert_eq!(contact_present_bitmap(5, CONTACT_BITMAP_BYTES)[0], 0xE0);
+        // Full width, all-absent is the flash erase state, and every trailing
+        // byte stays 0xFF so stale high contacts are cleared, not left present.
+        assert_eq!(contact_present_bitmap(0, CONTACT_BITMAP_BYTES), vec![0xFFu8; CONTACT_BITMAP_BYTES]);
+        assert!(b[2..].iter().all(|&x| x == 0xFF));
+        assert_eq!(b.len(), CONTACT_BITMAP_BYTES);
+        // 10,000-talkgroup ceiling, and never overflows it.
+        assert_eq!(CONTACT_BITMAP_BYTES * 8, 10_000);
+        assert_eq!(contact_present_bitmap(99_999, CONTACT_BITMAP_BYTES), vec![0u8; CONTACT_BITMAP_BYTES]);
     }
 
     // --- window splicing + expected-file round-trip -------------------------
