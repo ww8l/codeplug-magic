@@ -41,7 +41,9 @@ use super::{
     plans_from_pre_read, read_block, serialize_backup,
     AnytoneChannelEdit, AnytoneSubTone, AnytoneToneEdit, BankPlan, RegionPatch,
     ScanListRecordSettings, BANK_STEP, CHANNEL_BASE, CH_PER_BANK, CH_REC_LEN, CONTACT_BASE,
-    CONTACT_REC_LEN, MAX_CONTACTS_READ, MAX_SCAN_LISTS, MAX_ZONES, NUM_BANKS, SCAN_LIST_BASE,
+    CONTACT_BITMAP_BASE, CONTACT_BITMAP_BYTES,
+    CONTACT_INDEX_BASE, CONTACT_REC_LEN, MAX_CONTACTS_READ, MAX_SCAN_LISTS, MAX_ZONES, NUM_BANKS,
+    SCAN_LIST_BASE,
     CHANNEL_BITMAP_BASE, CHANNEL_BITMAP_BYTES, MAX_CHANNELS_BITMAP, SCAN_BITMAP_BASE,
     SCAN_BITMAP_BYTES, SCAN_LIST_STEP, SCAN_MAX_CHANNELS, WRITE_WINDOW,
     ZONE_BITMAP_BASE, ZONE_BITMAP_BYTES,
@@ -254,6 +256,39 @@ fn plan_channel_names(expanded: &[ExpandedChannel], model: &RadioModel) -> Vec<S
     names
 }
 
+/// Reorder the contact bank into name order and renumber every channel to follow.
+///
+/// AnyTone's own CPS writes the bank sorted by the name field — the CPS-era dump
+/// `anytone-dump-20260701-134612.bin` is a clean ASCII sort of the names
+/// (`1 MARC WW`, `100 WYO LOCAL`, `2 LOCAL`, `30234 FLEX`, …) and specifically
+/// NOT numeric DMR-ID order, since 100 precedes 2. We assigned indices in
+/// first-use order instead, so our banks went out unsorted.
+///
+/// Channels reference contacts purely by index, so remapping every planned
+/// channel keeps the codeplug semantically identical — the same channel points
+/// at the same record, only the record's position in the bank changes. That
+/// makes this a no-op if the radio indexes the bank directly, and a fix if it
+/// resolves contacts in a way that assumes sorted order (issue #11, where the
+/// radio silently falls back to contact 0 for most channels).
+fn sort_contact_bank(contacts: &mut [PlannedContact], channels: &mut [PlannedChannel]) {
+    // Tie-break on the talkgroup number so two talkgroups whose labels truncate
+    // to the same 16 chars still get a stable, reproducible order.
+    contacts.sort_by(|a, b| a.name.cmp(&b.name).then(a.tg_number.cmp(&b.tg_number)));
+    let mut remap = vec![0u16; contacts.len()];
+    for (new, c) in contacts.iter_mut().enumerate() {
+        remap[c.index as usize] = new as u16;
+        c.index = new as u16;
+    }
+    for pc in channels {
+        // Channels with no talkgroup were parked on index 0; carry them along
+        // with whatever record that was rather than re-parking them, so the
+        // reorder changes nothing but record positions.
+        if let Some(&new) = remap.get(pc.edit.contact_index as usize) {
+            pc.edit.contact_index = new;
+        }
+    }
+}
+
 /// Invert one expanded row to a channel edit. `contact_index` is the radio
 /// contact slot assigned to the row's talkgroup (0 when the row has none).
 fn invert_channel(
@@ -401,6 +436,8 @@ pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<AnytoneProgramPl
             contacts.len()
         ));
     }
+    sort_contact_bank(&mut contacts, &mut channels);
+
     // Zones: one per codeplug channel list, in assignment order.
     let mut zones: Vec<PlannedZone> = Vec::new();
     for g in groups {
@@ -718,6 +755,17 @@ fn present_bitmap(n: usize, bytes: usize) -> Vec<u8> {
     bitmap
 }
 
+/// The contact twin of [`present_bitmap`], but **inverted**: the contact bitmap
+/// at `CONTACT_BITMAP_BASE` marks a record present with a CLEAR bit, so absent
+/// records are 1s (the flash erase state). See that constant for the HW proof.
+fn contact_present_bitmap(n: usize, bytes: usize) -> Vec<u8> {
+    let mut bitmap = vec![0xFFu8; bytes];
+    for z in 0..n.min(bytes * 8) {
+        bitmap[z / 8] &= !(1 << (z % 8));
+    }
+    bitmap
+}
+
 /// Highest 1-based scan-list number with a non-empty record across the read
 /// windows (record-aligned: 0x200 divides the window size).
 fn scan_count_in(windows: &std::collections::BTreeMap<u32, Vec<u8>>) -> usize {
@@ -878,6 +926,36 @@ fn run_program(
             });
         }
         originals.extend(contact_windows);
+
+        // The contact index table drives the radio's Contacts MENU listing: the
+        // bank can be perfect and the menu still shows only as many contacts as
+        // this array lists. Rewrite the whole window — entries 0..N then 0xFF
+        // fill — so a stale longer table can't leave phantom contacts behind.
+        let mut index_table = Vec::with_capacity(WRITE_WINDOW);
+        for i in 0..plan.contacts.len() {
+            index_table.extend_from_slice(&(i as u32).to_le_bytes());
+        }
+        index_table.resize(WRITE_WINDOW, 0xFF);
+        patches.push(RegionPatch { addr: CONTACT_INDEX_BASE, data: index_table });
+        originals.insert(
+            CONTACT_INDEX_BASE,
+            read_block(&mut *p, CONTACT_INDEX_BASE, WRITE_WINDOW)?,
+        );
+
+        // …and the contact PRESENT bitmap gates channel→contact resolution,
+        // which the index table does NOT. Without it the radio (and AnyTone's
+        // own CPS) see only as many contacts as this bitmap marks and silently
+        // resolve every channel above that to contact 0 — issue #11. Inverted:
+        // a clear bit means present. Patch just the bitmap, not the window, so
+        // the 13 bytes CPS writes at +0x04E3 survive untouched.
+        patches.push(RegionPatch {
+            addr: CONTACT_BITMAP_BASE,
+            data: contact_present_bitmap(plan.contacts.len(), CONTACT_BITMAP_BYTES),
+        });
+        originals.insert(
+            CONTACT_BITMAP_BASE,
+            read_block(&mut *p, CONTACT_BITMAP_BASE, WRITE_WINDOW)?,
+        );
 
         all_plans.extend(plans_from_pre_read(&originals, &patches)?);
         Ok(all_plans)
@@ -1078,6 +1156,87 @@ mod tests {
         }
     }
 
+    fn contact(index: u16, tg_number: u32, name: &str) -> PlannedContact {
+        PlannedContact {
+            index,
+            tg_number,
+            name: name.to_string(),
+            call_type: 1,
+        }
+    }
+
+    #[test]
+    fn contact_bank_sorts_by_name_and_renumbers_channels() {
+        // First-use order, deliberately unsorted, with the CPS's own ordering
+        // trap: "100 …" sorts before "2 …" by name but after it by DMR ID.
+        let mut contacts = vec![
+            contact(0, 3156, "Wyoming - 10 Min"),
+            contact(1, 2, "2 LOCAL"),
+            contact(2, 700, "RMH WIDE"),
+            contact(3, 100, "100 WYO LOCAL"),
+            contact(4, 721, "RMH North"),
+        ];
+        let mut channels = vec![
+            planned(1, "A", true),
+            planned(2, "B", true),
+            planned(3, "C", true),
+            planned(4, "D", false),
+        ];
+        channels[0].edit.contact_index = 2; // RMH WIDE
+        channels[1].edit.contact_index = 4; // RMH North
+        channels[2].edit.contact_index = 3; // 100 WYO LOCAL
+        channels[3].edit.contact_index = 0; // analog, parked on record 0
+
+        sort_contact_bank(&mut contacts, &mut channels);
+
+        assert_eq!(
+            contacts
+                .iter()
+                .map(|c| (c.index, c.name.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (0, "100 WYO LOCAL"),
+                (1, "2 LOCAL"),
+                (2, "RMH North"),
+                (3, "RMH WIDE"),
+                (4, "Wyoming - 10 Min"),
+            ]
+        );
+        // Every channel still resolves to the talkgroup it started with.
+        assert_eq!(channels[0].edit.contact_index, 3); // RMH WIDE
+        assert_eq!(channels[1].edit.contact_index, 2); // RMH North
+        assert_eq!(channels[2].edit.contact_index, 0); // 100 WYO LOCAL
+        assert_eq!(channels[3].edit.contact_index, 4); // still record 0's contact
+    }
+
+    #[test]
+    fn contact_bank_sort_tie_breaks_on_talkgroup_number() {
+        // Two labels that truncate to the same 16 chars must still order
+        // deterministically rather than however the sort happened to land.
+        let mut contacts = vec![
+            contact(0, 31084, "NOCO Mountain FR"),
+            contact(1, 3108, "NOCO Mountain FR"),
+        ];
+        let mut channels: Vec<PlannedChannel> = Vec::new();
+        sort_contact_bank(&mut contacts, &mut channels);
+        assert_eq!(
+            contacts
+                .iter()
+                .map(|c| (c.index, c.tg_number))
+                .collect::<Vec<_>>(),
+            vec![(0, 3108), (1, 31084)]
+        );
+    }
+
+    #[test]
+    fn contact_bank_sort_handles_an_empty_bank() {
+        // All-analog codeplug: no contacts, every channel parked on index 0.
+        let mut contacts: Vec<PlannedContact> = Vec::new();
+        let mut channels = vec![planned(1, "A", false)];
+        sort_contact_bank(&mut contacts, &mut channels);
+        assert_eq!(channels[0].edit.contact_index, 0);
+    }
+
     #[test]
     fn bank_patch_writes_slots_and_clears_stale_records() {
         // Original bank: slot 1 programmed (will be overwritten), slot 3 stale
@@ -1170,6 +1329,29 @@ mod tests {
         assert_eq!(present_bitmap(2, ZONE_BITMAP_BYTES)[0], 0x03);
         // Never overflows the fixed-width bitmap.
         assert_eq!(present_bitmap(MAX_ZONES, ZONE_BITMAP_BYTES).len(), ZONE_BITMAP_BYTES);
+    }
+
+    /// The contact bitmap is INVERTED, and these three byte patterns are all
+    /// HW-observed on Tim's D890UV (issue #11) — they are the evidence the fix
+    /// rests on, so pin them exactly.
+    #[test]
+    fn contact_present_bitmap_is_inverted_and_matches_hw_captures() {
+        // 6 contacts → 0xC0 0xFF: the state our own 26-record write left behind,
+        // and AnyTone CPS reading that radio listed exactly 6.
+        let b = contact_present_bitmap(6, CONTACT_BITMAP_BYTES);
+        assert_eq!(&b[..2], &[0xC0, 0xFF]);
+        // 10 contacts → 0x00 0xFC: what a CPS write of 10 contacts produced.
+        assert_eq!(&contact_present_bitmap(10, CONTACT_BITMAP_BYTES)[..2], &[0x00, 0xFC]);
+        // 5 → 0xE0, the pre-keypad-add state; adding one contact gave 0xC0.
+        assert_eq!(contact_present_bitmap(5, CONTACT_BITMAP_BYTES)[0], 0xE0);
+        // Full width, all-absent is the flash erase state, and every trailing
+        // byte stays 0xFF so stale high contacts are cleared, not left present.
+        assert_eq!(contact_present_bitmap(0, CONTACT_BITMAP_BYTES), vec![0xFFu8; CONTACT_BITMAP_BYTES]);
+        assert!(b[2..].iter().all(|&x| x == 0xFF));
+        assert_eq!(b.len(), CONTACT_BITMAP_BYTES);
+        // 10,000-talkgroup ceiling, and never overflows it.
+        assert_eq!(CONTACT_BITMAP_BYTES * 8, 10_000);
+        assert_eq!(contact_present_bitmap(99_999, CONTACT_BITMAP_BYTES), vec![0u8; CONTACT_BITMAP_BYTES]);
     }
 
     // --- window splicing + expected-file round-trip -------------------------
@@ -1355,19 +1537,20 @@ mod tests {
         assert_eq!(analog.tone.tx, Some(AnytoneSubTone::Ctcss(100.0)));
         assert_eq!(analog.tone.rx, Some(AnytoneSubTone::Ctcss(100.0)));
 
-        // Contacts in first-use order: 3108, 91, then the inline 700 (resolved
-        // to its library name by number).
+        // Contacts are banked in NAME order like the CPS writes them, not in
+        // first-use order (which would be 3108, 91, then the inline 700).
         assert_eq!(
             plan.contacts
                 .iter()
                 .map(|c| (c.index, c.tg_number, c.name.as_str()))
                 .collect::<Vec<_>>(),
-            vec![(0, 3108, "Colorado"), (1, 91, "Worldwide"), (2, 99999700, "RMH WIDE")]
+            vec![(0, 3108, "Colorado"), (1, 99999700, "RMH WIDE"), (2, 91, "Worldwide")]
         );
-        // Channel contact indices point at those assignments.
-        assert_eq!(plan.channels[0].edit.contact_index, 0);
-        assert_eq!(plan.channels[1].edit.contact_index, 1);
-        assert_eq!(plan.channels[2].edit.contact_index, 2);
+        // Channel contact indices follow the reorder: each channel still points
+        // at its own talkgroup's record, at that record's new position.
+        assert_eq!(plan.channels[0].edit.contact_index, 0); // Colorado
+        assert_eq!(plan.channels[1].edit.contact_index, 2); // Worldwide
+        assert_eq!(plan.channels[2].edit.contact_index, 1); // RMH WIDE
 
         // One zone from the one list, holding every programmed slot (0-based).
         assert_eq!(plan.zones.len(), 1);
@@ -1609,6 +1792,142 @@ mod tests {
     /// database and print its counts, skipped channels and warnings — the fastest
     /// way to tell "the planner dropped it" from "the radio didn't take it".
     ///   CPM_DB=/path/copy.sqlite3 CPM_CP=2 cargo test plan_dump -- --ignored --nocapture
+    /// THROWAWAY (issue #11): sweep a fixed region list in ONE session and save
+    /// it in the `[addr:u32 BE][len:u32 BE][data]` dump format, so two sweeps —
+    /// or a sweep and the CPS-era Jul-1 dump — are byte-alignable by
+    /// `parse_dump`/`diff_dumps`. Blocks 0..17 deliberately match the Jul-1
+    /// dump's region map exactly; extras are appended after it.
+    ///   CPM_PORT=/dev/cu.usbmodemXXX CPM_OUT=/path/sweep-a.bin \
+    ///   cargo test hw_sweep -- --ignored --nocapture
+    /// Region selection: default = the Jul-1 map; CPM_WIDE=1 = the broad net;
+    /// CPM_DENSE=base:n = n consecutive windows; CPM_ADDRS=a,b,c = exactly those.
+    #[tokio::test]
+    #[ignore = "reads real hardware"]
+    async fn hw_sweep() {
+        use crate::radios::anytone_atd890uv::{
+            end_session, enter_program_and_ident, open_port, read_block, serialize_backup,
+        };
+        const REGIONS: &[(u32, u32)] = &[
+            // --- the Jul-1 CPS-era dump's map, in its exact order ---
+            (0x0100_0000, 16384),
+            (0x0100_4000, 16384),
+            (0x0108_0000, 16384),
+            (0x01F8_1000, 1024),
+            (0x0200_0000, 2048),
+            (0x0208_0000, 1024),
+            (0x0208_5000, 1024),
+            (0x0210_0000, 2048),
+            (0x0318_0000, 1024),
+            (0x0340_0000, 1024),
+            (0x0348_0000, 16384),
+            (0x0350_0000, 8192),
+            (0x0358_5000, 2048),
+            (0x0360_0000, 2048),
+            (0x0368_0000, 1024),
+            (0x0368_4000, 256),
+            (0x0378_0000, 2048),
+            (0x03A0_0000, 2048),
+            // --- extras: the window before the contact bank (magic markers
+            //     live at 0x039FFBF4 / 0x039FFFFC) and the bank in full ---
+            (0x039F_C000, 16384),
+            (0x03A0_0000, 16384),
+        ];
+        // CPM_WIDE=1 sweeps 16 KB at each of these bases instead — a broad net
+        // for the contact bookkeeping structure, which is NOT in the narrow map
+        // above. Unreadable windows are skipped, so two wide sweeps are matched
+        // by ADDRESS, not by block index.
+        const WIDE: &[u32] = &[
+            0x0100_0000,
+            0x0100_4000,
+            0x0100_8000,
+            0x0100_C000,
+            0x0101_0000,
+            0x0102_0000,
+            0x0104_0000,
+            0x0108_0000,
+            0x0110_0000,
+            0x0120_0000,
+            0x01F8_0000,
+            0x0200_0000,
+            0x0208_0000,
+            0x0210_0000,
+            0x0218_0000,
+            0x0260_0000,
+            0x0264_0000,
+            0x0268_0000,
+            0x0318_0000,
+            0x0340_0000,
+            0x0348_0000,
+            0x0350_0000,
+            0x0358_0000,
+            0x0360_0000,
+            0x0368_0000,
+            0x0378_0000,
+            0x0380_0000,
+            0x0390_0000,
+            0x0398_0000,
+            0x039C_0000,
+            0x039E_0000,
+            0x039F_0000,
+            0x039F_8000,
+            0x039F_C000,
+            0x03A0_0000,
+            0x03A0_4000,
+            0x03A0_8000,
+            0x03A0_C000,
+            0x03A1_0000,
+            0x03A2_0000,
+            0x03A4_0000,
+            0x03A8_0000,
+            0x03AC_0000,
+            0x03B0_0000,
+            0x03C0_0000,
+            0x0400_0000,
+        ];
+        let port = std::env::var("CPM_PORT").unwrap();
+        let out = std::env::var("CPM_OUT").unwrap();
+        let wide = std::env::var("CPM_WIDE").is_ok();
+        // CPM_ADDRS="0x07000000,0x07080000,..." — an explicit scattered list of
+        // 16 KB windows. Neither CPM_WIDE (a fixed list) nor CPM_DENSE (one
+        // contiguous run) can express "these particular addresses", which is
+        // what chasing a named region out of the firmware-1.05 RE doc needs.
+        let regions: Vec<(u32, u32)> = if let Ok(spec) = std::env::var("CPM_ADDRS") {
+            spec.split(',')
+                .map(|s| s.trim().trim_start_matches("0x"))
+                .filter(|s| !s.is_empty())
+                .map(|s| (u32::from_str_radix(s, 16).unwrap(), 16384u32))
+                .collect()
+        // CPM_DENSE="0x03900000:64" — N consecutive 16 KB windows from a base,
+        // to fill gaps a sampled sweep leaves behind.
+        } else if let Ok(spec) = std::env::var("CPM_DENSE") {
+            let (base, n) = spec.split_once(':').unwrap();
+            let base = u32::from_str_radix(base.trim_start_matches("0x"), 16).unwrap();
+            let n: u32 = n.parse().unwrap();
+            (0..n).map(|i| (base + i * WRITE_WINDOW as u32, 16384u32)).collect()
+        } else if wide {
+            WIDE.iter().map(|a| (*a, 16384u32)).collect()
+        } else {
+            REGIONS.to_vec()
+        };
+        let mut p = open_port(&port).expect("open");
+        let ident = enter_program_and_ident(&mut *p).expect("enter");
+        eprintln!("ident {ident:?}");
+        let mut banks: Vec<(u32, Vec<u8>)> = Vec::new();
+        for (addr, len) in &regions {
+            match read_block(&mut *p, *addr, *len as usize) {
+                Ok(data) => {
+                    let nz = data.iter().filter(|b| **b != 0x00 && **b != 0xFF).count();
+                    eprintln!("0x{addr:08X} len={len:6} nonzero={nz}");
+                    banks.push((*addr, data));
+                }
+                Err(e) => eprintln!("0x{addr:08X} SKIP {e}"),
+            }
+        }
+        let _ = end_session(&mut *p);
+        std::fs::write(&out, serialize_backup(&banks)).expect("write");
+        eprintln!("saved {out}");
+    }
+
     #[tokio::test]
     #[ignore = "needs CPM_DB + CPM_CP"]
     async fn plan_dump() {
@@ -1623,6 +1942,20 @@ mod tests {
         );
         for s in &plan.skipped { eprintln!("  SKIP {} — {}", s.name, s.reason); }
         for w in &plan.warnings { eprintln!("  WARN {w}"); }
+        // The contact bank as it will land on flash, plus every channel's
+        // reference into it — the view needed to read issue #11's symptom
+        // (channels silently resolving to contact 0) against real data.
+        eprintln!("-- contact bank --");
+        for c in &plan.contacts {
+            eprintln!("  [{}] {} {}", c.index, c.tg_number, c.name);
+        }
+        eprintln!("-- channel → contact --");
+        for pc in &plan.channels {
+            let ci = pc.edit.contact_index;
+            let name = plan.contacts.iter().find(|c| c.index == ci)
+                .map_or("(none)", |c| c.name.as_str());
+            eprintln!("  ch{:3} contact={ci:3} {} → {name}", pc.slot - 1, pc.edit.name);
+        }
     }
 
     /// Off-by-default integration check: run the assembly against a COPY of a
