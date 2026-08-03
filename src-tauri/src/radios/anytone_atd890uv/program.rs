@@ -41,7 +41,8 @@ use super::{
     plans_from_pre_read, read_block, serialize_backup,
     AnytoneChannelEdit, AnytoneSubTone, AnytoneToneEdit, BankPlan, RegionPatch,
     ScanListRecordSettings, BANK_STEP, CHANNEL_BASE, CH_PER_BANK, CH_REC_LEN, CONTACT_BASE,
-    CONTACT_REC_LEN, MAX_CONTACTS_READ, MAX_SCAN_LISTS, MAX_ZONES, NUM_BANKS, SCAN_LIST_BASE,
+    CONTACT_INDEX_BASE, CONTACT_REC_LEN, MAX_CONTACTS_READ, MAX_SCAN_LISTS, MAX_ZONES, NUM_BANKS,
+    SCAN_LIST_BASE,
     CHANNEL_BITMAP_BASE, CHANNEL_BITMAP_BYTES, MAX_CHANNELS_BITMAP, SCAN_BITMAP_BASE,
     SCAN_BITMAP_BYTES, SCAN_LIST_STEP, SCAN_MAX_CHANNELS, WRITE_WINDOW,
     ZONE_BITMAP_BASE, ZONE_BITMAP_BYTES,
@@ -914,6 +915,21 @@ fn run_program(
         }
         originals.extend(contact_windows);
 
+        // The contact index table gates everything above: the bank can be
+        // perfect and the radio still shows only as many contacts as this array
+        // lists. Rewrite the whole window — entries 0..N then 0xFF fill — so a
+        // stale longer table can't leave phantom contacts behind.
+        let mut index_table = Vec::with_capacity(WRITE_WINDOW);
+        for i in 0..plan.contacts.len() {
+            index_table.extend_from_slice(&(i as u32).to_le_bytes());
+        }
+        index_table.resize(WRITE_WINDOW, 0xFF);
+        patches.push(RegionPatch { addr: CONTACT_INDEX_BASE, data: index_table });
+        originals.insert(
+            CONTACT_INDEX_BASE,
+            read_block(&mut *p, CONTACT_INDEX_BASE, WRITE_WINDOW)?,
+        );
+
         all_plans.extend(plans_from_pre_read(&originals, &patches)?);
         Ok(all_plans)
     })();
@@ -1726,6 +1742,130 @@ mod tests {
     /// database and print its counts, skipped channels and warnings — the fastest
     /// way to tell "the planner dropped it" from "the radio didn't take it".
     ///   CPM_DB=/path/copy.sqlite3 CPM_CP=2 cargo test plan_dump -- --ignored --nocapture
+    /// THROWAWAY (issue #11): sweep a fixed region list in ONE session and save
+    /// it in the `[addr:u32 BE][len:u32 BE][data]` dump format, so two sweeps —
+    /// or a sweep and the CPS-era Jul-1 dump — are byte-alignable by
+    /// `parse_dump`/`diff_dumps`. Blocks 0..17 deliberately match the Jul-1
+    /// dump's region map exactly; extras are appended after it.
+    ///   CPM_PORT=/dev/cu.usbmodemXXX CPM_OUT=/path/sweep-a.bin \
+    ///   cargo test hw_sweep -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore = "reads real hardware"]
+    async fn hw_sweep() {
+        use crate::radios::anytone_atd890uv::{
+            end_session, enter_program_and_ident, open_port, read_block, serialize_backup,
+        };
+        const REGIONS: &[(u32, u32)] = &[
+            // --- the Jul-1 CPS-era dump's map, in its exact order ---
+            (0x0100_0000, 16384),
+            (0x0100_4000, 16384),
+            (0x0108_0000, 16384),
+            (0x01F8_1000, 1024),
+            (0x0200_0000, 2048),
+            (0x0208_0000, 1024),
+            (0x0208_5000, 1024),
+            (0x0210_0000, 2048),
+            (0x0318_0000, 1024),
+            (0x0340_0000, 1024),
+            (0x0348_0000, 16384),
+            (0x0350_0000, 8192),
+            (0x0358_5000, 2048),
+            (0x0360_0000, 2048),
+            (0x0368_0000, 1024),
+            (0x0368_4000, 256),
+            (0x0378_0000, 2048),
+            (0x03A0_0000, 2048),
+            // --- extras: the window before the contact bank (magic markers
+            //     live at 0x039FFBF4 / 0x039FFFFC) and the bank in full ---
+            (0x039F_C000, 16384),
+            (0x03A0_0000, 16384),
+        ];
+        // CPM_WIDE=1 sweeps 16 KB at each of these bases instead — a broad net
+        // for the contact bookkeeping structure, which is NOT in the narrow map
+        // above. Unreadable windows are skipped, so two wide sweeps are matched
+        // by ADDRESS, not by block index.
+        const WIDE: &[u32] = &[
+            0x0100_0000,
+            0x0100_4000,
+            0x0100_8000,
+            0x0100_C000,
+            0x0101_0000,
+            0x0102_0000,
+            0x0104_0000,
+            0x0108_0000,
+            0x0110_0000,
+            0x0120_0000,
+            0x01F8_0000,
+            0x0200_0000,
+            0x0208_0000,
+            0x0210_0000,
+            0x0218_0000,
+            0x0260_0000,
+            0x0264_0000,
+            0x0268_0000,
+            0x0318_0000,
+            0x0340_0000,
+            0x0348_0000,
+            0x0350_0000,
+            0x0358_0000,
+            0x0360_0000,
+            0x0368_0000,
+            0x0378_0000,
+            0x0380_0000,
+            0x0390_0000,
+            0x0398_0000,
+            0x039C_0000,
+            0x039E_0000,
+            0x039F_0000,
+            0x039F_8000,
+            0x039F_C000,
+            0x03A0_0000,
+            0x03A0_4000,
+            0x03A0_8000,
+            0x03A0_C000,
+            0x03A1_0000,
+            0x03A2_0000,
+            0x03A4_0000,
+            0x03A8_0000,
+            0x03AC_0000,
+            0x03B0_0000,
+            0x03C0_0000,
+            0x0400_0000,
+        ];
+        let port = std::env::var("CPM_PORT").unwrap();
+        let out = std::env::var("CPM_OUT").unwrap();
+        let wide = std::env::var("CPM_WIDE").is_ok();
+        // CPM_DENSE="0x03900000:64" — N consecutive 16 KB windows from a base,
+        // to fill gaps a sampled sweep leaves behind.
+        let regions: Vec<(u32, u32)> = if let Ok(spec) = std::env::var("CPM_DENSE") {
+            let (base, n) = spec.split_once(':').unwrap();
+            let base = u32::from_str_radix(base.trim_start_matches("0x"), 16).unwrap();
+            let n: u32 = n.parse().unwrap();
+            (0..n).map(|i| (base + i * WRITE_WINDOW as u32, 16384u32)).collect()
+        } else if wide {
+            WIDE.iter().map(|a| (*a, 16384u32)).collect()
+        } else {
+            REGIONS.to_vec()
+        };
+        let mut p = open_port(&port).expect("open");
+        let ident = enter_program_and_ident(&mut *p).expect("enter");
+        eprintln!("ident {ident:?}");
+        let mut banks: Vec<(u32, Vec<u8>)> = Vec::new();
+        for (addr, len) in &regions {
+            match read_block(&mut *p, *addr, *len as usize) {
+                Ok(data) => {
+                    let nz = data.iter().filter(|b| **b != 0x00 && **b != 0xFF).count();
+                    eprintln!("0x{addr:08X} len={len:6} nonzero={nz}");
+                    banks.push((*addr, data));
+                }
+                Err(e) => eprintln!("0x{addr:08X} SKIP {e}"),
+            }
+        }
+        let _ = end_session(&mut *p);
+        std::fs::write(&out, serialize_backup(&banks)).expect("write");
+        eprintln!("saved {out}");
+    }
+
     #[tokio::test]
     #[ignore = "needs CPM_DB + CPM_CP"]
     async fn plan_dump() {
