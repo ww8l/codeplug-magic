@@ -239,6 +239,37 @@ pub(crate) const SCAN_REVERT: usize = SCAN_MEMBERS + SCAN_MEMBER_SLOTS * 2; // 0
 /// multi-MB read.
 pub(crate) const CONTACT_BASE: u32 = 0x03A0_0000;
 pub(crate) const CONTACT_REC_LEN: usize = 0xC8;
+
+/// Contact INDEX TABLE — a `u32`-LE array of contact-record indices, terminated
+/// by 0xFFFFFFFF, filling its whole 0x4000 window. This drives the radio's
+/// **Contacts menu listing only**: with 26 records on flash but a stale 5-entry
+/// table of `[0,1,2,3,4]`, the menu showed exactly 5 (issue #11). Writing it
+/// correctly fixes the menu but NOT channel→contact resolution — that is gated
+/// by [`CONTACT_BITMAP_BASE`]. HW-proven 2026-08-03 by diffing a keypad "add
+/// contact" against a baseline, and again 2026-08-03 against an AnyTone CPS
+/// write (which produced the identical `0..N-1`, 0xFF-filled layout).
+pub(crate) const CONTACT_INDEX_BASE: u32 = 0x0390_0000;
+
+/// Contact PRESENT bitmap — **the real gate on issue #11**, and the reason a
+/// bank of 26 correct records was only ever half-visible.
+///
+/// One bit per contact record, LSB-first, but **INVERTED relative to every
+/// other present-bitmap on this radio: a CLEAR bit means the contact is
+/// PRESENT** (flash erases to 1, so "untouched" reads as absent). Sized to the
+/// radio's 10,000-talkgroup ceiling: 1250 bytes = 10,000 bits.
+///
+/// HW-proven 2026-08-03, three independent ways:
+///   * our own 26-record write left `c0 ff` here = 6 bits clear, and AnyTone
+///     CPS reading that radio listed **exactly 6** contacts;
+///   * a CPS write of 10 contacts produced `00 fc` = **10** bits clear;
+///   * the s73 keypad "add contact" flipped byte 0 `0xE0`→`0xC0` = 5→6, and the
+///     radio's menu went 5→6 in lockstep.
+///
+/// Patch only [`CONTACT_BITMAP_BYTES`] here — never the whole 0x4000 window.
+/// CPS also zeroes 13 bytes at +0x04E3, purpose unknown; a read-modify-write of
+/// just the bitmap leaves them alone rather than guessing.
+pub(crate) const CONTACT_BITMAP_BASE: u32 = 0x0398_0000;
+pub(crate) const CONTACT_BITMAP_BYTES: usize = 1250;
 pub(crate) const CONTACT_CALL_TYPE: usize = 0x00;
 pub(crate) const CONTACT_DMR_ID: usize = 0x02;
 pub(crate) const CONTACT_NAME: usize = 0x06;
