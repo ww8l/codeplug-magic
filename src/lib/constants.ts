@@ -15,6 +15,12 @@ export const MODES = [
   "P25",
   "M17",
 ];
+// Mode order a freshly created zone/group is sorted into: analog FM first, then
+// the digital modes in the order most operators want them, then everything else
+// in MODES order. NFM rides with FM — on the air they're the same thing, so a
+// mixed analog batch stays together at the top.
+const ZONE_MODE_ORDER = ["FM", "NFM", "DMR", "YSF", "DSTAR"];
+
 export const OP_STATUSES = ["On Air", "Off Air", "Unknown"];
 export const DUPLEX_OPTIONS = ["+", "-", "none", "split"];
 // CHIRP's universal tone scheme (maps cleanly to every radio):
@@ -91,4 +97,49 @@ export function fmtFreq(n: number | null | undefined): string {
 export function fmtOffset(n: number | null | undefined): string {
   if (n == null || n === 0) return "";
   return n.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+/** Sort rank for a channel's mode; lower sorts first, blank/unknown modes last. */
+function zoneModeRank(mode: string | null | undefined): number {
+  const m = (mode ?? "").trim().toUpperCase();
+  if (!m) return Number.MAX_SAFE_INTEGER;
+  const primary = ZONE_MODE_ORDER.indexOf(m);
+  if (primary !== -1) return primary;
+  // Everything else lands behind the primaries, keeping MODES order; values not
+  // in MODES at all go to the back of that trailing group.
+  const other = MODES.indexOf(m);
+  return ZONE_MODE_ORDER.length + (other === -1 ? MODES.length : other);
+}
+
+/** Callsign sort key — channels without one sort after those that have one. */
+function callsignKey(callsign: string | null | undefined): string {
+  const c = (callsign ?? "").trim().toUpperCase();
+  return c || "￿";
+}
+
+/**
+ * Default ordering applied to the channels of a newly created zone/group:
+ * by mode (see ZONE_MODE_ORDER), then callsign, then frequency so a station
+ * with channels on several bands stays in band order.
+ */
+export function compareForNewZone(
+  a: { mode: string | null; callsign: string | null; rx_freq: number },
+  b: { mode: string | null; callsign: string | null; rx_freq: number },
+): number {
+  const rank = zoneModeRank(a.mode) - zoneModeRank(b.mode);
+  if (rank !== 0) return rank;
+  // Unknown modes share one rank; group them by name before falling to
+  // callsign. Compare normalized so "fm" and "FM" tie rather than splitting.
+  const mode = (a.mode ?? "")
+    .trim()
+    .toUpperCase()
+    .localeCompare((b.mode ?? "").trim().toUpperCase());
+  if (mode !== 0) return mode;
+  const call = callsignKey(a.callsign).localeCompare(
+    callsignKey(b.callsign),
+    undefined,
+    { numeric: true },
+  );
+  if (call !== 0) return call;
+  return a.rx_freq - b.rx_freq;
 }
