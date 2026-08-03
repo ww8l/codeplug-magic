@@ -1,20 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { List, Plus } from "lucide-react";
 import { api, withToast } from "../../lib/api";
-import type { ChannelListSummary } from "../../lib/types";
+import { compareForNewZone } from "../../lib/constants";
+import type { Channel, ChannelListSummary } from "../../lib/types";
 import { Modal } from "../overlays";
 import { Button, TextInput, Spinner, Badge } from "../ui";
 
 export function AddToListModal({
   open,
   onClose,
-  channelIds,
+  channels,
   onAdded,
 }: {
   open: boolean;
   onClose: () => void;
-  channelIds: number[];
+  channels: Channel[];
   onAdded: () => void;
 }) {
   const [lists, setLists] = useState<ChannelListSummary[]>([]);
@@ -34,7 +35,16 @@ export function AddToListModal({
       .finally(() => setLoading(false));
   }, [open]);
 
-  const count = channelIds.length;
+  const count = channels.length;
+  const channelIds = useMemo(() => channels.map((c) => c.id), [channels]);
+
+  // A brand-new zone has no ordering to preserve, so seed it in the default
+  // order (mode, then callsign) rather than whatever the grid happened to show.
+  // Adding to an *existing* zone keeps appending, so hand-curated order stands.
+  const orderedIds = useMemo(
+    () => [...channels].sort(compareForNewZone).map((c) => c.id),
+    [channels],
+  );
 
   // Report how many were newly added vs skipped as already-present.
   const finish = (added: number, listName: string) => {
@@ -67,7 +77,7 @@ export function AddToListModal({
       setBusy(false);
       return;
     }
-    const added = await withToast(api.addChannelsToList(list.id, channelIds), {
+    const added = await withToast(api.addChannelsToList(list.id, orderedIds), {
       error: "List created but adding failed",
     });
     // Optionally mirror the new list into a matching scan list with the same
@@ -77,7 +87,7 @@ export function AddToListModal({
         error: "Channel list created, but the scan list could not be",
       });
       if (scan) {
-        await withToast(api.addChannelsToScanList(scan.id, channelIds), {
+        await withToast(api.addChannelsToScanList(scan.id, orderedIds), {
           error: "Scan list created but adding channels failed",
         });
       }
@@ -124,6 +134,10 @@ export function AddToListModal({
             />
             Also create a matching scan list with these channels
           </label>
+          <p className="mt-1.5 text-[11px] text-slate-400">
+            Ordered FM, DMR, YSF, D-STAR, then the rest — by callsign within each
+            mode. Drag to reorder afterwards.
+          </p>
         </div>
 
         {/* Existing */}
