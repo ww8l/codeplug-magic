@@ -254,6 +254,39 @@ fn plan_channel_names(expanded: &[ExpandedChannel], model: &RadioModel) -> Vec<S
     names
 }
 
+/// Reorder the contact bank into name order and renumber every channel to follow.
+///
+/// AnyTone's own CPS writes the bank sorted by the name field — the CPS-era dump
+/// `anytone-dump-20260701-134612.bin` is a clean ASCII sort of the names
+/// (`1 MARC WW`, `100 WYO LOCAL`, `2 LOCAL`, `30234 FLEX`, …) and specifically
+/// NOT numeric DMR-ID order, since 100 precedes 2. We assigned indices in
+/// first-use order instead, so our banks went out unsorted.
+///
+/// Channels reference contacts purely by index, so remapping every planned
+/// channel keeps the codeplug semantically identical — the same channel points
+/// at the same record, only the record's position in the bank changes. That
+/// makes this a no-op if the radio indexes the bank directly, and a fix if it
+/// resolves contacts in a way that assumes sorted order (issue #11, where the
+/// radio silently falls back to contact 0 for most channels).
+fn sort_contact_bank(contacts: &mut [PlannedContact], channels: &mut [PlannedChannel]) {
+    // Tie-break on the talkgroup number so two talkgroups whose labels truncate
+    // to the same 16 chars still get a stable, reproducible order.
+    contacts.sort_by(|a, b| a.name.cmp(&b.name).then(a.tg_number.cmp(&b.tg_number)));
+    let mut remap = vec![0u16; contacts.len()];
+    for (new, c) in contacts.iter_mut().enumerate() {
+        remap[c.index as usize] = new as u16;
+        c.index = new as u16;
+    }
+    for pc in channels {
+        // Channels with no talkgroup were parked on index 0; carry them along
+        // with whatever record that was rather than re-parking them, so the
+        // reorder changes nothing but record positions.
+        if let Some(&new) = remap.get(pc.edit.contact_index as usize) {
+            pc.edit.contact_index = new;
+        }
+    }
+}
+
 /// Invert one expanded row to a channel edit. `contact_index` is the radio
 /// contact slot assigned to the row's talkgroup (0 when the row has none).
 fn invert_channel(
@@ -401,6 +434,8 @@ pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<AnytoneProgramPl
             contacts.len()
         ));
     }
+    sort_contact_bank(&mut contacts, &mut channels);
+
     // Zones: one per codeplug channel list, in assignment order.
     let mut zones: Vec<PlannedZone> = Vec::new();
     for g in groups {
@@ -1078,6 +1113,87 @@ mod tests {
         }
     }
 
+    fn contact(index: u16, tg_number: u32, name: &str) -> PlannedContact {
+        PlannedContact {
+            index,
+            tg_number,
+            name: name.to_string(),
+            call_type: 1,
+        }
+    }
+
+    #[test]
+    fn contact_bank_sorts_by_name_and_renumbers_channels() {
+        // First-use order, deliberately unsorted, with the CPS's own ordering
+        // trap: "100 …" sorts before "2 …" by name but after it by DMR ID.
+        let mut contacts = vec![
+            contact(0, 3156, "Wyoming - 10 Min"),
+            contact(1, 2, "2 LOCAL"),
+            contact(2, 700, "RMH WIDE"),
+            contact(3, 100, "100 WYO LOCAL"),
+            contact(4, 721, "RMH North"),
+        ];
+        let mut channels = vec![
+            planned(1, "A", true),
+            planned(2, "B", true),
+            planned(3, "C", true),
+            planned(4, "D", false),
+        ];
+        channels[0].edit.contact_index = 2; // RMH WIDE
+        channels[1].edit.contact_index = 4; // RMH North
+        channels[2].edit.contact_index = 3; // 100 WYO LOCAL
+        channels[3].edit.contact_index = 0; // analog, parked on record 0
+
+        sort_contact_bank(&mut contacts, &mut channels);
+
+        assert_eq!(
+            contacts
+                .iter()
+                .map(|c| (c.index, c.name.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (0, "100 WYO LOCAL"),
+                (1, "2 LOCAL"),
+                (2, "RMH North"),
+                (3, "RMH WIDE"),
+                (4, "Wyoming - 10 Min"),
+            ]
+        );
+        // Every channel still resolves to the talkgroup it started with.
+        assert_eq!(channels[0].edit.contact_index, 3); // RMH WIDE
+        assert_eq!(channels[1].edit.contact_index, 2); // RMH North
+        assert_eq!(channels[2].edit.contact_index, 0); // 100 WYO LOCAL
+        assert_eq!(channels[3].edit.contact_index, 4); // still record 0's contact
+    }
+
+    #[test]
+    fn contact_bank_sort_tie_breaks_on_talkgroup_number() {
+        // Two labels that truncate to the same 16 chars must still order
+        // deterministically rather than however the sort happened to land.
+        let mut contacts = vec![
+            contact(0, 31084, "NOCO Mountain FR"),
+            contact(1, 3108, "NOCO Mountain FR"),
+        ];
+        let mut channels: Vec<PlannedChannel> = Vec::new();
+        sort_contact_bank(&mut contacts, &mut channels);
+        assert_eq!(
+            contacts
+                .iter()
+                .map(|c| (c.index, c.tg_number))
+                .collect::<Vec<_>>(),
+            vec![(0, 3108), (1, 31084)]
+        );
+    }
+
+    #[test]
+    fn contact_bank_sort_handles_an_empty_bank() {
+        // All-analog codeplug: no contacts, every channel parked on index 0.
+        let mut contacts: Vec<PlannedContact> = Vec::new();
+        let mut channels = vec![planned(1, "A", false)];
+        sort_contact_bank(&mut contacts, &mut channels);
+        assert_eq!(channels[0].edit.contact_index, 0);
+    }
+
     #[test]
     fn bank_patch_writes_slots_and_clears_stale_records() {
         // Original bank: slot 1 programmed (will be overwritten), slot 3 stale
@@ -1355,19 +1471,20 @@ mod tests {
         assert_eq!(analog.tone.tx, Some(AnytoneSubTone::Ctcss(100.0)));
         assert_eq!(analog.tone.rx, Some(AnytoneSubTone::Ctcss(100.0)));
 
-        // Contacts in first-use order: 3108, 91, then the inline 700 (resolved
-        // to its library name by number).
+        // Contacts are banked in NAME order like the CPS writes them, not in
+        // first-use order (which would be 3108, 91, then the inline 700).
         assert_eq!(
             plan.contacts
                 .iter()
                 .map(|c| (c.index, c.tg_number, c.name.as_str()))
                 .collect::<Vec<_>>(),
-            vec![(0, 3108, "Colorado"), (1, 91, "Worldwide"), (2, 99999700, "RMH WIDE")]
+            vec![(0, 3108, "Colorado"), (1, 99999700, "RMH WIDE"), (2, 91, "Worldwide")]
         );
-        // Channel contact indices point at those assignments.
-        assert_eq!(plan.channels[0].edit.contact_index, 0);
-        assert_eq!(plan.channels[1].edit.contact_index, 1);
-        assert_eq!(plan.channels[2].edit.contact_index, 2);
+        // Channel contact indices follow the reorder: each channel still points
+        // at its own talkgroup's record, at that record's new position.
+        assert_eq!(plan.channels[0].edit.contact_index, 0); // Colorado
+        assert_eq!(plan.channels[1].edit.contact_index, 2); // Worldwide
+        assert_eq!(plan.channels[2].edit.contact_index, 1); // RMH WIDE
 
         // One zone from the one list, holding every programmed slot (0-based).
         assert_eq!(plan.zones.len(), 1);
@@ -1623,6 +1740,20 @@ mod tests {
         );
         for s in &plan.skipped { eprintln!("  SKIP {} — {}", s.name, s.reason); }
         for w in &plan.warnings { eprintln!("  WARN {w}"); }
+        // The contact bank as it will land on flash, plus every channel's
+        // reference into it — the view needed to read issue #11's symptom
+        // (channels silently resolving to contact 0) against real data.
+        eprintln!("-- contact bank --");
+        for c in &plan.contacts {
+            eprintln!("  [{}] {} {}", c.index, c.tg_number, c.name);
+        }
+        eprintln!("-- channel → contact --");
+        for pc in &plan.channels {
+            let ci = pc.edit.contact_index;
+            let name = plan.contacts.iter().find(|c| c.index == ci)
+                .map_or("(none)", |c| c.name.as_str());
+            eprintln!("  ch{:3} contact={ci:3} {} → {name}", pc.slot - 1, pc.edit.name);
+        }
     }
 
     /// Off-by-default integration check: run the assembly against a COPY of a
