@@ -511,7 +511,7 @@ export function Channels() {
       <AddToListModal
         open={addToListOpen}
         onClose={() => setAddToListOpen(false)}
-        channelIds={[...selectedIds]}
+        channels={channels.filter((c) => selectedIds.has(c.id))}
         onAdded={() => setAddToListOpen(false)}
       />
     </>
