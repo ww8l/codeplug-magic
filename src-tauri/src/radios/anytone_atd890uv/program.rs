@@ -1749,6 +1749,8 @@ mod tests {
     /// dump's region map exactly; extras are appended after it.
     ///   CPM_PORT=/dev/cu.usbmodemXXX CPM_OUT=/path/sweep-a.bin \
     ///   cargo test hw_sweep -- --ignored --nocapture
+    /// Region selection: default = the Jul-1 map; CPM_WIDE=1 = the broad net;
+    /// CPM_DENSE=base:n = n consecutive windows; CPM_ADDRS=a,b,c = exactly those.
     #[tokio::test]
     #[ignore = "reads real hardware"]
     async fn hw_sweep() {
@@ -1835,9 +1837,19 @@ mod tests {
         let port = std::env::var("CPM_PORT").unwrap();
         let out = std::env::var("CPM_OUT").unwrap();
         let wide = std::env::var("CPM_WIDE").is_ok();
+        // CPM_ADDRS="0x07000000,0x07080000,..." — an explicit scattered list of
+        // 16 KB windows. Neither CPM_WIDE (a fixed list) nor CPM_DENSE (one
+        // contiguous run) can express "these particular addresses", which is
+        // what chasing a named region out of the firmware-1.05 RE doc needs.
+        let regions: Vec<(u32, u32)> = if let Ok(spec) = std::env::var("CPM_ADDRS") {
+            spec.split(',')
+                .map(|s| s.trim().trim_start_matches("0x"))
+                .filter(|s| !s.is_empty())
+                .map(|s| (u32::from_str_radix(s, 16).unwrap(), 16384u32))
+                .collect()
         // CPM_DENSE="0x03900000:64" — N consecutive 16 KB windows from a base,
         // to fill gaps a sampled sweep leaves behind.
-        let regions: Vec<(u32, u32)> = if let Ok(spec) = std::env::var("CPM_DENSE") {
+        } else if let Ok(spec) = std::env::var("CPM_DENSE") {
             let (base, n) = spec.split_once(':').unwrap();
             let base = u32::from_str_radix(base.trim_start_matches("0x"), 16).unwrap();
             let n: u32 = n.parse().unwrap();
