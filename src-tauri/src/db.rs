@@ -50,15 +50,18 @@ mod tests {
         let pool = init_pool(&db_path).await.expect("init_pool failed");
 
         // Models are reintroduced one at a time (migration 0005 trimmed the
-        // original set): currently the Baofeng UV-5R, TIDRADIO TD-H3, and
-        // AnyTone AT-D890UV. (0015 removed the Vero VR-N76 placeholder.)
+        // original set): currently the Baofeng UV-5R, TIDRADIO TD-H3, AnyTone
+        // AT-D890UV, and Yaesu FT5D. (0015 removed the Vero VR-N76
+        // placeholder.) The FT5D has no migration of its own — seeding INSERTs
+        // new (manufacturer, model) rows, so a new model reaches existing
+        // databases on the next startup without one.
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM radio_models")
             .fetch_one(&pool)
             .await
             .unwrap();
         assert_eq!(
-            count.0, 3,
-            "expected the UV-5R, TD-H3, and AT-D890UV seeded models"
+            count.0, 4,
+            "expected the UV-5R, TD-H3, AT-D890UV, and FT5D seeded models"
         );
 
         let models: Vec<(String,)> =
@@ -67,7 +70,7 @@ mod tests {
                 .await
                 .unwrap();
         let names: Vec<&str> = models.iter().map(|m| m.0.as_str()).collect();
-        assert_eq!(names, vec!["AT-D890UV", "TD-H3", "UV-5R"]);
+        assert_eq!(names, vec!["AT-D890UV", "FT5D", "TD-H3", "UV-5R"]);
 
         // Seeding twice must remain idempotent.
         crate::seed::seed_radio_models(&pool).await.unwrap();
@@ -75,7 +78,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(count2.0, 3, "seeding should be idempotent");
+        assert_eq!(count2.0, 4, "seeding should be idempotent");
 
         // The full Brandmeister talkgroup list should be seeded (~1,750 rows),
         // and re-seeding is idempotent.
