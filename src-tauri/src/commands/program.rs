@@ -479,16 +479,13 @@ pub async fn write_callsign_db(
             // The library models a "talkgroup" that is really a private contact
             // (call_type 'Private'), so honour the column rather than assuming.
             group_call: !call_type.eq_ignore_ascii_case("private"),
-            // The name goes in BOTH description field 1 ("name") and field 3
-            // ("call") on purpose: we do not yet know which of the two the TX
-            // screen renders for a group call, and a call-sign DB write is ~30 MB
-            // / many minutes, so this tests both placements in a SINGLE write.
-            // The encoder truncates `call` to its 8-char radio limit, which also
-            // makes the result self-diagnosing: a full-length label came from
-            // `name`, an 8-char one from `call`. Once hardware says which, drop
-            // the loser.
-            name: name.clone(),
-            callsign: name,
+            // Description field 1 ("name") is what the TX screen renders for a
+            // group call — HW-proven (s76): TG 31088 displayed "Colorado HD" in
+            // full, not the 8-char "Colorado" that field 3 ("call") would have
+            // been truncated to. A talkgroup has no callsign, so field 3 stays
+            // empty; do not put the name there too.
+            name,
+            callsign: String::new(),
             city: None,
             state: None,
             country: None,
