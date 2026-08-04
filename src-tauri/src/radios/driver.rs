@@ -78,6 +78,11 @@ pub struct DecodedChannelSample {
 /// mapping lives in the command layer so drivers stay storage-agnostic.
 pub(crate) struct CallsignRecord {
     pub dmr_id: u32,
+    /// `true` if this is a talkgroup (Group Call) rather than an individual DMR
+    /// user (Private Call). Radios that key their caller-ID lookup by call type
+    /// need both kinds: the group entries are what let the radio name a
+    /// talkgroup on its TX screen.
+    pub group_call: bool,
     pub callsign: String,
     pub name: String,
     pub city: Option<String>,

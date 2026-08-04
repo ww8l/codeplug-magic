@@ -444,10 +444,11 @@ pub async fn write_callsign_db(
     })?;
 
     let users = select_prioritized_dmr_users(&state.pool, max_count, &priority_countries).await?;
-    let records: Vec<CallsignRecord> = users
+    let mut records: Vec<CallsignRecord> = users
         .into_iter()
         .map(|u| CallsignRecord {
             dmr_id: u.dmr_id as u32,
+            group_call: false,
             name: u.display_name(),
             callsign: u.callsign,
             city: u.city,
@@ -456,10 +457,44 @@ pub async fn write_callsign_db(
             comment: u.remarks,
         })
         .collect();
+
+    // Append the talkgroup library as GROUP-call entries (issue #30). The
+    // caller-ID DB is what the radio's TX screen resolves a talkgroup ID
+    // through, so a DB holding only individual users leaves TX showing a bare
+    // number. `talkgroups` is a global reusable library, not codeplug-scoped,
+    // which matches this command being radio-wide.
+    //
+    // Appended AFTER the users so that on a number collision the hand-curated
+    // talkgroup wins the encoder's last-wins dedup. `max_count` deliberately
+    // does not apply: it caps the bulk user library, and the talkgroups are the
+    // few dozen entries the user actually cares about naming.
+    let talkgroups: Vec<(i64, String, String)> =
+        sqlx::query_as("SELECT tg_number, name, call_type FROM talkgroups ORDER BY tg_number")
+            .fetch_all(&state.pool)
+            .await
+            .estr()?;
+    records.extend(talkgroups.into_iter().map(|(tg_number, name, call_type)| {
+        CallsignRecord {
+            dmr_id: tg_number.max(0) as u32,
+            // The library models a "talkgroup" that is really a private contact
+            // (call_type 'Private'), so honour the column rather than assuming.
+            group_call: !call_type.eq_ignore_ascii_case("private"),
+            name,
+            callsign: String::new(),
+            city: None,
+            state: None,
+            country: None,
+            comment: None,
+        }
+    }));
+
+    // Checked on the COMBINED set, not on the users alone: a codeplug with
+    // talkgroups but no downloaded user library is still worth writing — it is
+    // exactly what gives the TX screen its names.
     if records.is_empty() {
         return Err(
-            "No DMR contacts to write — open DMR Contacts and Refresh the library first \
-             (or widen the country selection)."
+            "No DMR contacts or talkgroups to write — open DMR Contacts and Refresh the \
+             library first (or widen the country selection)."
                 .to_string(),
         );
     }

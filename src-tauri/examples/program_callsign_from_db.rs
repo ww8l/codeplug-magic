@@ -48,6 +48,7 @@ async fn main() {
                 .join(" ");
             CallsignDbEntry {
                 dmr_id: dmr_id as u32,
+                group_call: false,
                 name,
                 city: city.unwrap_or_default(),
                 call: callsign,
