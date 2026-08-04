@@ -109,15 +109,18 @@ export const api = {
   // ---- built-in standard channel lists (GMRS, FRS, MURS, marine, …) ----
   listStandardLists: () =>
     invoke<StandardListInfo[]>("list_standard_lists"),
+  // channelNames picks a subset by name; null imports the whole list.
   importStandardList: (
     id: string,
     createList: boolean,
     listName: string | null,
+    channelNames: string[] | null,
   ) =>
     invoke<StandardImportSummary>("import_standard_list", {
       id,
       createList,
       listName,
+      channelNames,
     }),
 
   // ---- whole-database master backup & restore ----

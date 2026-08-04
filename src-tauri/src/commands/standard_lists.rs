@@ -377,6 +377,32 @@ fn find_list(id: &str) -> Result<&'static StdList, String> {
         .ok_or_else(|| format!("Unknown standard list \"{id}\""))
 }
 
+/// Narrow a list to the channels the user ticked, keeping catalog order so a
+/// created channel list still runs in channel-number order. `None` means all.
+/// A name that isn't in the list is an error rather than a silent drop —
+/// quietly importing fewer channels than asked for is the worse failure.
+fn select_channels(
+    list: &'static StdList,
+    names: Option<&[String]>,
+) -> Result<Vec<&'static StdChannel>, String> {
+    let Some(names) = names else {
+        return Ok(list.channels.iter().collect());
+    };
+    for n in names {
+        if !list.channels.iter().any(|c| c.name == n) {
+            return Err(format!("\"{n}\" is not a channel in the {} list", list.name));
+        }
+    }
+    if names.is_empty() {
+        return Err("No channels selected.".to_string());
+    }
+    Ok(list
+        .channels
+        .iter()
+        .filter(|c| names.iter().any(|n| n == c.name))
+        .collect())
+}
+
 // ============================================================
 // Wire types
 // ============================================================
@@ -474,6 +500,10 @@ pub fn list_standard_lists() -> Vec<StandardListInfo> {
 /// Add a standard list's channels to the master table, optionally collecting
 /// them into a channel list (which becomes a zone on the radio).
 ///
+/// `channel_names` picks a subset by name — `None` takes the whole list. The
+/// GMRS repeater pairs are the motivating case: they need tones a user has to
+/// program per repeater, so most people want the simplex channels only.
+///
 /// Re-running it is safe: a channel already in the library is counted as
 /// skipped rather than duplicated, but it still joins the channel list — so
 /// importing GMRS twice gives you one set of channels and one complete list.
@@ -483,8 +513,16 @@ pub async fn import_standard_list(
     id: String,
     create_list: bool,
     list_name: Option<String>,
+    channel_names: Option<Vec<String>>,
 ) -> Result<StandardImportSummary, String> {
-    import_into(&state.pool, &id, create_list, list_name.as_deref()).await
+    import_into(
+        &state.pool,
+        &id,
+        create_list,
+        list_name.as_deref(),
+        channel_names.as_deref(),
+    )
+    .await
 }
 
 /// The body of `import_standard_list`, against a pool rather than Tauri state.
@@ -493,17 +531,20 @@ async fn import_into(
     id: &str,
     create_list: bool,
     list_name: Option<&str>,
+    channel_names: Option<&[String]>,
 ) -> Result<StandardImportSummary, String> {
     let list = find_list(id)?;
+    let chosen = select_channels(list, channel_names)?;
+
     let mut conn = pool.acquire().await.estr()?;
     let mut tx = conn.begin().await.estr()?;
 
     let mut summary = StandardImportSummary::default();
     // Channel ids in catalog order, so a created list keeps the channel-number
     // ordering the service defines rather than whatever order rows landed in.
-    let mut channel_ids: Vec<i64> = Vec::with_capacity(list.channels.len());
+    let mut channel_ids: Vec<i64> = Vec::with_capacity(chosen.len());
 
-    for c in list.channels {
+    for c in chosen {
         // Same dedupe rule the native channel backup importer uses for manual
         // channels: frequency pair plus name.
         let existing: Option<(i64,)> = sqlx::query_as(
@@ -769,7 +810,7 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
         let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
 
-        let first = import_into(&pool, "gmrs", true, None).await.unwrap();
+        let first = import_into(&pool, "gmrs", true, None, None).await.unwrap();
         assert_eq!(first.added, 30);
         assert_eq!(first.skipped, 0);
         assert_eq!(first.list_added, 30);
@@ -808,7 +849,7 @@ mod tests {
 
         // Re-importing skips every channel and adds no list entries, but does
         // not create a second "GMRS" list either.
-        let again = import_into(&pool, "gmrs", true, None).await.unwrap();
+        let again = import_into(&pool, "gmrs", true, None, None).await.unwrap();
         assert_eq!(again.added, 0);
         assert_eq!(again.skipped, 30);
         assert_eq!(again.list_added, 0);
@@ -822,13 +863,13 @@ mod tests {
 
         // FRS shares 15 frequencies with GMRS but names them differently, so
         // all 22 are new channels rather than dedupe collisions.
-        let frs = import_into(&pool, "frs", false, None).await.unwrap();
+        let frs = import_into(&pool, "frs", false, None, None).await.unwrap();
         assert_eq!(frs.added, 22);
         assert_eq!(frs.skipped, 0);
         assert_eq!(frs.list_id, None);
 
         // Receive-only channels keep a NULL tx_freq through the round trip.
-        import_into(&pool, "weather", true, Some(" Weather ")).await.unwrap();
+        import_into(&pool, "weather", true, Some(" Weather "), None).await.unwrap();
         let wx = sqlx::query_as::<_, Channel>(
             "SELECT * FROM channels WHERE name_long = 'NOAA Weather 1'",
         )
@@ -848,9 +889,94 @@ mod tests {
             vec!["GMRS", "Weather"]
         );
 
-        assert!(import_into(&pool, "nope", false, None).await.is_err());
+        assert!(import_into(&pool, "nope", false, None, None).await.is_err());
 
         let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// Unticking channels imports only what's left — the GMRS repeater case,
+    /// where the pairs need per-repeater tones most people don't want seeded.
+    #[tokio::test]
+    async fn imports_only_the_selected_channels() {
+        let dir = std::env::temp_dir().join(format!("cpm_std_sel_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("sel.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        // Everything except the 8 repeater pairs.
+        let simplex: Vec<String> = GMRS
+            .iter()
+            .filter(|c| !c.name.starts_with("GMRS Repeater"))
+            .map(|c| c.name.to_string())
+            .collect();
+        assert_eq!(simplex.len(), 22);
+
+        let summary = import_into(&pool, "gmrs", true, None, Some(&simplex))
+            .await
+            .unwrap();
+        assert_eq!(summary.added, 22);
+        assert_eq!(summary.list_added, 22);
+
+        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM channels")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(total.0, 22);
+        let repeaters: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM channels WHERE name_long LIKE 'GMRS Repeater%'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(repeaters.0, 0);
+
+        // Coming back for the repeaters later tops up the same list, and the
+        // 22 already there aren't duplicated.
+        let rest: Vec<String> = GMRS
+            .iter()
+            .filter(|c| c.name.starts_with("GMRS Repeater"))
+            .map(|c| c.name.to_string())
+            .collect();
+        let second = import_into(&pool, "gmrs", true, None, Some(&rest))
+            .await
+            .unwrap();
+        assert_eq!(second.added, 8);
+        assert_eq!(second.list_id, summary.list_id);
+
+        let names: Vec<(String,)> = sqlx::query_as(
+            "SELECT c.name_long FROM channel_list_entries e
+             JOIN channels c ON c.id = e.channel_id
+             WHERE e.channel_list_id = ?1 ORDER BY e.position",
+        )
+        .bind(summary.list_id.unwrap())
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(names.len(), 30);
+        assert_eq!(names[22].0, "GMRS Repeater 15");
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// A selection the list doesn't contain is an error, and so is an empty
+    /// one — importing silently fewer channels than asked is the worse bug.
+    #[test]
+    fn rejects_bad_selections() {
+        let gmrs = find_list("gmrs").unwrap();
+        assert!(select_channels(gmrs, Some(&["GMRS 1".to_string()])).is_ok());
+        assert!(select_channels(gmrs, Some(&["FRS 1".to_string()])).is_err());
+        assert!(select_channels(gmrs, Some(&[])).is_err());
+        // None means the whole list.
+        assert_eq!(select_channels(gmrs, None).unwrap().len(), 30);
+        // Selection order doesn't matter — catalog order is what comes back.
+        let picked = select_channels(
+            gmrs,
+            Some(&["GMRS 3".to_string(), "GMRS 1".to_string()]),
+        )
+        .unwrap();
+        assert_eq!(picked[0].name, "GMRS 1");
+        assert_eq!(picked[1].name, "GMRS 3");
     }
 
     /// The bands reported to the picker come from the real frequencies, so a
