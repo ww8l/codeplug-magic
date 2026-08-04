@@ -73,11 +73,9 @@ async fn main() {
         CallsignDbEntry {
             dmr_id: tg_number.max(0) as u32,
             group_call: !call_type.eq_ignore_ascii_case("private"),
-            // Name in both fields 1 and 3 so one hardware write tests both
-            // placements; see the comment on the command-side mirror.
-            name: name.clone(),
+            name,
             city: String::new(),
-            call: name,
+            call: String::new(),
             state: String::new(),
             country: String::new(),
             comment: String::new(),
