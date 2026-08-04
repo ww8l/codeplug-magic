@@ -15,6 +15,8 @@ import type {
   ExportPreview,
   ImportPreview,
   ImportSummary,
+  StandardListInfo,
+  StandardImportSummary,
   RadioModel,
   RadioProfile,
   RadioProfileInput,
@@ -103,6 +105,20 @@ export const api = {
     invoke<ImportPreview>("preview_channel_import", { path }),
   importChannels: (path: string) =>
     invoke<ImportSummary>("import_channels", { path }),
+
+  // ---- built-in standard channel lists (GMRS, FRS, MURS, marine, …) ----
+  listStandardLists: () =>
+    invoke<StandardListInfo[]>("list_standard_lists"),
+  importStandardList: (
+    id: string,
+    createList: boolean,
+    listName: string | null,
+  ) =>
+    invoke<StandardImportSummary>("import_standard_list", {
+      id,
+      createList,
+      listName,
+    }),
 
   // ---- whole-database master backup & restore ----
   exportDatabase: (path: string) =>

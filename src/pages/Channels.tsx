@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { useSearchParams } from "react-router-dom";
-import { Upload, Download, Plus, Search, X, Radio, Trash2, ListPlus, MapPin } from "lucide-react";
+import { Upload, Download, Plus, Search, X, Radio, Trash2, ListPlus, MapPin, BookMarked } from "lucide-react";
 import { api, withToast } from "../lib/api";
 import type { Channel, ChannelFilter, CityCentroid } from "../lib/types";
 import { BANDS, MODES, OP_STATUSES } from "../lib/constants";
@@ -15,6 +15,7 @@ import {
 import { ColumnPicker } from "../components/channels/ColumnPicker";
 import { ChannelDetailPanel } from "../components/channels/ChannelDetailPanel";
 import { ImportDialog } from "../components/channels/ImportDialog";
+import { StandardListDialog } from "../components/channels/StandardListDialog";
 import { AddToListModal } from "../components/channels/AddToListModal";
 import {
   DistanceControl,
@@ -72,6 +73,7 @@ export function Channels() {
   const [panelMode, setPanelMode] = useState<"edit" | "create">("edit");
   const [panelOpen, setPanelOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [standardOpen, setStandardOpen] = useState(false);
   const [addToListOpen, setAddToListOpen] = useState(false);
 
   const [visibleColumns, setVisibleColumns] =
@@ -330,6 +332,9 @@ export function Channels() {
                 Backfill coords ({missingCoords})
               </Button>
             )}
+            <Button onClick={() => setStandardOpen(true)}>
+              <BookMarked size={14} /> Standard Lists
+            </Button>
             <Button onClick={() => setImportOpen(true)}>
               <Upload size={14} /> Import
             </Button>
@@ -458,6 +463,9 @@ export function Channels() {
             description="Import a RepeaterBook CSV/JSON export or add a repeater manually to start building your master table."
             action={
               <div className="flex gap-2">
+                <Button onClick={() => setStandardOpen(true)}>
+                  <BookMarked size={14} /> Standard Lists
+                </Button>
                 <Button onClick={() => setImportOpen(true)}>
                   <Upload size={14} /> Import
                 </Button>
@@ -506,6 +514,11 @@ export function Channels() {
       <ImportDialog
         open={importOpen}
         onClose={() => setImportOpen(false)}
+        onImported={reload}
+      />
+      <StandardListDialog
+        open={standardOpen}
+        onClose={() => setStandardOpen(false)}
         onImported={reload}
       />
       <AddToListModal

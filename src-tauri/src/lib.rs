@@ -54,6 +54,9 @@ pub fn run() {
             commands::channel_io::is_channel_backup,
             commands::channel_io::preview_channel_import,
             commands::channel_io::import_channels,
+            // built-in standard channel lists (GMRS, FRS, MURS, marine, …)
+            commands::standard_lists::list_standard_lists,
+            commands::standard_lists::import_standard_list,
             // channel lists
             commands::lists::list_channel_lists,
             commands::lists::create_channel_list,
