@@ -492,6 +492,67 @@ fn models() -> Vec<ModelSeed> {
             // can't drift. Read via the generic `read_radio_settings` command.
             non_channel_settings_schema: include_str!("anytone_settings_schema.json"),
         },
+        // --------------------------------------------------------
+        // 4. Yaesu FT5D — C4FM (System Fusion) + analog FM dual-band
+        //    HT, 900 memories in 24 banks, 16-char alpha tags, 5 W.
+        //    Covers the FT5DR (US/Asia/AU) and FT5DE (EU) variants;
+        //    "FT5D" unhyphenated follows Yaesu's own documents and
+        //    CHIRP's naming for the family (FT1D/FT2D/FT3D).
+        //    SCAFFOLDING ONLY (issue #32): the `yaesu_ft5d` driver
+        //    identifies and nothing more, so `export_format` is the
+        //    shared analog `chirp_csv` fallback and the settings
+        //    schema is empty. The three real modalities — ADMS-14
+        //    CSV, microSD MEMORY.dat, USB clone mode — each land only
+        //    once proven against the radio; see radios/yaesu_ft5d/.
+        //    NOTES: (a) banks_supported is on (24 banks), so channel
+        //    lists map to banks once a programming path exists; the
+        //    FT5D has no zones and no scan lists. (b) freq_min/max is
+        //    the US TX span. Like every model here it is ONE
+        //    contiguous range, so it cannot express the FT5D's two
+        //    disjoint TX bands (144-148 + 430-450) — a 155 MHz
+        //    channel passes the span and the covers_vhf flag even
+        //    though the radio cannot transmit on it. RX is far wider
+        //    (0.52-999.995 MHz), but we only program TX-capable
+        //    channels, so the filter uses TX. (c) covers_220/900 stay
+        //    false, which is what keeps a 224 MHz channel out.
+        // --------------------------------------------------------
+        ModelSeed {
+            manufacturer: "Yaesu",
+            model: "FT5D",
+            driver_key: Some("yaesu_ft5d"),
+            programming_ui: Some("generic"),
+            display_name: "Yaesu FT5D",
+            analog_capable: true,
+            dmr_capable: false,
+            dstar_capable: false,
+            ysf_capable: true,
+            nxdn_capable: false,
+            p25_capable: false,
+            m17_capable: false,
+            aprs_capable: true,
+            covers_hf: false,
+            covers_vhf: true,
+            covers_uhf: true,
+            covers_220: false,
+            covers_900: false,
+            freq_min: 144.0,
+            freq_max: 450.0,
+            memory_channels: 900,
+            zones_supported: false,
+            max_zones: None,
+            channels_per_zone: None,
+            scan_lists_supported: false,
+            max_scan_lists: None,
+            banks_supported: true,
+            max_name_length: 16,
+            export_format: "chirp_csv",
+            connection_type: "microSD or USB (SCU-19/39/57)",
+            // Empty until a settings modality exists: the FT5D driver is not a
+            // `SettingsReader`, so there is nothing to populate a profile form
+            // with and an invented schema would only offer fields we cannot
+            // read back or write. `[]` parses to "no fields" in profiles.ts.
+            non_channel_settings_schema: "[]",
+        },
     ]
 }
 
