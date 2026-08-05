@@ -1,9 +1,10 @@
-//! Yaesu FT5D driver (`driver_key = "yaesu_ft5d"`) — scaffolding + identify.
+//! Yaesu FT5D driver (`driver_key = "yaesu_ft5d"`) — identify + microSD codeplug
+//! writing.
 //!
-//! This is the registry/model foundation for issue #32. No programming modality
-//! is wired yet: the driver advertises no capabilities, so the generic dialog
-//! offers the FT5D a connect handshake and nothing else. That is deliberate —
-//! see "What is NOT here" below.
+//! The programming path is the **microSD card**, in [`sd_image`]: the operator
+//! backs the radio up to its card, we patch memories, flags and banks into that
+//! `BACKUP.dat`, and the radio's own Restore menu reads it back. No cable, and
+//! no third-party software. See that module for the byte layout.
 //!
 //! ## The FT5D memory map IS the FT3D's (measured, s79)
 //!
@@ -35,56 +36,52 @@
 //! the backup — no cable required, which retires the main reason for the clone
 //! probe below.
 //!
-//! ## Record layout (measured against known plaintext)
+//! ## The decode is complete, and it is CHIRP's struct
 //!
-//! Base `0x2D40`, stride 32, 999 slots (900 regular + 99 skip-search, matching
-//! the published spec), unused slots `0xFF`-filled, record index = channel
-//! number - 1. Verified by matching every frequency against the RT Systems
-//! export: 199 of 200 exact.
+//! Every field was measured against known plaintext (a real backup paired with
+//! an RT Systems export of the same codeplug), then cross-checked against
+//! CHIRP's `ft1d.py` `MEM_FORMAT`, which lines up address-for-address under the
+//! −10 rule: `bank_info 0x0EFE→0x0EF4`, `bank_members 0x154A→0x1540`,
+//! `flag 0x2800`, `memory 0x2D4A→0x2D40`. A decoder written from those constants
+//! reproduces all 53 CSV columns for all 200 channels with **zero mismatches**,
+//! so [`sd_image`] holds the layout and this comment does not repeat it.
 //!
-//! Decoded: offset direction (`0x01 & 0x30`), AM (`0x01 & 0x40`), RX frequency
-//! (`0x02..0x05`, BCD kHz), tone mode (`0x05 & 0x03`), DN/C4FM (`0x05 & 0x20`),
-//! TX power (`0x05 & 0xC0`), name (`0x08..0x18`, ASCII, `0xFF`-padded), repeater
-//! offset (`0x18..0x1A`, BCD in 100 kHz units — and the Split TX frequency
-//! overloads the same bytes), CTCSS (`0x1B`, standard 50-tone index), DCS
-//! (`0x1C`), user CTCSS (`0x1D`), step (`0x1F & 0x10`).
+//! Two corrections to earlier revisions of this comment, both of which would
+//! have produced a broken write:
 //!
-//! Still open: byte `0x00`'s exact semantics, `0x01`'s low nibble, `0x1F` bit 3,
-//! skip and bank membership (both live outside the record), and the 500 Hz lost
-//! to BCD truncation on 12.5 kHz-spaced 900 MHz channels.
+//! - **900 memory slots, not 999.** The extra 99 are `Skip[]`, a separate
+//!   skip-search array with its own flags — not extra channel space.
+//! - **Unused slots are NOT reliably `0xFF`-filled.** `flag[900]` at `0x2800` is
+//!   what makes a channel exist, exactly like the AnyTone present-bitmaps. The
+//!   real dump held 201 non-`0xFF` records for 200 channels: slot 30 was a stale
+//!   leftover the flag array correctly called empty.
 //!
-//! Full working notes, scripts and the byte-level tables are in
-//! `scratchpad/ft5d/FINDINGS.md` (gitignored — raw dumps of a personal radio).
-//! Per `no-inferred-addresses-on-hardware`, nothing above gets written to a
-//! radio until the encoder round-trips against an RT Systems file first.
+//! Working notes and byte tables: `scratchpad/ft5d/FINDINGS.md` (gitignored —
+//! raw dumps of a personal radio).
 //!
-//! ## The three programming modalities, none implemented yet
+//! ## The other two modalities, still not implemented
 //!
-//! 1. **ADMS-14 / RT Systems CSV** — a 53-column CSV. Needs no reverse
-//!    engineering and no radio; the cheapest path to a usable export. Note that
-//!    RT Systems doubles as a **reference encoder**: it can generate a valid
-//!    FT5D SD file from any channel config with nothing plugged in, so our
-//!    writer can be validated byte-for-byte offline before touching hardware.
-//! 2. **microSD `FT5D/BACKUP/BACKUP.dat`** — cable-free, written by the radio's
-//!    own Backup/Restore menu. Now largely decoded; see above.
-//! 3. **USB clone mode** — SCU-19/39/57 cable, virtual COM port. Presumed to be
+//! 1. **ADMS-14 / RT Systems CSV** — deliberately not built. RT Systems was a
+//!    diagnostic instrument for the decode (its export was the known plaintext),
+//!    not something the app should depend on or emit.
+//! 2. **USB clone mode** — SCU-19/39/57 cable, virtual COM port. Presumed to be
 //!    the same radio-initiated `yaesu_clone` protocol as its siblings; see
-//!    [`YaesuFt5d::identify`], which is the probe that will confirm it. Lower
-//!    priority now that the SD path yielded both the model token and the layout.
+//!    [`YaesuFt5d::identify`], which is the probe that would confirm it. Low
+//!    priority: the SD path programs the radio without a cable at all.
 //!
 //! ## What is NOT here
 //!
-//! No [`ImageProgrammer`](crate::radios::driver::ImageProgrammer), no
-//! [`SettingsReader`](crate::radios::driver::SettingsReader), no exporter. Every
-//! `as_*` accessor stays at its `None` default, so
-//! [`DriverCapabilities`](crate::radios::driver::DriverCapabilities) reports all
-//! false and the UI cannot offer an action the driver cannot perform. Each
-//! modality lands only once it has been proven against the radio.
+//! No [`ImageProgrammer`](crate::radios::driver::ImageProgrammer) and no
+//! [`SettingsReader`](crate::radios::driver::SettingsReader) — both mean live
+//! USB, which is the unproven modality. `export` is the only capability the
+//! driver claims, so the UI cannot offer an action it cannot perform.
 
 /// Throwaway clone-port RE harness. Delete along with `hw_probe.rs` once the
 /// clone protocol is settled — it is a measuring instrument, not driver code.
 #[cfg(test)]
 mod hw_probe;
+
+pub(crate) mod sd_image;
 
 use std::time::{Duration, Instant};
 
@@ -156,6 +153,10 @@ impl RadioDriver for YaesuFt5d {
             ident_hex: hex(&ident),
             ident_ascii: Some(ascii(&ident)),
         })
+    }
+
+    fn as_codeplug_exporter(&self) -> Option<&dyn crate::radios::driver::CodeplugExporter> {
+        Some(self)
     }
 }
 
@@ -244,13 +245,13 @@ mod tests {
     use super::*;
     use crate::radios::driver::DriverCapabilities;
 
-    /// The scaffolding contract: the FT5D can be identified and nothing else.
-    /// If a modality lands without its capability accessor, the UI silently
-    /// keeps hiding it; if an accessor is added without a working
+    /// The FT5D's contract: file export (the microSD codeplug) and nothing
+    /// else. If a modality lands without its capability accessor, the UI
+    /// silently keeps hiding it; if an accessor is added without a working
     /// implementation, the UI offers an action that fails on the radio. Lock
-    /// the all-false state so either mistake is a test failure.
+    /// the exact set so either mistake is a test failure.
     #[test]
-    fn advertises_no_capabilities_yet() {
+    fn advertises_export_only() {
         let caps = DriverCapabilities::of(&DRIVER);
         assert_eq!(
             caps,
@@ -261,7 +262,7 @@ mod tests {
                 write_channels: false,
                 program_codeplug: false,
                 write_callsign_db: false,
-                export: false,
+                export: true,
                 diagnostics: false,
             }
         );

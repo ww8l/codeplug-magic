@@ -498,12 +498,13 @@ fn models() -> Vec<ModelSeed> {
         //    Covers the FT5DR (US/Asia/AU) and FT5DE (EU) variants;
         //    "FT5D" unhyphenated follows Yaesu's own documents and
         //    CHIRP's naming for the family (FT1D/FT2D/FT3D).
-        //    SCAFFOLDING ONLY (issue #32): the `yaesu_ft5d` driver
-        //    identifies and nothing more, so `export_format` is the
-        //    shared analog `chirp_csv` fallback and the settings
-        //    schema is empty. The three real modalities — ADMS-14
-        //    CSV, microSD MEMORY.dat, USB clone mode — each land only
-        //    once proven against the radio; see radios/yaesu_ft5d/.
+        //    Programmed via the microSD card (issue #32):
+        //    `yaesu_ft5d_sd` patches the radio's own
+        //    FT5D/BACKUP/BACKUP.dat in place, so "export" here writes
+        //    a codeplug the radio restores directly — no cable. The
+        //    settings schema stays empty because reading settings
+        //    means live USB, which is still unproven; see
+        //    radios/yaesu_ft5d/.
         //    NOTES: (a) banks_supported is on (24 banks), so channel
         //    lists map to banks once a programming path exists; the
         //    FT5D has no zones and no scan lists. (b) freq_min/max is
@@ -545,7 +546,7 @@ fn models() -> Vec<ModelSeed> {
             max_scan_lists: None,
             banks_supported: true,
             max_name_length: 16,
-            export_format: "chirp_csv",
+            export_format: "yaesu_ft5d_sd",
             connection_type: "microSD or USB (SCU-19/39/57)",
             // Empty until a settings modality exists: the FT5D driver is not a
             // `SettingsReader`, so there is nothing to populate a profile form
