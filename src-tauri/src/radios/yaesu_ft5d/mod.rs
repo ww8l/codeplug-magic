@@ -5,51 +5,72 @@
 //! offers the FT5D a connect handshake and nothing else. That is deliberate —
 //! see "What is NOT here" below.
 //!
-//! ## Why there is no CHIRP driver to port
+//! ## The FT5D memory map IS the FT3D's (measured, s79)
 //!
-//! Unlike our other three radios, the FT5D has NO upstream CHIRP driver.
-//! Mainline CHIRP covers the FT1D/FT2D/FT3D family (`chirp/drivers/ft1d.py`,
-//! `ft2d.py`; the FT3D is an `FT2D` subclass with `_model = b"AH72M"`), but
-//! there is no `ft5d.py`. The only public FT5D code is a ~120-line
-//! reverse-engineering harness in a personal fork (sjlongland/chirp commit
-//! `fffd6ee`) that parses a `MEMORY.dat` and prints channels.
+//! An earlier revision of this comment claimed the opposite — that memory
+//! records lived at `0x1800`, flags at `0x12C0`, and that the FT5D was not
+//! layout-compatible with the FT3D, so the family driver could not be lifted.
+//! That came from a ~120-line RE harness in a personal fork
+//! (sjlongland/chirp `fffd6ee`) and **it is wrong**. A real SD-card backup from
+//! Tim's radio, decoded against an RT Systems export of the same codeplug,
+//! says:
 //!
-//! **The FT5D is not layout-compatible with the FT3D**, so the existing family
-//! driver cannot be lifted:
-//!
-//! | | FT1D/FT2D/FT3D | FT5D |
+//! | | claimed | measured |
 //! |---|---|---|
-//! | channel flags | inside the 0x047E block set | `0x12C0` |
-//! | memory records | `0x2D4A` | `0x1800` |
-//! | image size     | 130507 (`_memsize`) | unknown |
+//! | memory records | `0x1800` | **`0x2D40`** |
+//! | flags | `0x12C0` | not a flag array; `0x12C0` is a second memory bank |
+//! | FT3D-compatible | no | **yes** |
 //!
-//! ## What is known about the memory layout (UNVERIFIED — no dump seen yet)
+//! The discrepancy is a coordinate-system error. `BACKUP.dat` is 130496 bytes;
+//! the FT3D clone image is 130507. The difference is 11 = a 10-byte ident
+//! header plus a 1-byte trailing checksum. CHIRP addresses are in *clone image*
+//! coordinates, which include that header, and FT3D records sit at `0x2D4A` —
+//! so `0x2D4A - 10 = 0x2D40`, exactly where the records are here.
 //!
-//! From the harness plus a hexdump writeup by the same author (vk4msl.com):
-//! a 1-byte-per-channel flag array at `0x12C0` (`valid`/`used`/`skip`/`pskip`),
-//! then 999 × 32-byte memory records at `0x1800`. Each record holds a 2-bit
-//! band selector, a 3-byte BCD frequency in kHz, a 3-bit mode (FM / AMS C4FM /
-//! C4FM), a 3-bit squelch type, a CTCSS tone index into a 49-entry table, and a
-//! 16-char label. **12 of the 32 bytes are still unknown, and TX offset, duplex
-//! direction, DCS code, power level, step and the skip flags are all inside
-//! them** — so no repeater channel can be encoded from public knowledge today.
+//! **The SD backup is the clone image with the header and checksum stripped**,
+//! which makes CHIRP's `ft2d.py` a real porting base rather than a dead end.
 //!
-//! 999 records lines up with the published spec (900 regular memories + 99
-//! skip-search memories), which is the one independent check we have on the
-//! layout. It is still an inference, not a measurement — see the
-//! `no-inferred-addresses-on-hardware` rule: nothing here gets written to flash
-//! until it is proven against a real dump.
+//! Mainline CHIRP still has no `ft5d.py`; the FT3D is an `FT2D` subclass with
+//! `_model = b"AH72M"`. The **FT5D's token is `AH82M`**, read from `0x220` of
+//! the backup — no cable required, which retires the main reason for the clone
+//! probe below.
+//!
+//! ## Record layout (measured against known plaintext)
+//!
+//! Base `0x2D40`, stride 32, 999 slots (900 regular + 99 skip-search, matching
+//! the published spec), unused slots `0xFF`-filled, record index = channel
+//! number - 1. Verified by matching every frequency against the RT Systems
+//! export: 199 of 200 exact.
+//!
+//! Decoded: offset direction (`0x01 & 0x30`), AM (`0x01 & 0x40`), RX frequency
+//! (`0x02..0x05`, BCD kHz), tone mode (`0x05 & 0x03`), DN/C4FM (`0x05 & 0x20`),
+//! TX power (`0x05 & 0xC0`), name (`0x08..0x18`, ASCII, `0xFF`-padded), repeater
+//! offset (`0x18..0x1A`, BCD in 100 kHz units — and the Split TX frequency
+//! overloads the same bytes), CTCSS (`0x1B`, standard 50-tone index), DCS
+//! (`0x1C`), user CTCSS (`0x1D`), step (`0x1F & 0x10`).
+//!
+//! Still open: byte `0x00`'s exact semantics, `0x01`'s low nibble, `0x1F` bit 3,
+//! skip and bank membership (both live outside the record), and the 500 Hz lost
+//! to BCD truncation on 12.5 kHz-spaced 900 MHz channels.
+//!
+//! Full working notes, scripts and the byte-level tables are in
+//! `scratchpad/ft5d/FINDINGS.md` (gitignored — raw dumps of a personal radio).
+//! Per `no-inferred-addresses-on-hardware`, nothing above gets written to a
+//! radio until the encoder round-trips against an RT Systems file first.
 //!
 //! ## The three programming modalities, none implemented yet
 //!
-//! 1. **ADMS-14 CSV** — a headerless 53-column CSV the Yaesu/RT Systems tools
-//!    import. Fully documented and needs no reverse engineering; this is the
-//!    cheapest path to a usable export.
-//! 2. **microSD `MEMORY.dat`** — cable-free, written by the radio's own
-//!    Backup/Restore menu. Needs the RE work described above.
+//! 1. **ADMS-14 / RT Systems CSV** — a 53-column CSV. Needs no reverse
+//!    engineering and no radio; the cheapest path to a usable export. Note that
+//!    RT Systems doubles as a **reference encoder**: it can generate a valid
+//!    FT5D SD file from any channel config with nothing plugged in, so our
+//!    writer can be validated byte-for-byte offline before touching hardware.
+//! 2. **microSD `FT5D/BACKUP/BACKUP.dat`** — cable-free, written by the radio's
+//!    own Backup/Restore menu. Now largely decoded; see above.
 //! 3. **USB clone mode** — SCU-19/39/57 cable, virtual COM port. Presumed to be
 //!    the same radio-initiated `yaesu_clone` protocol as its siblings; see
-//!    [`YaesuFt5d::identify`], which is the probe that will confirm it.
+//!    [`YaesuFt5d::identify`], which is the probe that will confirm it. Lower
+//!    priority now that the SD path yielded both the model token and the layout.
 //!
 //! ## What is NOT here
 //!
@@ -59,6 +80,11 @@
 //! [`DriverCapabilities`](crate::radios::driver::DriverCapabilities) reports all
 //! false and the UI cannot offer an action the driver cannot perform. Each
 //! modality lands only once it has been proven against the radio.
+
+/// Throwaway clone-port RE harness. Delete along with `hw_probe.rs` once the
+/// clone protocol is settled — it is a measuring instrument, not driver code.
+#[cfg(test)]
+mod hw_probe;
 
 use std::time::{Duration, Instant};
 
