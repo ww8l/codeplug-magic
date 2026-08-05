@@ -7,16 +7,18 @@
 //! APRS beacons, GPS logs, DTMF strings, the opening message, WIRES-X settings —
 //! everything the operator has configured on the radio itself. Generating a file
 //! from scratch would mean silently reverting all of it, so this takes the
-//! user's own backup as the template and overwrites exactly three regions:
+//! user's own backup as the template and overwrites exactly four regions:
 //!
 //! | region | address | what |
 //! |---|---|---|
+//! | `bank_info[24].name` | `0xEF4` | 16-char ASCII bank labels |
 //! | `bank_members[24]` | `0x1540` | 100 × u16-BE per bank, value = channel − 1 |
 //! | `flag[900]` | `0x2800` | one byte per slot: valid / used / skip / nosubvfo |
 //! | `memory[900]` | `0x2D40` | 32-byte records |
-//! | `bank_info[24].name` | `0xEF4` | 16-char ASCII bank labels |
 //!
-//! Every other byte is copied verbatim. The workflow is the radio's own: back up
+//! Every other byte is copied verbatim — except the scattered individual bytes
+//! of any non-channel settings the codeplug's radio profile carries, which
+//! [`super::settings`] applies on top. The workflow is the radio's own: back up
 //! to the SD card, patch the file here, then Restore from the same card — no
 //! cable, and no third-party software in the loop.
 //!
@@ -62,7 +64,7 @@ use std::collections::HashMap;
 use crate::commands::export::{expanded_names, tx_frequency, CodeplugGroup, ExpandedChannel};
 use crate::error::MapErrString;
 use crate::models::RadioModel;
-use crate::radios::driver::CodeplugExporter;
+use crate::radios::driver::{CodeplugExporter, ExportRequest};
 
 use super::YaesuFt5d;
 
@@ -323,6 +325,7 @@ pub(crate) fn patch_backup(
     channels: &[&ExpandedChannel],
     groups: &[CodeplugGroup],
     model: &RadioModel,
+    profile_settings: Option<&str>,
 ) -> Result<Vec<u8>, String> {
     validate_backup(template)?;
     if channels.len() > MEM_SLOTS {
@@ -400,6 +403,17 @@ pub(crate) fn patch_backup(
         write_bank_name(&mut img, b, &format!("BANK{:>2}", b + 1));
     }
 
+    // Non-channel settings from the codeplug's radio profile. A codeplug with
+    // no profile leaves every one of them exactly as the operator's backup had
+    // it, which is the same promise the rest of the image gets.
+    if let Some(json) = profile_settings {
+        let parsed: serde_json::Value = serde_json::from_str(json)
+            .map_err(|e| format!("This profile's settings are not valid JSON: {e}"))?;
+        if let Some(map) = parsed.as_object() {
+            super::settings::apply_settings(&mut img, map);
+        }
+    }
+
     Ok(img)
 }
 
@@ -433,20 +447,20 @@ impl CodeplugExporter for YaesuFt5d {
     /// is what the radio's Restore menu reads. The untouched original is kept
     /// beside it as `BACKUP.dat.orig`, written once and never overwritten, so a
     /// second export cannot clobber the only pristine copy.
-    fn export(
-        &self,
-        path: &str,
-        channels: &[&ExpandedChannel],
-        groups: &[CodeplugGroup],
-        model: &RadioModel,
-    ) -> Result<usize, String> {
+    fn export(&self, path: &str, req: &ExportRequest) -> Result<usize, String> {
         let template = std::fs::read(path).map_err(|e| {
             format!(
                 "Could not read {path}: {e}. Pick FT5D/BACKUP/BACKUP.dat on the \
                  radio's microSD card — back the radio up first if it is not there."
             )
         })?;
-        let image = patch_backup(&template, channels, groups, model)?;
+        let image = patch_backup(
+            &template,
+            req.channels,
+            req.groups,
+            req.model,
+            req.profile_settings,
+        )?;
 
         let orig = format!("{path}.orig");
         if !std::path::Path::new(&orig).exists() {
@@ -454,7 +468,7 @@ impl CodeplugExporter for YaesuFt5d {
                 .map_err(|e| format!("Could not save the original as {orig}: {e}"))?;
         }
         std::fs::write(path, &image).estr()?;
-        Ok(channels.len())
+        Ok(req.channels.len())
     }
 }
 
@@ -510,7 +524,7 @@ mod tests {
     fn patch_preserves_every_byte_outside_the_patched_regions() {
         let t = template();
         let ec = expanded(chan(1, "W0UPS", 147.0));
-        let img = patch_backup(&t, &[&ec], &[], &model()).expect("patch");
+        let img = patch_backup(&t, &[&ec], &[], &model(), None).expect("patch");
 
         assert_eq!(img.len(), t.len());
         for (i, (a, b)) in t.iter().zip(img.iter()).enumerate() {
@@ -535,7 +549,7 @@ mod tests {
         c.tone_mode = Some("TSQL".into());
         c.ctcss_downlink = Some(100.0);
         let ec = expanded(c);
-        let img = patch_backup(&template(), &[&ec], &[], &model()).expect("patch");
+        let img = patch_backup(&template(), &[&ec], &[], &model(), None).expect("patch");
 
         let r = &img[MEM_BASE..MEM_BASE + MEM_STRIDE];
         assert_eq!(&r[2..5], &[0x44, 0x72, 0x75], "447.275 MHz as BCD kHz");
@@ -554,7 +568,7 @@ mod tests {
     #[test]
     fn twelve_and_a_half_khz_spacing_truncates_rather_than_rounds() {
         let ec = expanded(chan(1, "ODD", 145.0125));
-        let img = patch_backup(&template(), &[&ec], &[], &model()).expect("patch");
+        let img = patch_backup(&template(), &[&ec], &[], &model(), None).expect("patch");
         assert_eq!(&img[MEM_BASE + 2..MEM_BASE + 5], &[0x14, 0x50, 0x12]);
     }
 
@@ -563,7 +577,7 @@ mod tests {
     #[test]
     fn sets_nosubvfo_above_580_mhz() {
         let ec = expanded(chan(1, "NINE", 927.9));
-        let img = patch_backup(&template(), &[&ec], &[], &model()).expect("patch");
+        let img = patch_backup(&template(), &[&ec], &[], &model(), None).expect("patch");
         assert_eq!(img[FLAG_BASE] & 0x80, 0x80);
     }
 
@@ -579,7 +593,7 @@ mod tests {
             channels: vec![b.channel.clone()],
         };
         let img =
-            patch_backup(&template(), &[&a, &b], &[group], &model()).expect("patch");
+            patch_backup(&template(), &[&a, &b], &[group], &model(), None).expect("patch");
 
         // Channel "B" landed in memory slot 2, so the bank entry is 1.
         assert_eq!(&img[BANK_BASE..BANK_BASE + 4], &[0x00, 0x01, 0xFF, 0xFF]);
@@ -597,7 +611,7 @@ mod tests {
         let mut t = template();
         t[FLAG_BASE + 5] = 0x03; // a channel from the operator's previous codeplug
         let ec = expanded(chan(1, "ONE", 146.52));
-        let img = patch_backup(&t, &[&ec], &[], &model()).expect("patch");
+        let img = patch_backup(&t, &[&ec], &[], &model(), None).expect("patch");
 
         assert_eq!(img[FLAG_BASE], 0x03, "slot 1 is the channel we programmed");
         assert_eq!(img[FLAG_BASE + 5], 0x00, "slot 6 must no longer exist");
@@ -641,7 +655,17 @@ mod tests {
             list_name: "Front Range".into(),
             channels: rows.iter().map(|ec| ec.channel.clone()).collect(),
         };
-        let img = patch_backup(&template, &refs, &[group], &model()).expect("patch");
+        // A profile's worth of settings rides along, so the dump exercises the
+        // settings writer against real neighbouring bytes rather than zeros.
+        let settings = r#"{
+            "squelch-vfo-a": 4,
+            "mycall-callsign": "WW8L",
+            "opening-message-flag": "Message",
+            "opening-message-message-padded-yaesu": "CODEPLUG MAGIC",
+            "aprs-aprs-units-temperature-f": "C"
+        }"#;
+        let img = patch_backup(&template, &refs, &[group], &model(), Some(settings))
+            .expect("patch");
 
         assert_eq!(img.len(), template.len());
         std::fs::write(format!("{dir}/ft5d_patched.dat"), &img).expect("write");

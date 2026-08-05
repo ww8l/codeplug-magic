@@ -1,0 +1,1174 @@
+[
+ {
+  "key": "section-misc",
+  "label": "Misc",
+  "type": "section"
+ },
+ {
+  "key": "opening-message-flag",
+  "label": "Opening Msg Mode",
+  "type": "select",
+  "options": [
+   "Off",
+   "DC",
+   "Message",
+   "Normal"
+  ]
+ },
+ {
+  "key": "opening-message-message-padded-yaesu",
+  "label": "Opening Message",
+  "type": "text",
+  "max_length": 16
+ },
+ {
+  "key": "beep-settings-beep-select",
+  "label": "Beep Select",
+  "type": "select",
+  "options": [
+   "Off",
+   "Key+Scan",
+   "Key"
+  ]
+ },
+ {
+  "key": "scan-settings-lcd-dimmer",
+  "label": "LCD Dimmer",
+  "type": "select",
+  "options": [
+   "Level 1",
+   "Level 2",
+   "Level 3",
+   "Level 4",
+   "Level 5",
+   "Level 6"
+  ]
+ },
+ {
+  "key": "scan-settings-lcd-contrast",
+  "label": "LCD Contrast",
+  "type": "select",
+  "options": [
+   "Level 1",
+   "Level 2",
+   "Level 3",
+   "Level 4",
+   "Level 5",
+   "Level 6",
+   "Level 7",
+   "Level 8",
+   "Level 9",
+   "Level 10",
+   "Level 11",
+   "Level 12",
+   "Level 13",
+   "Level 14",
+   "Level 15"
+  ]
+ },
+ {
+  "key": "scan-settings-lamp",
+  "label": "Lamp",
+  "type": "select",
+  "options": [
+   "Key 2 sec",
+   "Key 3 sec",
+   "Key 4 sec",
+   "Key 5 sec",
+   "Key 6 sec",
+   "Key 7 sec",
+   "Key 8 sec",
+   "Key 9 sec",
+   "Key 10 sec",
+   "Continuous",
+   "OFF"
+  ]
+ },
+ {
+  "key": "section-digital-modes",
+  "label": "Digital Modes",
+  "type": "section"
+ },
+ {
+  "key": "mycall-callsign",
+  "label": "MYCALL",
+  "type": "text",
+  "max_length": 10
+ },
+ {
+  "key": "digital-settings-more-digital-popup",
+  "label": "Digital Popup",
+  "type": "select",
+  "options": [
+   "Off",
+   "2sec",
+   "4sec",
+   "6sec",
+   "8sec",
+   "10sec",
+   "20sec",
+   "30sec",
+   "60sec",
+   "Continuous"
+  ]
+ },
+ {
+  "key": "digital-settings-ams-tx-mode",
+  "label": "AMS TX Mode",
+  "type": "select",
+  "options": [
+   "TX Auto",
+   "TX DIGITAL",
+   "TX FM"
+  ]
+ },
+ {
+  "key": "digital-settings-standby-beep",
+  "label": "Standby Beep",
+  "type": "select",
+  "options": [
+   "On",
+   "Off"
+  ]
+ },
+ {
+  "key": "digital-settings-rx-dg-id",
+  "label": "RX DG-ID",
+  "type": "select",
+  "options": [
+   "0",
+   "1",
+   "2",
+   "3",
+   "4",
+   "5",
+   "6",
+   "7",
+   "8",
+   "9",
+   "10",
+   "11",
+   "12",
+   "13",
+   "14",
+   "15",
+   "16",
+   "17",
+   "18",
+   "19",
+   "20",
+   "21",
+   "22",
+   "23",
+   "24",
+   "25",
+   "26",
+   "27",
+   "28",
+   "29",
+   "30",
+   "31",
+   "32",
+   "33",
+   "34",
+   "35",
+   "36",
+   "37",
+   "38",
+   "39",
+   "40",
+   "41",
+   "42",
+   "43",
+   "44",
+   "45",
+   "46",
+   "47",
+   "48",
+   "49",
+   "50",
+   "51",
+   "52",
+   "53",
+   "54",
+   "55",
+   "56",
+   "57",
+   "58",
+   "59",
+   "60",
+   "61",
+   "62",
+   "63",
+   "64",
+   "65",
+   "66",
+   "67",
+   "68",
+   "69",
+   "70",
+   "71",
+   "72",
+   "73",
+   "74",
+   "75",
+   "76",
+   "77",
+   "78",
+   "79",
+   "80",
+   "81",
+   "82",
+   "83",
+   "84",
+   "85",
+   "86",
+   "87",
+   "88",
+   "89",
+   "90",
+   "91",
+   "92",
+   "93",
+   "94",
+   "95",
+   "96",
+   "97",
+   "98",
+   "99"
+  ]
+ },
+ {
+  "key": "digital-settings-tx-dg-id",
+  "label": "TX DG-ID",
+  "type": "select",
+  "options": [
+   "0",
+   "1",
+   "2",
+   "3",
+   "4",
+   "5",
+   "6",
+   "7",
+   "8",
+   "9",
+   "10",
+   "11",
+   "12",
+   "13",
+   "14",
+   "15",
+   "16",
+   "17",
+   "18",
+   "19",
+   "20",
+   "21",
+   "22",
+   "23",
+   "24",
+   "25",
+   "26",
+   "27",
+   "28",
+   "29",
+   "30",
+   "31",
+   "32",
+   "33",
+   "34",
+   "35",
+   "36",
+   "37",
+   "38",
+   "39",
+   "40",
+   "41",
+   "42",
+   "43",
+   "44",
+   "45",
+   "46",
+   "47",
+   "48",
+   "49",
+   "50",
+   "51",
+   "52",
+   "53",
+   "54",
+   "55",
+   "56",
+   "57",
+   "58",
+   "59",
+   "60",
+   "61",
+   "62",
+   "63",
+   "64",
+   "65",
+   "66",
+   "67",
+   "68",
+   "69",
+   "70",
+   "71",
+   "72",
+   "73",
+   "74",
+   "75",
+   "76",
+   "77",
+   "78",
+   "79",
+   "80",
+   "81",
+   "82",
+   "83",
+   "84",
+   "85",
+   "86",
+   "87",
+   "88",
+   "89",
+   "90",
+   "91",
+   "92",
+   "93",
+   "94",
+   "95",
+   "96",
+   "97",
+   "98",
+   "99"
+  ]
+ },
+ {
+  "key": "digital-settings-vw-mode",
+  "label": "VW Mode",
+  "type": "select",
+  "options": [
+   "On",
+   "Off"
+  ]
+ },
+ {
+  "key": "section-group-monitor-gm",
+  "label": "Group Monitor(GM)",
+  "type": "section"
+ },
+ {
+  "key": "first-settings-gm-ring",
+  "label": "GM Ring",
+  "type": "select",
+  "options": [
+   "OFF",
+   "IN RING",
+   "ALWAYS"
+  ]
+ },
+ {
+  "key": "scan-settings-gm-interval",
+  "label": "GM Interval",
+  "type": "select",
+  "options": [
+   "LONG",
+   "NORMAL",
+   "OFF"
+  ]
+ },
+ {
+  "key": "section-scan",
+  "label": "Scan",
+  "type": "section"
+ },
+ {
+  "key": "squelch-vfo-a",
+  "label": "VFO A Squelch",
+  "type": "select",
+  "options": [
+   "0",
+   "1",
+   "2",
+   "3",
+   "4",
+   "5",
+   "6",
+   "7",
+   "8",
+   "9",
+   "10",
+   "11",
+   "12",
+   "13",
+   "14",
+   "15"
+  ]
+ },
+ {
+  "key": "squelch-vfo-b",
+  "label": "VFO B Squelch",
+  "type": "select",
+  "options": [
+   "0",
+   "1",
+   "2",
+   "3",
+   "4",
+   "5",
+   "6",
+   "7",
+   "8",
+   "9",
+   "10",
+   "11",
+   "12",
+   "13",
+   "14",
+   "15"
+  ]
+ },
+ {
+  "key": "scan-settings-scan-restart",
+  "label": "Scan Restart",
+  "type": "select",
+  "options": [
+   "0.1s",
+   "0.2s",
+   "0.3s",
+   "0.4s",
+   "0.5s",
+   "0.6s",
+   "0.7s",
+   "0.8s",
+   "0.9s",
+   "1.0s",
+   "1.5s",
+   "2.0s",
+   "2.5s",
+   "3.0s",
+   "3.5s",
+   "4.0s",
+   "4.5s",
+   "5.0s",
+   "5.5s",
+   "6.0s",
+   "6.5s",
+   "7.0s",
+   "7.5s",
+   "8.0s",
+   "8.5s",
+   "9.0s",
+   "9.5s",
+   "10.0s"
+  ]
+ },
+ {
+  "key": "scan-settings-scan-resume",
+  "label": "Scan Resume",
+  "type": "select",
+  "options": [
+   "2.0s",
+   "2.5s",
+   "3.0s",
+   "3.5s",
+   "4.0s",
+   "4.5s",
+   "5.0s",
+   "5.5s",
+   "6.0s",
+   "6.5s",
+   "7.0s",
+   "7.5s",
+   "8.0s",
+   "8.5s",
+   "9.0s",
+   "9.5s",
+   "10.0s",
+   "Busy",
+   "Hold"
+  ]
+ },
+ {
+  "key": "scan-settings-tot",
+  "label": "Transmit Timeout (TOT)",
+  "type": "select",
+  "options": [
+   "Off",
+   "0.5 min",
+   "1.0 min",
+   "1.5 min",
+   "2.0 min",
+   "2.5 min",
+   "3.0 min",
+   "3.5 min",
+   "4.0 min",
+   "4.5 min",
+   "5.0 min",
+   "5.5 min",
+   "6.0 min",
+   "6.5 min",
+   "7.0 min",
+   "7.5 min",
+   "8.0 min",
+   "8.5 min",
+   "9.0 min",
+   "9.5 min",
+   "10.0 min"
+  ]
+ },
+ {
+  "key": "scan-settings-scan-lamp",
+  "label": "Scan Lamp",
+  "type": "select",
+  "options": [
+   "Off",
+   "On"
+  ]
+ },
+ {
+  "key": "scan-settings-busy-led",
+  "label": "Busy LED",
+  "type": "select",
+  "options": [
+   "Off",
+   "On"
+  ]
+ },
+ {
+  "key": "scan-settings-vol-mode",
+  "label": "Volume Mode",
+  "type": "select",
+  "options": [
+   "Normal",
+   "Auto Back"
+  ]
+ },
+ {
+  "key": "section-dtmf",
+  "label": "DTMF",
+  "type": "section"
+ },
+ {
+  "key": "scan-settings-dtmf-delay",
+  "label": "DTMF AutoDial Delay",
+  "type": "select",
+  "options": [
+   "50ms",
+   "250ms",
+   "450ms",
+   "750ms",
+   "1000ms"
+  ]
+ },
+ {
+  "key": "scan-settings-dtmf-mode",
+  "label": "DTMF Mode",
+  "type": "select",
+  "options": [
+   "Manual",
+   "Auto"
+  ]
+ },
+ {
+  "key": "scan-settings-dtmf-speed",
+  "label": "DTMF AutoDial Speed",
+  "type": "select",
+  "options": [
+   "50ms",
+   "100ms"
+  ]
+ },
+ {
+  "key": "section-aprs-general",
+  "label": "APRS General",
+  "type": "section"
+ },
+ {
+  "key": "aprs-my-callsign-callsign",
+  "label": "My Callsign",
+  "type": "text",
+  "max_length": 6
+ },
+ {
+  "key": "aprs-my-callsign-ssid",
+  "label": "My SSID",
+  "type": "integer"
+ },
+ {
+  "key": "aprs-selected-position-comment",
+  "label": "Position Comment",
+  "type": "integer",
+  "min": 0,
+  "max": 15
+ },
+ {
+  "key": "aprs-set-time-manually",
+  "label": "Time Source",
+  "type": "select",
+  "options": [
+   "manual",
+   "GPS"
+  ]
+ },
+ {
+  "key": "aprs-aprs-units-altitude-ft",
+  "label": "APRS Altitude Units",
+  "type": "select",
+  "options": [
+   "m",
+   "ft"
+  ]
+ },
+ {
+  "key": "aprs-aprs-units-position-mmss",
+  "label": "APRS Position Format",
+  "type": "select",
+  "options": [
+   "dd.mmmm'",
+   "dd mm'ss\""
+  ]
+ },
+ {
+  "key": "aprs-aprs-units-distance-m",
+  "label": "APRS Distance Units",
+  "type": "select",
+  "options": [
+   "km",
+   "mile"
+  ]
+ },
+ {
+  "key": "aprs-aprs-units-wind-mph",
+  "label": "APRS Wind Speed Units",
+  "type": "select",
+  "options": [
+   "m/s",
+   "mph"
+  ]
+ },
+ {
+  "key": "aprs-aprs-units-rain-inch",
+  "label": "APRS Rain Units",
+  "type": "select",
+  "options": [
+   "mm",
+   "inch"
+  ]
+ },
+ {
+  "key": "aprs-aprs-units-temperature-f",
+  "label": "APRS Temperature Units",
+  "type": "select",
+  "options": [
+   "C",
+   "F"
+  ]
+ },
+ {
+  "key": "aprs-aprs-units-speed",
+  "label": "APRS Speed Units",
+  "type": "select",
+  "options": [
+   "km/h",
+   "knot",
+   "mph"
+  ]
+ },
+ {
+  "key": "aprs-selected-position",
+  "label": "My Position",
+  "type": "integer",
+  "min": 0,
+  "max": 15
+ },
+ {
+  "key": "aprs-gps-units-altitude-ft",
+  "label": "GPS Altitude Units",
+  "type": "select",
+  "options": [
+   "m",
+   "ft"
+  ]
+ },
+ {
+  "key": "aprs-gps-units-position-sss",
+  "label": "GPS Position Format",
+  "type": "select",
+  "options": [
+   "dd.mmmm'",
+   "dd mm'ss\""
+  ]
+ },
+ {
+  "key": "aprs-gps-units-speed",
+  "label": "GPS Speed Units",
+  "type": "select",
+  "options": [
+   "km/h",
+   "knot",
+   "mph"
+  ]
+ },
+ {
+  "key": "aprs-timezone",
+  "label": "Timezone",
+  "type": "select",
+  "options": [
+   "-13:00",
+   "-13:30",
+   "-12:00",
+   "-12:30",
+   "-11:00",
+   "-11:30",
+   "-10:00",
+   "-10:30",
+   "-09:00",
+   "-09:30",
+   "-08:00",
+   "-08:30",
+   "-07:00",
+   "-07:30",
+   "-06:00",
+   "-06:30",
+   "-05:00",
+   "-05:30",
+   "-04:00",
+   "-04:30",
+   "-03:00",
+   "-03:30",
+   "-02:00",
+   "-02:30",
+   "-01:00",
+   "-01:30",
+   "-00:00",
+   "-00:30",
+   "+01:00",
+   "+01:30",
+   "+02:00",
+   "+02:30",
+   "+03:00",
+   "+03:30",
+   "+04:00",
+   "+04:30",
+   "+05:00",
+   "+05:30",
+   "+06:00",
+   "+06:30",
+   "+07:00",
+   "+07:30",
+   "+08:00",
+   "+08:30",
+   "+09:00",
+   "+09:30",
+   "+10:00",
+   "+10:30",
+   "+11:00",
+   "+11:30"
+  ]
+ },
+ {
+  "key": "aprs-selected-my-symbol",
+  "label": "My Symbol",
+  "type": "select",
+  "options": [
+   "/[ Person",
+   "/b Bike",
+   "/> Car",
+   "User selected"
+  ]
+ },
+ {
+  "key": "section-aprs-receive",
+  "label": "APRS Receive",
+  "type": "section"
+ },
+ {
+  "key": "aprs-rx-baud",
+  "label": "Modem RX",
+  "type": "select",
+  "options": [
+   "off",
+   "1200 baud",
+   "9600 baud"
+  ]
+ },
+ {
+  "key": "aprs-aprs-mute",
+  "label": "APRS Mute",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs-af-dual",
+  "label": "AF Dual",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs-ring-msg",
+  "label": "Ring on Message RX",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs-ring-beacon",
+  "label": "Ring on Beacon RX",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs-filter-mic-e",
+  "label": "Receive Mic-E Beacons",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs-filter-position",
+  "label": "Receive Position Beacons",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs-filter-weather",
+  "label": "Receive Weather Beacons",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs-filter-object",
+  "label": "Receive Object Beacons",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs-filter-item",
+  "label": "Receive Item Beacons",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs-filter-status",
+  "label": "Receive Status Beacons",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs-filter-other",
+  "label": "Receive Other Beacons",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs-selected-msg-group",
+  "label": "Selected Message Group",
+  "type": "select",
+  "options": [
+   "Message Group 1",
+   "Message Group 2",
+   "Message Group 3",
+   "Message Group 4",
+   "Message Group 5",
+   "Message Group 6",
+   "Message Group 7",
+   "Message Group 8"
+  ]
+ },
+ {
+  "key": "aprs-flash-msg",
+  "label": "Flash on personal message",
+  "type": "select",
+  "options": [
+   "OFF",
+   "2 seconds",
+   "4 seconds",
+   "6 seconds",
+   "8 seconds",
+   "10 seconds",
+   "20 seconds",
+   "30 seconds",
+   "60 seconds",
+   "CONTINUOUS",
+   "every 2 seconds",
+   "every 3 seconds",
+   "every 4 seconds",
+   "every 5 seconds",
+   "every 6 seconds",
+   "every 7 seconds",
+   "every 8 seconds",
+   "every 9 seconds",
+   "every 10 seconds",
+   "every 20 seconds",
+   "every 30 seconds",
+   "every 40 seconds",
+   "every 50 seconds",
+   "every minute",
+   "every 2 minutes",
+   "every 3 minutes",
+   "every 4 minutes",
+   "every 5 minutes",
+   "every 6 minutes",
+   "every 7 minutes",
+   "every 8 minutes",
+   "every 9 minutes",
+   "every 10 minutes"
+  ]
+ },
+ {
+  "key": "aprs-flash-grp",
+  "label": "Flash on group message",
+  "type": "select",
+  "options": [
+   "OFF",
+   "2 seconds",
+   "4 seconds",
+   "6 seconds",
+   "8 seconds",
+   "10 seconds",
+   "20 seconds",
+   "30 seconds",
+   "60 seconds",
+   "CONTINUOUS",
+   "every 2 seconds",
+   "every 3 seconds",
+   "every 4 seconds",
+   "every 5 seconds",
+   "every 6 seconds",
+   "every 7 seconds",
+   "every 8 seconds",
+   "every 9 seconds",
+   "every 10 seconds",
+   "every 20 seconds",
+   "every 30 seconds",
+   "every 40 seconds",
+   "every 50 seconds",
+   "every minute",
+   "every 2 minutes",
+   "every 3 minutes",
+   "every 4 minutes",
+   "every 5 minutes",
+   "every 6 minutes",
+   "every 7 minutes",
+   "every 8 minutes",
+   "every 9 minutes",
+   "every 10 minutes"
+  ]
+ },
+ {
+  "key": "aprs-flash-bln",
+  "label": "Flash on bulletin message",
+  "type": "select",
+  "options": [
+   "OFF",
+   "2 seconds",
+   "4 seconds",
+   "6 seconds",
+   "8 seconds",
+   "10 seconds",
+   "20 seconds",
+   "30 seconds",
+   "60 seconds",
+   "CONTINUOUS",
+   "every 2 seconds",
+   "every 3 seconds",
+   "every 4 seconds",
+   "every 5 seconds",
+   "every 6 seconds",
+   "every 7 seconds",
+   "every 8 seconds",
+   "every 9 seconds",
+   "every 10 seconds",
+   "every 20 seconds",
+   "every 30 seconds",
+   "every 40 seconds",
+   "every 50 seconds",
+   "every minute",
+   "every 2 minutes",
+   "every 3 minutes",
+   "every 4 minutes",
+   "every 5 minutes",
+   "every 6 minutes",
+   "every 7 minutes",
+   "every 8 minutes",
+   "every 9 minutes",
+   "every 10 minutes"
+  ]
+ },
+ {
+  "key": "aprs-vibrate-msg",
+  "label": "Vibrate on personal message",
+  "type": "select",
+  "options": [
+   "OFF",
+   "2 seconds",
+   "4 seconds",
+   "6 seconds",
+   "8 seconds",
+   "10 seconds",
+   "20 seconds",
+   "30 seconds",
+   "60 seconds",
+   "CONTINUOUS",
+   "every 2 seconds",
+   "every 3 seconds",
+   "every 4 seconds",
+   "every 5 seconds",
+   "every 6 seconds",
+   "every 7 seconds",
+   "every 8 seconds",
+   "every 9 seconds",
+   "every 10 seconds",
+   "every 20 seconds",
+   "every 30 seconds",
+   "every 40 seconds",
+   "every 50 seconds",
+   "every minute",
+   "every 2 minutes",
+   "every 3 minutes",
+   "every 4 minutes",
+   "every 5 minutes",
+   "every 6 minutes",
+   "every 7 minutes",
+   "every 8 minutes",
+   "every 9 minutes",
+   "every 10 minutes"
+  ]
+ },
+ {
+  "key": "aprs-vibrate-grp",
+  "label": "Vibrate on group message",
+  "type": "select",
+  "options": [
+   "OFF",
+   "2 seconds",
+   "4 seconds",
+   "6 seconds",
+   "8 seconds",
+   "10 seconds",
+   "20 seconds",
+   "30 seconds",
+   "60 seconds",
+   "CONTINUOUS",
+   "every 2 seconds",
+   "every 3 seconds",
+   "every 4 seconds",
+   "every 5 seconds",
+   "every 6 seconds",
+   "every 7 seconds",
+   "every 8 seconds",
+   "every 9 seconds",
+   "every 10 seconds",
+   "every 20 seconds",
+   "every 30 seconds",
+   "every 40 seconds",
+   "every 50 seconds",
+   "every minute",
+   "every 2 minutes",
+   "every 3 minutes",
+   "every 4 minutes",
+   "every 5 minutes",
+   "every 6 minutes",
+   "every 7 minutes",
+   "every 8 minutes",
+   "every 9 minutes",
+   "every 10 minutes"
+  ]
+ },
+ {
+  "key": "aprs-vibrate-bln",
+  "label": "Vibrate on bulletin message",
+  "type": "select",
+  "options": [
+   "OFF",
+   "2 seconds",
+   "4 seconds",
+   "6 seconds",
+   "8 seconds",
+   "10 seconds",
+   "20 seconds",
+   "30 seconds",
+   "60 seconds",
+   "CONTINUOUS",
+   "every 2 seconds",
+   "every 3 seconds",
+   "every 4 seconds",
+   "every 5 seconds",
+   "every 6 seconds",
+   "every 7 seconds",
+   "every 8 seconds",
+   "every 9 seconds",
+   "every 10 seconds",
+   "every 20 seconds",
+   "every 30 seconds",
+   "every 40 seconds",
+   "every 50 seconds",
+   "every minute",
+   "every 2 minutes",
+   "every 3 minutes",
+   "every 4 minutes",
+   "every 5 minutes",
+   "every 6 minutes",
+   "every 7 minutes",
+   "every 8 minutes",
+   "every 9 minutes",
+   "every 10 minutes"
+  ]
+ },
+ {
+  "key": "section-aprs-transmit",
+  "label": "APRS Transmit",
+  "type": "section"
+ },
+ {
+  "key": "aprs-selected-beacon-status-txt",
+  "label": "Beacon Status Text",
+  "type": "integer",
+  "min": 0,
+  "max": 7
+ },
+ {
+  "key": "aprs-beacon-interval",
+  "label": "Beacon Interval",
+  "type": "select",
+  "options": [
+   "30s",
+   "1m",
+   "2m",
+   "3m",
+   "5m",
+   "10m",
+   "15m",
+   "20m",
+   "30m",
+   "60m"
+  ]
+ },
+ {
+  "key": "aprs-tx-delay",
+  "label": "TX Delay",
+  "type": "select",
+  "options": [
+   "100ms",
+   "150ms",
+   "200ms",
+   "250ms",
+   "300ms",
+   "400ms",
+   "500ms",
+   "750ms",
+   "1000ms"
+  ]
+ },
+ {
+  "key": "aprs-selected-digi-path",
+  "label": "Selected Digi Path",
+  "type": "integer"
+ },
+ {
+  "key": "section-aprs-smartbeacon",
+  "label": "APRS SmartBeacon",
+  "type": "section"
+ },
+ {
+  "key": "aprs-active-smartbeaconing",
+  "label": "SmartBeacon profile",
+  "type": "select",
+  "options": [
+   "Off",
+   "Type 1",
+   "Type 2",
+   "Type 3"
+  ]
+ }
+]

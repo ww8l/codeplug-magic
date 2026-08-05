@@ -456,6 +456,24 @@ pub(crate) trait CallsignDbWriter: Send + Sync {
     ) -> Result<CallsignDbReport, String>;
 }
 
+/// Everything an exporter gets to write a codeplug file. The file-side twin of
+/// [`CodeplugPayload`], and it grows the same way: one struct rather than an
+/// ever-widening argument list.
+pub(crate) struct ExportRequest<'a> {
+    /// Included rows in memory-slot order. By reference because the export
+    /// command filters a larger expansion down without copying it.
+    pub channels: &'a [&'a ExpandedChannel],
+    /// The same channels grouped by the channel list they came from — the unit
+    /// that becomes one bank (or zone) on radios that have them. Flat formats
+    /// like the CHIRP CSV ignore it; the FT5D writer turns each into a bank.
+    pub groups: &'a [CodeplugGroup],
+    pub model: &'a RadioModel,
+    /// The codeplug's radio-profile settings
+    /// (`radio_profiles.non_channel_settings`), when it has a profile. Formats
+    /// that carry non-channel settings apply them; the CSV formats cannot.
+    pub profile_settings: Option<&'a str>,
+}
+
 /// File-format exporters (CHIRP-style CSV, AnyTone dual-CSV bundle, …). The
 /// `export_format` key matches `radio_models.export_format`.
 pub(crate) trait CodeplugExporter {
@@ -463,21 +481,7 @@ pub(crate) trait CodeplugExporter {
     fn export_format(&self) -> &'static str;
 
     /// Write the codeplug file(s) rooted at `path`, returning channels written.
-    /// Channels arrive by reference because the export command filters a larger
-    /// expansion down to the included rows without copying them.
-    ///
-    /// `groups` carries the same channels again, grouped by the channel list
-    /// they came from — the unit that becomes one bank (or zone) on radios that
-    /// have them, matching [`CodeplugPayload::groups`] on the live-programming
-    /// side. Flat formats like the CHIRP CSV ignore it; the FT5D writer turns
-    /// each group into a memory bank.
-    fn export(
-        &self,
-        path: &str,
-        channels: &[&ExpandedChannel],
-        groups: &[CodeplugGroup],
-        model: &RadioModel,
-    ) -> Result<usize, String>;
+    fn export(&self, path: &str, req: &ExportRequest) -> Result<usize, String>;
 }
 
 /// Optional low-level diagnostics used during protocol reverse-engineering

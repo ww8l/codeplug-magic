@@ -552,6 +552,19 @@ pub async fn generate_codeplug(
     // came from, which the flattened `included` view has thrown away.
     let groups = resolve_codeplug_groups(&state.pool, codeplug_id).await?;
 
+    // The codeplug's radio profile, for formats that carry non-channel settings
+    // (the FT5D writes them into the same microSD image as the channels).
+    let profile_settings: Option<String> = sqlx::query_scalar(
+        "SELECT p.non_channel_settings FROM codeplugs c
+         JOIN radio_profiles p ON p.id = c.radio_profile_id
+         WHERE c.id = ?1",
+    )
+    .bind(codeplug_id)
+    .fetch_optional(&state.pool)
+    .await
+    .estr()?
+    .flatten();
+
     // Format-keyed registry lookup (Chunk 3.8): a model picks its exporter by
     // `export_format`, never by name and never by driver — an export-only model
     // has no driver but still names a format. Unclaimed formats (and NULL) get
@@ -562,7 +575,13 @@ pub async fn generate_codeplug(
         .and_then(crate::radios::registry::exporter_for_format)
     {
         Some(exporter) => {
-            exporter.export(&path, &included, &groups, &model)?;
+            let req = crate::radios::driver::ExportRequest {
+                channels: &included,
+                groups: &groups,
+                model: &model,
+                profile_settings: profile_settings.as_deref(),
+            };
+            exporter.export(&path, &req)?;
         }
         None => {
             let csv = render_chirp_csv(&included, &model)?;
