@@ -6,6 +6,10 @@
 //! `BACKUP.dat`, and the radio's own Restore menu reads it back. No cable, and
 //! no third-party software. See that module for the byte layout.
 //!
+//! [`settings`] rides the same file: the radio profile's 67 non-channel
+//! settings are read out of a backup and written back into it, so the FT5D gets
+//! a populated profile form without a cable modality existing.
+//!
 //! ## The FT5D memory map IS the FT3D's (measured, s79)
 //!
 //! An earlier revision of this comment claimed the opposite — that memory
@@ -75,6 +79,12 @@
 //! [`SettingsReader`](crate::radios::driver::SettingsReader) — both mean live
 //! USB, which is the unproven modality. `export` is the only capability the
 //! driver claims, so the UI cannot offer an action it cannot perform.
+//!
+//! Note that the FT5D's settings therefore do NOT go through the capability
+//! flags: `read_settings` stays false and the profile editor reaches
+//! [`settings::decode_settings`] through the file-based
+//! `read_ft5d_settings_from_backup` command instead. The flags describe what
+//! the driver can do *over a cable*, and the answer is still "identify only".
 
 /// Throwaway clone-port RE harness. Delete along with `hw_probe.rs` once the
 /// clone protocol is settled — it is a measuring instrument, not driver code.
@@ -82,6 +92,7 @@
 mod hw_probe;
 
 pub(crate) mod sd_image;
+pub(crate) mod settings;
 
 use std::time::{Duration, Instant};
 

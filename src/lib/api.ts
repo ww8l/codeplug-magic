@@ -307,6 +307,10 @@ export const api = {
   // a radio profile, whose model row already carries the key.
   readRadioSettings: (port: string, profileId: number) =>
     invoke<RadioSettingsRead>("read_radio_settings", { port, profileId }),
+  // The FT5D's settings live on its microSD card, not on a cable — same
+  // decoded shape, different source. See radios/yaesu_ft5d/settings.rs.
+  readFt5dSettingsFromBackup: (path: string) =>
+    invoke<RadioSettingsRead>("read_ft5d_settings_from_backup", { path }),
   writeRadioSettings: (port: string, profileId: number) =>
     invoke<SettingsWriteReport>("write_radio_settings", { port, profileId }),
   // One program command for every radio (3.6e). Dispatches on capability:

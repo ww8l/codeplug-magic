@@ -366,6 +366,38 @@ pub async fn read_radio_settings(
     .estr()?
 }
 
+/// Read an FT5D's non-channel settings out of a microSD `BACKUP.dat`.
+///
+/// The file-based sibling of [`read_radio_settings`]. The FT5D has no proven
+/// cable modality, so its "radio" for settings purposes is the backup file its
+/// own Back Up menu writes — the same file the codeplug export patches. Nothing
+/// is written here, and no backup copy is taken, because the source file is
+/// itself the operator's backup and is left untouched.
+///
+/// Returns the decoded settings for the profile form to merge; saving them is
+/// the form's job, exactly as with the cable path.
+#[tauri::command]
+pub async fn read_ft5d_settings_from_backup(path: String) -> Result<RadioSettingsRead, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let image = std::fs::read(&path).map_err(|e| {
+            format!(
+                "Could not read {path}: {e}. Pick FT5D/BACKUP/BACKUP.dat from the \
+                 radio's microSD card."
+            )
+        })?;
+        crate::radios::yaesu_ft5d::sd_image::validate_backup(&image)?;
+        let settings = crate::radios::yaesu_ft5d::settings::decode_settings(&image);
+        let count = settings.as_object().map(|o| o.len()).unwrap_or(0);
+        Ok(RadioSettingsRead {
+            settings,
+            count,
+            backup_path: path,
+        })
+    })
+    .await
+    .estr()?
+}
+
 /// Push a saved radio profile's non-channel settings to the connected radio,
 /// leaving channels untouched. Every driver takes a mandatory backup before the
 /// first byte goes out; the returned report says how to verify (in-session

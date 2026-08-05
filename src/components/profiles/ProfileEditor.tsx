@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
-import { Trash2, Save, DownloadCloud, RefreshCw } from "lucide-react";
+import {
+  confirm as confirmDialog,
+  open as openDialog,
+} from "@tauri-apps/plugin-dialog";
+import { Trash2, Save, DownloadCloud, RefreshCw, HardDrive } from "lucide-react";
 import clsx from "clsx";
 import { api, withToast } from "../../lib/api";
 import { useDriverCapabilities } from "../../lib/radioProgramming";
@@ -105,6 +108,61 @@ function RadioSyncBar({
       <Button variant="primary" onClick={download} disabled={!port || busy}>
         {busy ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
         Download from radio
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * FT5D settings loader. The FT5D has no proven cable modality, so its settings
+ * are read out of the `BACKUP.dat` its own Back Up menu writes to the microSD
+ * card — the same file the codeplug export patches. Nothing is written here;
+ * the values land in the form and the user Saves them like any other edit.
+ */
+function Ft5dSettingsBar({
+  onLoaded,
+}: {
+  onLoaded: (settings: SettingsValues) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    const picked = await openDialog({
+      title: "Select FT5D/BACKUP/BACKUP.dat on the radio\u2019s microSD card",
+      multiple: false,
+      directory: false,
+      filters: [{ name: "FT5D backup", extensions: ["dat"] }],
+    });
+    if (typeof picked !== "string") return;
+    setBusy(true);
+    const res = await withToast(api.readFt5dSettingsFromBackup(picked), {
+      error: "Could not read settings from that backup",
+    });
+    setBusy(false);
+    if (res) {
+      onLoaded(res.settings as SettingsValues);
+      const { toast } = await import("sonner");
+      toast.success(
+        `Loaded ${res.count} setting${res.count === 1 ? "" : "s"} from the backup \u2014 review and Save to keep them.`,
+      );
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-end gap-2 rounded-md border border-sky-200 bg-sky-50/60 px-3 py-2.5 dark:border-sky-900/50 dark:bg-sky-950/30">
+      <div className="flex-1">
+        <span className="mb-1 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+          Read current settings from a microSD backup
+        </span>
+        <span className="block text-[11px] text-slate-400">
+          On the radio: <span className="font-semibold">Back Up / Restore \u2192 Back Up</span>,
+          then pick <span className="font-mono">FT5D/BACKUP/BACKUP.dat</span> from the card.
+          Saved settings go back out with the codeplug when you export.
+        </span>
+      </div>
+      <Button variant="primary" onClick={load} disabled={busy}>
+        {busy ? <Spinner className="h-3.5 w-3.5" /> : <HardDrive size={14} />}
+        Load from microSD backup
       </Button>
     </div>
   );
@@ -660,6 +718,13 @@ export function ProfileEditor({
                 profileId={profile.id}
                 modelLabel={model.display_name}
                 read={api.readRadioSettings}
+                onLoaded={(s) => setValues((v) => ({ ...v, ...s }))}
+              />
+            )}
+            {/* The FT5D's settings come off its SD card rather than a cable,
+                so it gets a file picker where the others get a port picker. */}
+            {model.driver_key === "yaesu_ft5d" && fields.length > 0 && (
+              <Ft5dSettingsBar
                 onLoaded={(s) => setValues((v) => ({ ...v, ...s }))}
               />
             )}

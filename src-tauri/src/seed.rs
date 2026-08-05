@@ -137,6 +137,11 @@ pub async fn seed_radio_models(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
+/// The FT5D profile-settings schema, GENERATED alongside the Rust decode table
+/// by `scratchpad/ft5d/gen_ft5d_settings.py` from CHIRP's `ft1d.py`. Exposed so
+/// the settings module can assert the two halves still describe the same fields.
+pub const FT5D_SETTINGS_SCHEMA: &str = include_str!("ft5d_settings_schema.json");
+
 /// The full official Brandmeister talkgroup list, embedded at compile time as a
 /// `{ "<tg_number>": "<name>" }` JSON map (from api.brandmeister.network,
 /// snapshot 2026-06-18). ~1,750 entries; refresh by re-downloading the file.
@@ -548,11 +553,12 @@ fn models() -> Vec<ModelSeed> {
             max_name_length: 16,
             export_format: "yaesu_ft5d_sd",
             connection_type: "microSD or USB (SCU-19/39/57)",
-            // Empty until a settings modality exists: the FT5D driver is not a
-            // `SettingsReader`, so there is nothing to populate a profile form
-            // with and an invented schema would only offer fields we cannot
-            // read back or write. `[]` parses to "no fields" in profiles.ts.
-            non_channel_settings_schema: "[]",
+            // 67 settings in 9 groups, GENERATED from CHIRP's ft1d.py by
+            // scratchpad/ft5d/gen_ft5d_settings.py — the same parse that emits
+            // the Rust decode table (radios/yaesu_ft5d/ft5d_settings_table.rs),
+            // so the form and the decoder cannot drift. Read out of and written
+            // back into the microSD backup, not over a cable.
+            non_channel_settings_schema: FT5D_SETTINGS_SCHEMA,
         },
     ]
 }
