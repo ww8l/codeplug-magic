@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 
-use crate::commands::export::{expanded_names, tx_frequency, ExpandedChannel};
+use crate::commands::export::{expanded_names, tx_frequency, CodeplugGroup, ExpandedChannel};
 use crate::error::MapErrString;
 use crate::models::RadioModel;
 use crate::radios::driver::CodeplugExporter;
@@ -195,10 +195,13 @@ impl CodeplugExporter for AnytoneAtd890uv {
     }
 
     /// Write the AnyTone dual-CSV bundle, returning the channel count written.
+    /// The CPS CSV import has no column for zone membership, so `_groups` goes
+    /// unused here — zones reach a D890 through the direct programmer instead.
     fn export(
         &self,
         path: &str,
         channels: &[&ExpandedChannel],
+        _groups: &[CodeplugGroup],
         model: &RadioModel,
     ) -> Result<usize, String> {
         write_anytone_bundle(path, channels, model)?;

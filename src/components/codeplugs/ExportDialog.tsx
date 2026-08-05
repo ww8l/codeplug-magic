@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save } from "@tauri-apps/plugin-dialog";
 import { Download, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { api, withToast } from "../../lib/api";
@@ -39,13 +39,27 @@ export function ExportDialog({
   }, [open, codeplugId]);
 
   const isAnytone = preview?.export_format === "anytone_csv";
+  // The FT5D is programmed by patching the radio's own microSD backup, so the
+  // user picks an EXISTING file to rewrite rather than naming a new one.
+  const isFt5dSd = preview?.export_format === "yaesu_ft5d_sd";
 
   const doExport = async () => {
-    const safe = codeplugName.replace(/[^\w.-]+/g, "_");
-    const path = await save({
-      defaultPath: `${safe}.csv`,
-      filters: [{ name: isAnytone ? "Anytone CSV" : "CHIRP CSV", extensions: ["csv"] }],
-    });
+    let path: string | null;
+    if (isFt5dSd) {
+      const picked = await openDialog({
+        title: "Select FT5D/BACKUP/BACKUP.dat on the radio’s microSD card",
+        multiple: false,
+        directory: false,
+        filters: [{ name: "FT5D backup", extensions: ["dat"] }],
+      });
+      path = typeof picked === "string" ? picked : null;
+    } else {
+      const safe = codeplugName.replace(/[^\w.-]+/g, "_");
+      path = await save({
+        defaultPath: `${safe}.csv`,
+        filters: [{ name: isAnytone ? "Anytone CSV" : "CHIRP CSV", extensions: ["csv"] }],
+      });
+    }
     if (!path) return;
     setExporting(true);
     const count = await withToast(api.generateCodeplug(codeplugId, path), {
@@ -55,10 +69,13 @@ export function ExportDialog({
     if (count !== undefined) {
       const fileName = path.split("/").pop() ?? "";
       const base = fileName.replace(/\.csv$/i, "");
+      const plural = count === 1 ? "" : "s";
       toast.success(
-        isAnytone
-          ? `Exported ${count} channel${count === 1 ? "" : "s"} to ${base}_Channels.csv + ${base}_TalkGroups.csv`
-          : `Exported ${count} channel${count === 1 ? "" : "s"} to ${fileName}`,
+        isFt5dSd
+          ? `Wrote ${count} channel${plural} into ${fileName}. On the radio: Back Up / Restore → Restore.`
+          : isAnytone
+            ? `Exported ${count} channel${plural} to ${base}_Channels.csv + ${base}_TalkGroups.csv`
+            : `Exported ${count} channel${plural} to ${fileName}`,
       );
       onExported();
       onClose();
@@ -102,7 +119,22 @@ export function ExportDialog({
                   DMR-native · writes _Channels.csv + _TalkGroups.csv
                 </Badge>
               )}
+              {isFt5dSd && (
+                <Badge className="bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300">
+                  microSD · patches BACKUP.dat in place
+                </Badge>
+              )}
             </div>
+
+            {isFt5dSd && (
+              <div className="border-b border-slate-200 bg-amber-50 px-5 py-2.5 text-[11px] leading-relaxed text-amber-900 dark:border-slate-700 dark:bg-amber-950/40 dark:text-amber-200">
+                Back the radio up first (<span className="font-semibold">Back Up / Restore → Back Up</span>),
+                then pick <span className="font-mono">FT5D/BACKUP/BACKUP.dat</span> from the card. Channel
+                lists become banks, and everything else on the radio — APRS, GPS, WIRES-X — is left
+                untouched. The original is kept beside it as{" "}
+                <span className="font-mono">BACKUP.dat.orig</span>.
+              </div>
+            )}
 
             <div className="max-h-[50vh] overflow-auto">
               {preview.rows.length === 0 ? (
@@ -173,7 +205,13 @@ export function ExportDialog({
             }
           >
             <Download size={14} />
-            {exporting ? "Exporting…" : `Export ${preview?.included_count ?? 0} Channels`}
+            {exporting
+              ? isFt5dSd
+                ? "Writing…"
+                : "Exporting…"
+              : isFt5dSd
+                ? `Write ${preview?.included_count ?? 0} Channels to microSD`
+                : `Export ${preview?.included_count ?? 0} Channels`}
           </Button>
         </div>
       </div>

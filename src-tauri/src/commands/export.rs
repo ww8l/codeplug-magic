@@ -548,6 +548,10 @@ pub async fn generate_codeplug(
         .filter(|ec| exclusion_reason(&ec.channel, &model).is_none())
         .collect();
 
+    // Bank/zone-capable formats need to know which channel list each channel
+    // came from, which the flattened `included` view has thrown away.
+    let groups = resolve_codeplug_groups(&state.pool, codeplug_id).await?;
+
     // Format-keyed registry lookup (Chunk 3.8): a model picks its exporter by
     // `export_format`, never by name and never by driver — an export-only model
     // has no driver but still names a format. Unclaimed formats (and NULL) get
@@ -558,7 +562,7 @@ pub async fn generate_codeplug(
         .and_then(crate::radios::registry::exporter_for_format)
     {
         Some(exporter) => {
-            exporter.export(&path, &included, &model)?;
+            exporter.export(&path, &included, &groups, &model)?;
         }
         None => {
             let csv = render_chirp_csv(&included, &model)?;

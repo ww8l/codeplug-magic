@@ -465,10 +465,17 @@ pub(crate) trait CodeplugExporter {
     /// Write the codeplug file(s) rooted at `path`, returning channels written.
     /// Channels arrive by reference because the export command filters a larger
     /// expansion down to the included rows without copying them.
+    ///
+    /// `groups` carries the same channels again, grouped by the channel list
+    /// they came from — the unit that becomes one bank (or zone) on radios that
+    /// have them, matching [`CodeplugPayload::groups`] on the live-programming
+    /// side. Flat formats like the CHIRP CSV ignore it; the FT5D writer turns
+    /// each group into a memory bank.
     fn export(
         &self,
         path: &str,
         channels: &[&ExpandedChannel],
+        groups: &[CodeplugGroup],
         model: &RadioModel,
     ) -> Result<usize, String>;
 }
