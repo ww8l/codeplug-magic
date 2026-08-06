@@ -368,6 +368,66 @@ pub async fn read_radio_settings(
 
 /// Read an FT5D's non-channel settings out of a microSD `BACKUP.dat`.
 ///
+/// Removable cards that look like a radio's own backup card.
+///
+/// The radio always writes to the same place on the card, so there is nothing
+/// for the operator to navigate to — asking them to find
+/// `FT5D/BACKUP/BACKUP.dat` themselves is how you end up patching the wrong
+/// file. Only cards that actually hold a readable, valid backup are offered;
+/// anything doubtful is left to the manual picker.
+#[derive(serde::Serialize)]
+pub struct MemoryCard {
+    /// Full path to the backup file, ready to hand to the exporter.
+    pub path: String,
+    /// The mounted volume, for showing the user which card this is.
+    pub volume: String,
+    /// True once a previous write has left a pristine copy beside it.
+    pub has_original: bool,
+}
+
+/// Find mounted cards holding an FT5D backup. Never errors: a card that cannot
+/// be read is simply not offered, and an empty list means "use the picker".
+#[tauri::command]
+pub async fn find_ft5d_memory_cards() -> Vec<MemoryCard> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut out = Vec::new();
+        // macOS mounts removable media under /Volumes; Windows gives each card
+        // a drive letter. Both are cheap to enumerate and neither needs any
+        // permission the app does not already have.
+        let roots: Vec<std::path::PathBuf> = if cfg!(target_os = "windows") {
+            ('D'..='Z')
+                .map(|d| std::path::PathBuf::from(format!("{d}:\\")))
+                .collect()
+        } else {
+            std::fs::read_dir("/Volumes")
+                .map(|rd| rd.flatten().map(|e| e.path()).collect())
+                .unwrap_or_default()
+        };
+        for root in roots {
+            let path = root.join("FT5D").join("BACKUP").join("BACKUP.dat");
+            let Ok(image) = std::fs::read(&path) else {
+                continue;
+            };
+            // Validate rather than trust the name — a stale file from another
+            // model would otherwise be offered as a safe target.
+            if crate::radios::yaesu_ft5d::sd_image::validate_backup(&image).is_err() {
+                continue;
+            }
+            out.push(MemoryCard {
+                has_original: path.with_extension("dat.orig").exists(),
+                volume: root
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| root.to_string_lossy().into_owned()),
+                path: path.to_string_lossy().into_owned(),
+            });
+        }
+        out
+    })
+    .await
+    .unwrap_or_default()
+}
+
 /// The file-based sibling of [`read_radio_settings`]. The FT5D has no proven
 /// cable modality, so its "radio" for settings purposes is the backup file its
 /// own Back Up menu writes — the same file the codeplug export patches. Nothing

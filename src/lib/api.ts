@@ -21,6 +21,7 @@ import type {
   RepeaterTalkgroup,
   DownloadResult,
   DriverCapabilities,
+  MemoryCard,
   PortInfo,
   CodeplugProgramReport,
   RadioIdent,
@@ -298,6 +299,9 @@ export const api = {
   // Static per driver — `useDriverCapabilities` caches it (3.7).
   driverCapabilities: (driverKey: string) =>
     invoke<DriverCapabilities>("driver_capabilities", { driverKey }),
+  // Mounted cards already holding a valid FT5D backup. Empty list = fall back
+  // to the manual file picker.
+  findFt5dMemoryCards: () => invoke<MemoryCard[]>("find_ft5d_memory_cards"),
   identifyRadio: (driverKey: string, port: string) =>
     invoke<RadioIdent>("identify_radio", { driverKey, port }),
   downloadImage: (driverKey: string, port: string) =>

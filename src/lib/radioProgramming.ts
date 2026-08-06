@@ -50,6 +50,57 @@ export function isProgrammable(model: RadioModel | null): boolean {
   return model?.driver_key != null;
 }
 
+/// A radio programmed by writing a file onto its own removable media instead of
+/// over a cable. This is still *programming* from the user's point of view — it
+/// ends with a codeplug on the radio — so it belongs in the Program dialog next
+/// to the cable actions, not hidden behind Export.
+export interface MediaWrite {
+  /// Action button label, e.g. "Write to SD card…".
+  action: string;
+  /// Title of the OS file picker.
+  pickTitle: string;
+  /// Extensions the picker accepts, and what to call them.
+  filterName: string;
+  extensions: string[];
+  /// What the user does *on the radio* before and after. Both are front-panel
+  /// menu steps, not app actions — the app never talks to a media radio, it
+  /// only edits a file the radio itself wrote and will read back.
+  before: string;
+  after: string;
+}
+
+/// The `export_format` → media-write map. Keyed on the format rather than the
+/// model so this is the one place a media-programmed radio is described, the
+/// same bargain `PROGRAM_DIALOGS` makes for bespoke dialogs — the dialogs
+/// themselves stay radio-agnostic.
+const MEDIA_WRITES: Record<string, MediaWrite> = {
+  yaesu_ft5d_sd: {
+    action: "Write to SD card…",
+    pickTitle: "Select FT5D/BACKUP/BACKUP.dat on the radio’s microSD card",
+    filterName: "FT5D backup",
+    extensions: ["dat"],
+    // Menu paths are the ones in scratchpad/ft5d/CAPTURE-CHECKLIST.md, taken
+    // off the radio itself. Firmware wording varies, so they read as a
+    // direction to follow on screen rather than an exact incantation.
+    before:
+      "On the radio, save its memory to the card: SD CARD menu → Backup → Memory → SD card. Then eject the card, put it in this computer, and pick FT5D/BACKUP/BACKUP.dat below.",
+    after:
+      "Put the card back in the radio and load it: SD CARD menu → Backup → SD card → Memory.",
+  },
+};
+
+/// How a model is programmed from removable media, or null if it is a cable
+/// radio. Callers must handle null — most radios have no media path.
+export function mediaWriteFor(model: RadioModel | null): MediaWrite | null {
+  return mediaWriteForFormat(model?.export_format ?? null);
+}
+
+/// The same lookup for callers holding only an export format — the export
+/// preview carries one but no model row.
+export function mediaWriteForFormat(format: string | null): MediaWrite | null {
+  return (format && MEDIA_WRITES[format]) || null;
+}
+
 /// Fetch a driver's capability flags. They are derived from the Rust trait
 /// impls and never change at runtime, so results are cached per key for the
 /// life of the process and each key is fetched at most once.

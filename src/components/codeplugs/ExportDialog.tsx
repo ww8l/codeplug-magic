@@ -7,6 +7,7 @@ import type { ExportPreview } from "../../lib/types";
 import { fmtFreq } from "../../lib/constants";
 import { Modal } from "../overlays";
 import { Button, Spinner, Badge } from "../ui";
+import { mediaWriteForFormat } from "../../lib/radioProgramming";
 
 export function ExportDialog({
   open,
@@ -39,18 +40,19 @@ export function ExportDialog({
   }, [open, codeplugId]);
 
   const isAnytone = preview?.export_format === "anytone_csv";
-  // The FT5D is programmed by patching the radio's own microSD backup, so the
-  // user picks an EXISTING file to rewrite rather than naming a new one.
-  const isFt5dSd = preview?.export_format === "yaesu_ft5d_sd";
+  // Media radios are programmed by patching a file the radio itself wrote, so
+  // the user picks an EXISTING file to rewrite rather than naming a new one.
+  // Same descriptor the Program dialog uses, so the two can't drift apart.
+  const media = mediaWriteForFormat(preview?.export_format ?? null);
 
   const doExport = async () => {
     let path: string | null;
-    if (isFt5dSd) {
+    if (media) {
       const picked = await openDialog({
-        title: "Select FT5D/BACKUP/BACKUP.dat on the radio’s microSD card",
+        title: media.pickTitle,
         multiple: false,
         directory: false,
-        filters: [{ name: "FT5D backup", extensions: ["dat"] }],
+        filters: [{ name: media.filterName, extensions: media.extensions }],
       });
       path = typeof picked === "string" ? picked : null;
     } else {
@@ -71,8 +73,8 @@ export function ExportDialog({
       const base = fileName.replace(/\.csv$/i, "");
       const plural = count === 1 ? "" : "s";
       toast.success(
-        isFt5dSd
-          ? `Wrote ${count} channel${plural} into ${fileName}. On the radio: Back Up / Restore → Restore.`
+        media
+          ? `Wrote ${count} channel${plural} into ${fileName}. ${media.after}`
           : isAnytone
             ? `Exported ${count} channel${plural} to ${base}_Channels.csv + ${base}_TalkGroups.csv`
             : `Exported ${count} channel${plural} to ${fileName}`,
@@ -119,20 +121,20 @@ export function ExportDialog({
                   DMR-native · writes _Channels.csv + _TalkGroups.csv
                 </Badge>
               )}
-              {isFt5dSd && (
+              {media && (
                 <Badge className="bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300">
                   microSD · patches BACKUP.dat in place
                 </Badge>
               )}
             </div>
 
-            {isFt5dSd && (
+            {media && (
               <div className="border-b border-slate-200 bg-amber-50 px-5 py-2.5 text-[11px] leading-relaxed text-amber-900 dark:border-slate-700 dark:bg-amber-950/40 dark:text-amber-200">
-                Back the radio up first (<span className="font-semibold">Back Up / Restore → Back Up</span>),
-                then pick <span className="font-mono">FT5D/BACKUP/BACKUP.dat</span> from the card. Channel
-                lists become banks, and everything else on the radio — APRS, GPS, WIRES-X — is left
-                untouched. The original is kept beside it as{" "}
-                <span className="font-mono">BACKUP.dat.orig</span>.
+                <span className="font-semibold">{media.before}</span> Channel lists become banks, and
+                everything else on the radio — APRS, GPS, WIRES-X — is left untouched. The first
+                write saves your untouched file beside it as{" "}
+                <span className="font-mono">BACKUP.dat.orig</span>; later writes never overwrite
+                that pristine copy.
               </div>
             )}
 
@@ -206,10 +208,10 @@ export function ExportDialog({
           >
             <Download size={14} />
             {exporting
-              ? isFt5dSd
+              ? media
                 ? "Writing…"
                 : "Exporting…"
-              : isFt5dSd
+              : media
                 ? `Write ${preview?.included_count ?? 0} Channels to microSD`
                 : `Export ${preview?.included_count ?? 0} Channels`}
           </Button>
