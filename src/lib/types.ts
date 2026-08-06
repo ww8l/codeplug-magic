@@ -738,6 +738,44 @@ export interface ImportSummary {
   skipped: number;
 }
 
+// ============================================================
+// Standard (built-in) channel lists — GMRS, FRS, MURS, marine, …
+// ============================================================
+
+export interface StandardListChannel {
+  name: string;
+  name_short: string;
+  rx_freq: number;
+  // null marks a receive-only channel (NOAA weather, marine 15 and 70).
+  tx_freq: number | null;
+  band: string;
+  duplex: string;
+  offset: number;
+  mode: string;
+  power: string | null;
+  notes: string;
+}
+
+export interface StandardListInfo {
+  id: string;
+  name: string;
+  full_name: string;
+  description: string;
+  service_type: string;
+  bands: string[];
+  channel_count: number;
+  channels: StandardListChannel[];
+}
+
+export interface StandardImportSummary {
+  added: number;
+  // Already in the library (matched on frequency pair + name) and left alone.
+  skipped: number;
+  list_id: number | null;
+  list_name: string | null;
+  list_added: number;
+}
+
 // Native channel-backup preview. The backend projects each backed-up channel
 // down to the same shape as an import row, so the import dialog can render
 // either source with one table. (Full fidelity is preserved in the file and
