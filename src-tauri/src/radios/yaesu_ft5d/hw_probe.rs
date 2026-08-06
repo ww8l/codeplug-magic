@@ -81,8 +81,15 @@ const IDENT_GAP: Duration = Duration::from_secs(1);
 /// mid-stream.
 const STREAM_IDLE: Duration = Duration::from_secs(2);
 
-/// How long to wait for the operator to press the send key.
-const SEND_WAIT: Duration = Duration::from_secs(90);
+/// How long to wait for the operator to tap SEND. Generous by default and
+/// `FT5D_WAIT`-overridable: the harness is usually started by one person and
+/// tapped by another, and a timeout that races the hand at the radio just
+/// burns a clone-mode cycle.
+fn send_wait() -> Duration {
+    Duration::from_secs(
+        std::env::var("FT5D_WAIT").ok().and_then(|v| v.parse().ok()).unwrap_or(300),
+    )
+}
 
 /// Hard ceiling on a capture, so a protocol misread cannot spin forever.
 const MAX_CAPTURE: usize = 8 * 1024 * 1024;
@@ -97,7 +104,7 @@ const EXPECT_TOTAL: usize = 130_507;
 /// the `serialport-macos-usbmodem-gap` note the crate misses USB-C `usbmodem`
 /// devices on macOS. The prefix list matches `commands::program`'s port scan —
 /// SCU-19/39/57 cables appear under all three depending on the chipset.
-fn pick_port() -> Result<String, String> {
+pub(super) fn pick_port() -> Result<String, String> {
     if let Ok(p) = std::env::var("FT5D_PORT") {
         return Ok(p);
     }
@@ -132,15 +139,38 @@ fn baud() -> u32 {
         .unwrap_or(super::BAUD)
 }
 
+/// Open the port and **verify the baud rate actually took**.
+///
+/// Do not trust the builder's rate argument. Three captures returned the
+/// byte-identical `35 52 FE` at nominally 38400 and 115200 — impossible for live
+/// UART data, which cannot survive a 3x change in sampling rate unchanged — and
+/// `stty` showed the device sitting at 9600. A rate that is silently ignored
+/// looks exactly like a protocol mystery: 10 bytes sent at 38400 and sampled at
+/// 9600 arrive as 10 * 9600/38400 = 2.5, i.e. the three bytes we kept getting.
+///
+/// So set it explicitly after opening as well, read it back, and say so.
 fn open(port: &str, rate: u32, timeout: Duration) -> Result<Box<dyn SerialPort>, String> {
-    serialport::new(port, rate)
+    let mut p = serialport::new(port, rate)
         .data_bits(serialport::DataBits::Eight)
         .parity(serialport::Parity::None)
         .stop_bits(serialport::StopBits::One)
         .flow_control(serialport::FlowControl::None)
         .timeout(timeout)
         .open()
-        .map_err(|e| format!("could not open {port}: {e}"))
+        .map_err(|e| format!("could not open {port}: {e}"))?;
+
+    if let Err(e) = p.set_baud_rate(rate) {
+        return Err(format!("could not set {rate} baud on {port}: {e}"));
+    }
+    match p.baud_rate() {
+        Ok(actual) if actual == rate => Ok(p),
+        Ok(actual) => Err(format!(
+            "asked {port} for {rate} baud but it reports {actual}. The adapter is ignoring the \
+             rate, which silently corrupts every capture -- fix this before reading anything \
+             into the bytes."
+        )),
+        Err(e) => Err(format!("could not read back the baud rate on {port}: {e}")),
+    }
 }
 
 /// Read whatever is available, or `None` once the port timeout elapses with an
@@ -155,9 +185,37 @@ fn read_some(p: &mut dyn SerialPort, buf: &mut [u8]) -> Result<Option<usize>, St
     }
 }
 
-/// Block until the radio sends its first byte, or [`SEND_WAIT`] expires.
+/// Discard anything already queued, and return how much there was.
+///
+/// `clear(ClearBuffer::All)` is not sufficient on macOS: bytes from an earlier
+/// aborted transfer survive in the driver queue and get handed to the next
+/// opener. That is not a harmless quirk here — the probe treats the first bytes
+/// it sees as the ident block and a gap as end-of-block, so stale leftovers make
+/// it "capture" an ident, ack into the void and exit seconds after starting,
+/// long before the operator has touched the radio. Two runs at different baud
+/// rates returning byte-identical garbage is what exposed it: real serial data
+/// cannot be independent of the sampling rate, but already-framed bytes sitting
+/// in a queue are.
+///
+/// So drain by *reading* until the wire is genuinely quiet, and only then start
+/// listening for the radio.
+fn purge_stale(p: &mut dyn SerialPort) -> Result<usize, String> {
+    let _ = p.clear(ClearBuffer::All);
+    let mut junk = Vec::new();
+    drain(p, &mut junk)?;
+    if !junk.is_empty() {
+        println!(
+            "discarded {} stale byte(s) left over from an earlier transfer: {}",
+            junk.len(),
+            junk.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ")
+        );
+    }
+    Ok(junk.len())
+}
+
+/// Block until the radio sends its first byte, or [`send_wait`] expires.
 fn await_first(p: &mut dyn SerialPort, buf: &mut [u8]) -> Result<usize, String> {
-    let deadline = Instant::now() + SEND_WAIT;
+    let deadline = Instant::now() + send_wait();
     loop {
         if let Some(n) = read_some(p, buf)? {
             return Ok(n);
@@ -212,6 +270,173 @@ fn save(name: &str, bytes: &[u8]) -> String {
     }
 }
 
+/// Log every arriving chunk with a timestamp, for one long window, never acking.
+///
+/// Distinguishes two very different worlds that both look like "3 bytes":
+///
+/// - **3 bytes in a millisecond, then silence** — the radio really does send a
+///   short message and stop, and we are looking at a protocol we do not know.
+/// - **3 bytes dribbled out over the seconds the radio shows TX** — data is
+///   flowing on the wire but almost none of it survives framing, which points
+///   at the electrical path (wrong cable, wrong jack, inverted levels), not at
+///   the protocol or the baud rate.
+///
+/// Worth measuring because the baud sweep proved the adapter honest, so the
+/// remaining explanations are about the wire itself.
+fn trace(port: &str, rate: u32) {
+    let window = Duration::from_secs(
+        std::env::var("FT5D_TRACE_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(60),
+    );
+    println!("\n=== FT5D wire trace ===");
+    println!("port: {port}   baud: {rate}   window: {}s", window.as_secs());
+    println!("never acks. Tap SEND and let the radio do whatever it does.\n");
+
+    let mut p = match open(port, rate, Duration::from_millis(50)) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("could not open: {e}");
+            return;
+        }
+    };
+    let _ = purge_stale(&mut *p);
+
+    let start = Instant::now();
+    let deadline = start + window;
+    let mut buf = [0u8; 4096];
+    let mut total = Vec::new();
+    let mut chunks = 0usize;
+    let mut first_at: Option<f64> = None;
+    let mut last_at = 0.0;
+
+    while Instant::now() < deadline {
+        if let Ok(Some(n)) = read_some(&mut *p, &mut buf) {
+            let at = start.elapsed().as_secs_f64();
+            first_at.get_or_insert(at);
+            last_at = at;
+            chunks += 1;
+            println!(
+                "  t={at:>7.3}s  +{n:>4} bytes  {}",
+                buf[..n.min(16)].iter().map(|b| format!("{b:02X} ")).collect::<String>()
+            );
+            total.extend_from_slice(&buf[..n]);
+        }
+    }
+
+    println!("\n--- {} bytes in {chunks} chunk(s) over {}s ---", total.len(), window.as_secs());
+    if total.is_empty() {
+        println!("Nothing arrived at all -- no tap landed, or nothing is reaching the RX line.");
+        return;
+    }
+    println!("saved: {}", save(&format!("trace_{rate}.bin"), &total));
+    let span = last_at - first_at.unwrap_or(0.0);
+    println!("activity spanned {span:.3}s, from t={:.3}s", first_at.unwrap_or(0.0));
+    if span > 0.5 {
+        println!(
+            "\n>> Data trickled in over {span:.1}s. The radio is transmitting for a long time and\n\
+             almost none of it is framing into bytes -- that is an ELECTRICAL problem (cable\n\
+             wiring, wrong jack, or inverted levels), not a baud or protocol one."
+        );
+    } else {
+        println!(
+            "\n>> One short burst. The radio really does send just these bytes and stop, so this\n\
+             is a protocol we do not recognise rather than a broken wire."
+        );
+    }
+}
+
+/// Rates worth trying, low to high. The FT1D family uses 38400; the FT5D is a
+/// later radio and nothing has confirmed it inherits that.
+const SWEEP_RATES: &[u32] = &[4800, 9600, 19200, 38400, 57600, 115200, 230400];
+
+/// Listen at every rate in turn and report what arrives at each.
+///
+/// The question this answers is not "which rate is right" but something more
+/// basic: **do the received bytes change with the rate at all?** Four captures
+/// returned an identical `35 52 FE` at nominally 38400 and 115200. Live UART
+/// data cannot do that — misframing is rate-dependent by construction — so
+/// either the adapter is pinned to one physical speed while reporting whatever
+/// we ask, or those bytes are not framed data. A sweep separates the two:
+/// values that vary mean the rate is really changing and one of them is right;
+/// values that never vary mean the adapter is lying and no protocol conclusion
+/// drawn from these captures is worth anything.
+///
+/// Never acks, so no image transfer is ever started and every phase stays short.
+/// The operator just keeps tapping SEND; each rate gets its own window.
+fn sweep(port: &str) {
+    let window = Duration::from_secs(
+        std::env::var("FT5D_SWEEP_WINDOW").ok().and_then(|v| v.parse().ok()).unwrap_or(45),
+    );
+    println!("\n=== FT5D baud sweep ===");
+    println!("port: {port}");
+    println!(
+        "{} rates x {}s each (~{} min). Keep tapping SEND every few seconds --\n\
+         each rate gets its own window and a missed tap only costs that one rate.\n",
+        SWEEP_RATES.len(),
+        window.as_secs(),
+        (SWEEP_RATES.len() as u64 * window.as_secs()).div_ceil(60)
+    );
+
+    let mut results: Vec<(u32, Vec<u8>)> = Vec::new();
+    for &rate in SWEEP_RATES {
+        println!("--- {rate} baud: listening {}s ---", window.as_secs());
+        let mut p = match open(port, rate, IDENT_GAP) {
+            Ok(p) => p,
+            Err(e) => {
+                println!("  skipped: {e}\n");
+                results.push((rate, Vec::new()));
+                continue;
+            }
+        };
+        let _ = purge_stale(&mut *p);
+
+        let deadline = Instant::now() + window;
+        let mut buf = [0u8; 4096];
+        let mut got = Vec::new();
+        while Instant::now() < deadline {
+            if let Ok(Some(n)) = read_some(&mut *p, &mut buf) {
+                got.extend_from_slice(&buf[..n]);
+                let _ = drain(&mut *p, &mut got);
+                break;
+            }
+        }
+        if got.is_empty() {
+            println!("  nothing arrived (no tap landed in this window)\n");
+        } else {
+            println!("  {} byte(s):", got.len());
+            print!("{}", hexdump(&got[..got.len().min(64)], 0));
+            println!("  saved: {}\n", save(&format!("sweep_{rate}.bin"), &got));
+        }
+        results.push((rate, got));
+    }
+
+    println!("\n=== sweep summary ===");
+    for (rate, got) in &results {
+        let hex: String =
+            got.iter().take(12).map(|b| format!("{b:02X} ")).collect::<String>();
+        println!("  {rate:>7} baud  {:>5} bytes  {hex}", got.len());
+    }
+
+    let seen: Vec<&Vec<u8>> = results.iter().map(|(_, g)| g).filter(|g| !g.is_empty()).collect();
+    println!();
+    match seen.len() {
+        0 => println!(
+            "Nothing at any rate. Either no tap landed, or the radio is not transmitting on \
+             this cable at all."
+        ),
+        1 => println!("Only one rate produced data -- rerun to confirm it is repeatable."),
+        _ if seen.windows(2).all(|w| w[0] == w[1]) => println!(
+            "!! IDENTICAL BYTES AT EVERY RATE THAT RESPONDED.\n\
+             The adapter is not actually changing speed, so no capture so far means anything \
+             about the FT5D's protocol. Fix the adapter (different cable, or set the rate with \
+             stty before opening) before drawing any further conclusion."
+        ),
+        _ => println!(
+            "Bytes differ by rate, so the rate really is changing. The right one is whichever \
+             gives 10 bytes opening with 41 48 38 32 4D (AH82M)."
+        ),
+    }
+}
+
 #[test]
 #[ignore = "requires an FT5D in clone mode on a USB cable"]
 fn ft5d_clone_probe() {
@@ -219,17 +444,29 @@ fn ft5d_clone_probe() {
     let rate = baud();
     let ident_only = std::env::var("FT5D_IDENT_ONLY").is_ok();
 
+    if std::env::var("FT5D_SWEEP").is_ok() {
+        sweep(&port);
+        return;
+    }
+    if std::env::var("FT5D_TRACE").is_ok() {
+        trace(&port, rate);
+        return;
+    }
+
     println!("\n=== FT5D clone-in probe ===");
     println!("port: {port}   baud: {rate}");
     println!(
         "mode: {}",
         if ident_only { "IDENT ONLY (never acks)" } else { "FULL IMAGE (one ack)" }
     );
-    println!("\nwaiting up to {}s -- tap SEND on the radio now...\n", SEND_WAIT.as_secs());
+    println!(
+        "\nwaiting up to {}s -- tap SEND on the radio now...\n",
+        send_wait().as_secs()
+    );
 
     // Phase 1: the ident block, delimited by the radio's wait for our ack.
     let mut p = open(&port, rate, IDENT_GAP).expect("open");
-    let _ = p.clear(ClearBuffer::All);
+    purge_stale(&mut *p).expect("purge");
     let mut buf = [0u8; 4096];
     let n = await_first(&mut *p, &mut buf).expect("first byte");
     let mut ident = buf[..n].to_vec();
@@ -257,7 +494,12 @@ fn ft5d_clone_probe() {
     // through a stream we do not yet understand is the one way this could go
     // wrong, so the loop below is deliberately ack-free.
     println!("\nacking (0x06) -- the image takes ~{}s at {rate} baud...", EXPECT_TOTAL / (rate as usize / 10));
-    let mut p = open(&port, rate, STREAM_IDLE).expect("reopen");
+    // Widen the read timeout on the handle we already hold. Closing and
+    // reopening loses the run: macOS does not release the device immediately
+    // ("Device or resource busy"), and even when it does, the reopen drops
+    // DTR/RTS and any bytes the radio sends in the gap. The two phases differ
+    // only in how long "quiet" means finished.
+    p.set_timeout(STREAM_IDLE).expect("set stream timeout");
     std::io::Write::write_all(&mut *p, &[ACK]).expect("ack");
     std::io::Write::flush(&mut *p).expect("flush");
 
