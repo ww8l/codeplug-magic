@@ -136,6 +136,12 @@ export interface RadioModel {
   covers_900: boolean;
   freq_min: number | null;
   freq_max: number | null;
+  /// JSON `[[min_mhz, max_mhz], …]`: the bands the radio can transmit on, for
+  /// radios whose TX coverage is not one contiguous span. Null = unsurveyed,
+  /// and freq_min/freq_max plus the covers_* flags decide (migration 0016).
+  tx_bands: string | null;
+  /// Same shape, for the receiver. Null means "the same as transmit".
+  rx_bands: string | null;
   memory_channels: number | null;
   zones_supported: boolean;
   max_zones: number | null;
@@ -421,6 +427,9 @@ export interface ExportPreviewRow {
   rx_freq: number;
   mode: string | null;
   included: boolean;
+  /// Programmed, but the radio cannot transmit there. `included` is still true;
+  /// `reason` explains the restriction rather than an exclusion.
+  receive_only: boolean;
   reason: string | null;
 }
 
@@ -431,6 +440,8 @@ export interface ExportPreview {
   export_format: string;
   included_count: number;
   excluded_count: number;
+  /// How many of `included_count` are receive-only.
+  receive_only_count: number;
   rows: ExportPreviewRow[];
 }
 

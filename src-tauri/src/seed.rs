@@ -20,6 +20,14 @@ struct ModelSeed {
     covers_900: bool,
     freq_min: f64,
     freq_max: f64,
+    /// JSON `[[min_mhz, max_mhz], …]` — the bands the radio transmits on, for
+    /// radios whose TX coverage is not one contiguous span (migration 0016).
+    /// None leaves freq_min/freq_max + the covers_* flags in charge.
+    tx_bands: Option<&'static str>,
+    /// JSON `[[min_mhz, max_mhz], …]` — the bands the radio *receives* on.
+    /// None means "same as transmit". Channels inside this but outside the TX
+    /// bands are programmed receive-only rather than dropped.
+    rx_bands: Option<&'static str>,
     memory_channels: i64,
     zones_supported: bool,
     max_zones: Option<i64>,
@@ -52,7 +60,7 @@ pub async fn seed_radio_models(pool: &SqlitePool) -> Result<(), sqlx::Error> {
                 analog_capable, dmr_capable, dstar_capable, ysf_capable,
                 nxdn_capable, p25_capable, m17_capable, aprs_capable,
                 covers_hf, covers_vhf, covers_uhf, covers_220, covers_900,
-                freq_min, freq_max, memory_channels,
+                freq_min, freq_max, tx_bands, rx_bands, memory_channels,
                 zones_supported, max_zones, channels_per_zone,
                 scan_lists_supported, max_scan_lists, banks_supported,
                 max_name_length, export_format, connection_type,
@@ -62,11 +70,11 @@ pub async fn seed_radio_models(pool: &SqlitePool) -> Result<(), sqlx::Error> {
                 ?4, ?5, ?6, ?7,
                 ?8, ?9, ?10, ?11,
                 ?12, ?13, ?14, ?15, ?16,
-                ?17, ?18, ?19,
-                ?20, ?21, ?22,
-                ?23, ?24, ?25,
-                ?26, ?27, ?28,
-                ?29, ?30, ?31
+                ?17, ?18, ?19, ?20, ?21,
+                ?22, ?23, ?24,
+                ?25, ?26, ?27,
+                ?28, ?29, ?30,
+                ?31, ?32, ?33
             )
             ON CONFLICT(manufacturer, model) DO UPDATE SET
                 display_name = excluded.display_name,
@@ -85,6 +93,8 @@ pub async fn seed_radio_models(pool: &SqlitePool) -> Result<(), sqlx::Error> {
                 covers_900 = excluded.covers_900,
                 freq_min = excluded.freq_min,
                 freq_max = excluded.freq_max,
+                tx_bands = excluded.tx_bands,
+                rx_bands = excluded.rx_bands,
                 memory_channels = excluded.memory_channels,
                 zones_supported = excluded.zones_supported,
                 max_zones = excluded.max_zones,
@@ -118,6 +128,8 @@ pub async fn seed_radio_models(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         .bind(m.covers_900)
         .bind(m.freq_min)
         .bind(m.freq_max)
+        .bind(m.tx_bands)
+        .bind(m.rx_bands)
         .bind(m.memory_channels)
         .bind(m.zones_supported)
         .bind(m.max_zones)
@@ -208,6 +220,8 @@ fn models() -> Vec<ModelSeed> {
             covers_900: false,
             freq_min: 136.0,
             freq_max: 520.0,
+            tx_bands: None,
+            rx_bands: None,
             memory_channels: 128,
             zones_supported: false,
             max_zones: None,
@@ -332,6 +346,8 @@ fn models() -> Vec<ModelSeed> {
             // so the export band filter uses the TX range.
             freq_min: 136.0,
             freq_max: 600.0,
+            tx_bands: None,
+            rx_bands: None,
             memory_channels: 200,
             zones_supported: false,
             max_zones: None,
@@ -477,6 +493,8 @@ fn models() -> Vec<ModelSeed> {
             // TX-capable, so the export band filter uses the TX range.
             freq_min: 136.0,
             freq_max: 480.0,
+            tx_bands: None,
+            rx_bands: None,
             memory_channels: 4000,
             zones_supported: true,
             max_zones: Some(250),
@@ -516,15 +534,17 @@ fn models() -> Vec<ModelSeed> {
         //    path up from `export_format` (lib/radioProgramming.ts).
         //    NOTES: (a) banks_supported is on (24 banks), so channel
         //    lists map to banks once a programming path exists; the
-        //    FT5D has no zones and no scan lists. (b) freq_min/max is
-        //    the US TX span. Like every model here it is ONE
-        //    contiguous range, so it cannot express the FT5D's two
-        //    disjoint TX bands (144-148 + 430-450) — a 155 MHz
-        //    channel passes the span and the covers_vhf flag even
-        //    though the radio cannot transmit on it. RX is far wider
-        //    (0.52-999.995 MHz), but we only program TX-capable
-        //    channels, so the filter uses TX. (c) covers_220/900 stay
-        //    false, which is what keeps a 224 MHz channel out.
+        //    FT5D has no zones and no scan lists. (b) tx_bands says
+        //    what freq_min/freq_max cannot: the FT5D's two disjoint
+        //    US TX bands, so a 155 MHz or 462 MHz channel is no
+        //    longer mistaken for one the radio can talk on.
+        //    freq_min/freq_max stay as the enclosing span for the UI
+        //    and for anything that has not learned about tx_bands.
+        //    (c) rx_bands is the receiver, which is enormous by
+        //    comparison — GMRS, marine, NOAA, air, 220 and 900 all
+        //    land inside it, so those channels are programmed
+        //    receive-only instead of being dropped (issue #32).
+        //    covers_220/900 stay false: they describe transmit.
         // --------------------------------------------------------
         ModelSeed {
             manufacturer: "Yaesu",
@@ -547,6 +567,8 @@ fn models() -> Vec<ModelSeed> {
             covers_900: false,
             freq_min: 144.0,
             freq_max: 450.0,
+            tx_bands: Some("[[144.0,148.0],[430.0,450.0]]"),
+            rx_bands: Some("[[0.5,999.995]]"),
             memory_channels: 900,
             zones_supported: false,
             max_zones: None,
@@ -618,6 +640,40 @@ mod tests {
                 m.model,
                 m.export_format
             );
+        }
+    }
+
+    /// `tx_bands`/`rx_bands` are hand-written JSON that the exporter parses
+    /// leniently — a typo would not fail loudly, it would quietly fall back to
+    /// the old contiguous-span rules and drop channels again. Check the shape
+    /// here, where it is cheap.
+    #[test]
+    fn seeded_band_lists_are_well_formed() {
+        let parse = |json: &str| -> Vec<Vec<f64>> {
+            serde_json::from_str(json).unwrap_or_else(|e| panic!("bad band JSON {json}: {e}"))
+        };
+        for m in models() {
+            for (label, json) in [("tx_bands", m.tx_bands), ("rx_bands", m.rx_bands)] {
+                let Some(json) = json else { continue };
+                let bands = parse(json);
+                assert!(!bands.is_empty(), "{}: empty {label}", m.model);
+                for b in &bands {
+                    assert_eq!(b.len(), 2, "{}: {label} entry is not a pair: {b:?}", m.model);
+                    assert!(b[0] < b[1], "{}: {label} span is inverted: {b:?}", m.model);
+                }
+            }
+            // A radio that hears less than it transmits on would be news; catch
+            // a swapped pair of columns.
+            if let (Some(tx), Some(rx)) = (m.tx_bands, m.rx_bands) {
+                let (tx, rx) = (parse(tx), parse(rx));
+                for t in &tx {
+                    assert!(
+                        rx.iter().any(|r| r[0] <= t[0] && r[1] >= t[1]),
+                        "{}: transmit band {t:?} is outside every receive band",
+                        m.model
+                    );
+                }
+            }
         }
     }
 }

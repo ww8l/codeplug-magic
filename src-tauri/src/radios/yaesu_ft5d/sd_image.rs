@@ -56,8 +56,19 @@
 //!   the 3 skipped channels come back unskipped.
 //! - **Split (`duplex = 3`) is never emitted.** An odd split is encoded as a
 //!   plus/minus shift with the real difference as the offset, which the radio
-//!   treats the same. Only the 900 MHz pair in the dump used true Split, and
-//!   that band is excluded by the model's coverage flags anyway.
+//!   treats the same. Only the 900 MHz pair in the dump used true Split.
+//!
+//! ## Receive-only channels
+//!
+//! The FT5D hears far more than it can transmit on, so GMRS, marine, NOAA,
+//! airband and the rest arrive here as ordinary channels flagged receive-only
+//! by the model's `rx_bands`/`tx_bands` (issue #32). There is nothing in the
+//! `memslot` struct to mark them with — the radio enforces its own TX bands —
+//! so they are encoded exactly like any other memory, TX frequency and all.
+//! That is deliberate: a stock radio refuses to key up on them, and a radio
+//! whose TX range has been opened up transmits on precisely the frequency the
+//! channel says. The warning that a channel is listen-only belongs in the
+//! program dialog, not in a byte the radio ignores.
 
 use std::collections::HashMap;
 
@@ -631,6 +642,40 @@ mod tests {
         assert_eq!(&r[8..13], b"W0UPS");
         assert_eq!(r[13], 0xFF, "name is 0xFF-padded");
         assert_eq!(img[FLAG_BASE], 0b0000_0011, "valid + used, sub-VFO allowed");
+    }
+
+    /// Issue #32: channels the FT5D can only listen on now reach the encoder,
+    /// and they are ordinary memories — the radio polices its own TX bands, and
+    /// a radio modified to transmit out of band needs the real TX frequency to
+    /// be there. The frequencies themselves are the point: GMRS repeater pairs,
+    /// marine, weather and 900 MHz all encode without wrapping the BCD field.
+    #[test]
+    fn receive_only_channels_encode_as_ordinary_memories() {
+        let mut gmrs = chan(1, "GMRS 16", 462.5750);
+        gmrs.duplex = Some("+".into());
+        gmrs.offset = Some(5.0);
+        let noaa = chan(2, "WX1", 162.5500);
+        let nine = chan(3, "900", 927.0125);
+        let ecs: Vec<_> = [gmrs, noaa, nine].into_iter().map(expanded).collect();
+        let refs: Vec<_> = ecs.iter().collect();
+        let img = patch_backup(&template(), &refs, &[], &model(), None).expect("patch");
+
+        let r = &img[MEM_BASE..MEM_BASE + MEM_STRIDE];
+        assert_eq!(&r[2..5], &[0x46, 0x25, 0x75], "462.575 MHz as BCD kHz");
+        assert_eq!((r[1] >> 4) & 3, 2, "plus duplex — the 467 MHz input is kept");
+        assert_eq!(&r[0x18..0x1B], &[0x00, 0x50, 0x00], "5 MHz offset");
+        assert_eq!(img[FLAG_BASE], 0b0000_0011, "valid + used");
+
+        let wx = &img[MEM_BASE + MEM_STRIDE..MEM_BASE + 2 * MEM_STRIDE];
+        assert_eq!(&wx[2..5], &[0x16, 0x25, 0x50], "162.550 MHz");
+
+        let nine_hundred = &img[MEM_BASE + 2 * MEM_STRIDE..MEM_BASE + 3 * MEM_STRIDE];
+        assert_eq!(&nine_hundred[2..5], &[0x92, 0x70, 0x12], "927.0125 truncates");
+        assert_eq!(
+            img[FLAG_BASE + 2] & 0x80,
+            0x80,
+            "above 580 MHz the sub-band receiver cannot reach it"
+        );
     }
 
     /// Yaesu truncates the frequency to whole kHz and the radio infers the

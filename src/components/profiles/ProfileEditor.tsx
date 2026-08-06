@@ -22,6 +22,7 @@ import type {
 import {
   modelBands,
   modelModes,
+  modelRange,
   parseSchema,
   parseSettings,
   seedValues,
@@ -492,14 +493,10 @@ function Capabilities({ model }: { model: RadioModel }) {
         />
         <SpecRow label="Modes" value={modelModes(model).join(", ")} />
         <SpecRow label="APRS" value={yn(model.aprs_capable)} />
-        <SpecRow
-          label="Frequency range"
-          value={
-            model.freq_min != null && model.freq_max != null
-              ? `${model.freq_min}–${model.freq_max} MHz`
-              : "—"
-          }
-        />
+        <SpecRow label="Transmit range" value={modelRange(model, "tx") ?? "—"} />
+        {modelRange(model, "rx") && (
+          <SpecRow label="Receive range" value={modelRange(model, "rx")} />
+        )}
       </div>
       <div>
         <SpecRow label="Memory channels" value={model.memory_channels ?? "—"} />

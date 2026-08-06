@@ -12,6 +12,7 @@ import {
   Usb,
   Undo2,
   MemoryStick,
+  Ear,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import type {
@@ -210,6 +211,11 @@ export function ProgramRadioDialog({
   const writeCount = preview?.included_count ?? 0;
   const clearCount = Math.max(0, 128 - writeCount);
   const skipped = (preview?.rows ?? []).filter((r) => !r.included);
+  // Programmed, but the radio cannot transmit there — a memory the operator can
+  // only listen on. Worth saying out loud before the write, not after.
+  const receiveOnly = (preview?.rows ?? []).filter(
+    (r) => r.included && r.receive_only,
+  );
 
   return (
     <Modal
@@ -299,9 +305,53 @@ export function ProgramRadioDialog({
             </div>
             )}
 
+            {/* What this codeplug will actually do to the radio. Shown before
+                the buttons, not behind a confirmation step: the SD-card path
+                writes as soon as you click, so a "3 DMR channels are being
+                dropped" warning that only appears in the cable confirmation
+                never reaches half the radios. */}
+            {preview && (
+              <div className={`space-y-2 px-5 ${showCable ? "" : "pt-4"}`}>
+                <div className="text-xs text-slate-600 dark:text-slate-300">
+                  Programming <strong>{writeCount}</strong> channel
+                  {writeCount === 1 ? "" : "s"} into {modelName}
+                  {receiveOnly.length > 0 && (
+                    <>
+                      {" "}
+                      · <strong>{receiveOnly.length}</strong> receive-only
+                    </>
+                  )}
+                  {skipped.length > 0 && (
+                    <>
+                      {" "}
+                      · <strong>{skipped.length}</strong> skipped
+                    </>
+                  )}
+                </div>
+
+                {receiveOnly.length > 0 && (
+                  <ChannelNotice
+                    tone="sky"
+                    title={`${receiveOnly.length} channel${receiveOnly.length === 1 ? " is" : "s are"} receive-only on ${modelName}`}
+                    rows={receiveOnly}
+                    footer={`The radio hears these but its transmitter does not reach them, so a stock ${modelName} will refuse to key up — they are programmed anyway, and a radio whose transmit range has been opened up will use them exactly as written.`}
+                  />
+                )}
+
+                {skipped.length > 0 && (
+                  <ChannelNotice
+                    tone="amber"
+                    title={`${skipped.length} channel${skipped.length === 1 ? "" : "s"} will be skipped — ${modelName} cannot use ${skipped.length === 1 ? "it" : "them"}`}
+                    rows={skipped}
+                    footer="These are dropped and the remaining channels close up with no gaps."
+                  />
+                )}
+              </div>
+            )}
+
             {/* Actions */}
             <div
-              className={`flex flex-wrap items-center gap-2 px-5 pb-4 ${showCable ? "" : "pt-4"}`}
+              className={`flex flex-wrap items-center gap-2 px-5 pb-4 ${showCable && !preview ? "" : "pt-4"}`}
             >
               {showCable && (
               <Button onClick={doIdentify} disabled={!port || busy !== null}>
@@ -398,40 +448,18 @@ export function ProgramRadioDialog({
                   A full backup is saved first.
                 </p>
 
-                {skipped.length > 0 && (
-                  <div className="mt-3 rounded border border-amber-300/70 bg-amber-100/60 p-2 dark:border-amber-800/60 dark:bg-amber-900/30">
-                    <div className="mb-1 font-semibold text-amber-900 dark:text-amber-200">
-                      {skipped.length} channel{skipped.length === 1 ? "" : "s"} will be
-                      skipped (not supported by {modelName}):
-                    </div>
-                    <div className="max-h-32 overflow-auto">
-                      <ul className="space-y-0.5">
-                        {skipped.map((r) => (
-                          <li
-                            key={r.channel_id}
-                            className="flex flex-wrap items-baseline gap-x-1.5 text-amber-800 dark:text-amber-200"
-                          >
-                            <span className="font-medium">{r.name || "—"}</span>
-                            <span className="font-mono text-[10px]">
-                              {r.rx_freq.toFixed(4)} MHz
-                            </span>
-                            {r.mode && (
-                              <span className="rounded bg-amber-200/70 px-1 text-[10px] font-semibold uppercase dark:bg-amber-800/60">
-                                {r.mode}
-                              </span>
-                            )}
-                            {r.reason && (
-                              <span className="text-[10px] opacity-80">— {r.reason}</span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div className="mt-1.5 text-[10px] opacity-80">
-                      These are dropped and the remaining channels close up with
-                      no gaps.
-                    </div>
-                  </div>
+                {(skipped.length > 0 || receiveOnly.length > 0) && (
+                  <p className="mt-2 text-amber-800 dark:text-amber-200">
+                    {[
+                      skipped.length > 0 &&
+                        `${skipped.length} channel${skipped.length === 1 ? " is" : "s are"} being skipped`,
+                      receiveOnly.length > 0 &&
+                        `${receiveOnly.length} ${receiveOnly.length === 1 ? "is" : "are"} receive-only`,
+                    ]
+                      .filter(Boolean)
+                      .join(" and ")}{" "}
+                    — listed above.
+                  </p>
                 )}
 
                 <div className="mt-3 flex justify-end gap-2">
@@ -531,6 +559,70 @@ export function ProgramRadioDialog({
         </div>
       </div>
     </Modal>
+  );
+}
+
+/// A labelled list of channels the write is going to treat specially, with the
+/// per-channel reason the backend gave. Amber warns (dropped); sky informs
+/// (programmed, but listen-only).
+function ChannelNotice({
+  tone,
+  title,
+  rows,
+  footer,
+}: {
+  tone: "amber" | "sky";
+  title: string;
+  rows: ExportPreview["rows"];
+  footer: string;
+}) {
+  const palette =
+    tone === "amber"
+      ? {
+          box: "border-amber-300/70 bg-amber-50 dark:border-amber-800/60 dark:bg-amber-950/30",
+          head: "text-amber-900 dark:text-amber-200",
+          body: "text-amber-800 dark:text-amber-200",
+          chip: "bg-amber-200/70 dark:bg-amber-800/60",
+        }
+      : {
+          box: "border-sky-300/70 bg-sky-50 dark:border-sky-800/60 dark:bg-sky-950/30",
+          head: "text-sky-900 dark:text-sky-200",
+          body: "text-sky-800 dark:text-sky-200",
+          chip: "bg-sky-200/70 dark:bg-sky-800/60",
+        };
+  return (
+    <div className={`rounded border p-2 text-xs ${palette.box}`}>
+      <div className={`mb-1 flex items-center gap-1.5 font-semibold ${palette.head}`}>
+        {tone === "amber" ? <AlertTriangle size={13} /> : <Ear size={13} />}
+        {title}
+      </div>
+      <div className="max-h-32 overflow-auto">
+        <ul className="space-y-0.5">
+          {rows.map((r) => (
+            <li
+              key={r.channel_id}
+              className={`flex flex-wrap items-baseline gap-x-1.5 ${palette.body}`}
+            >
+              <span className="font-medium">{r.name || "—"}</span>
+              <span className="font-mono text-[10px]">
+                {r.rx_freq.toFixed(4)} MHz
+              </span>
+              {r.mode && (
+                <span
+                  className={`rounded px-1 text-[10px] font-semibold uppercase ${palette.chip}`}
+                >
+                  {r.mode}
+                </span>
+              )}
+              {r.reason && (
+                <span className="text-[10px] opacity-80">— {r.reason}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className={`mt-1.5 text-[10px] opacity-80 ${palette.body}`}>{footer}</div>
+    </div>
   );
 }
 

@@ -165,6 +165,16 @@ pub struct RadioModel {
     pub covers_900: bool,
     pub freq_min: Option<f64>,
     pub freq_max: Option<f64>,
+    /// The bands this radio can transmit on, as a JSON array of
+    /// `[min_mhz, max_mhz]` pairs (migration 0016). Unlike `freq_min`/`freq_max`
+    /// this can describe disjoint bands — the FT5D's 144-148 + 430-450. NULL
+    /// means the model has not been surveyed and the contiguous span plus the
+    /// `covers_*` flags decide, as they always did.
+    pub tx_bands: Option<String>,
+    /// The bands this radio can receive on, same JSON shape. NULL means "the
+    /// same as transmit". A channel inside this but outside `tx_bands` is still
+    /// programmed, as a receive-only memory.
+    pub rx_bands: Option<String>,
     pub memory_channels: Option<i64>,
     pub zones_supported: bool,
     pub max_zones: Option<i64>,
@@ -387,6 +397,9 @@ pub struct ExportPreviewRow {
     pub rx_freq: f64,
     pub mode: Option<String>,
     pub included: bool,
+    /// Programmed, but the radio cannot transmit there — `included` is still
+    /// true and `reason` explains the restriction rather than an exclusion.
+    pub receive_only: bool,
     pub reason: Option<String>,
 }
 
@@ -399,6 +412,10 @@ pub struct ExportPreview {
     pub export_format: String,
     pub included_count: usize,
     pub excluded_count: usize,
+    /// How many of `included_count` are receive-only. Counted separately so a
+    /// dialog can say "62 channels, 13 of them receive-only" without walking
+    /// the rows.
+    pub receive_only_count: usize,
     pub rows: Vec<ExportPreviewRow>,
 }
 
