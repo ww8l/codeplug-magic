@@ -35,15 +35,21 @@
 //!
 //! ## Running it
 //!
-//! Radio off → SCU cable into the DATA jack → hold [DISP] while powering on
+//! Radio off → SCU cable into the DATA jack → hold [F] while powering on
 //! until "CLONE" appears. Then, from `src-tauri/`:
 //!
 //! ```text
 //! cargo test --lib ft5d_clone_probe -- --ignored --nocapture
 //! ```
 //!
-//! Press the radio's *send* key once the harness prints "waiting". Overrides,
-//! so a retry never needs a recompile:
+//! Press [BAND] once the harness prints "waiting".
+//!
+//! The key names come from CHIRP's `FT1Radio::get_prompts` — hold [F] to enter
+//! clone mode, [BAND] to send an image out, [Dx] to receive one (the display
+//! then reads "-WAIT-"). The FT5D is touchscreen where the FT1D was not, so its
+//! on-screen labels may differ; these are the starting point, not a measurement.
+//!
+//! Overrides, so a retry never needs a recompile:
 //!
 //! - `FT5D_PORT=/dev/cu.usbserial-XXXX` — pick the port explicitly.
 //! - `FT5D_BAUD=9600` — the 38400 in `mod.rs` is assumed from CHIRP's FT1D
@@ -156,7 +162,7 @@ fn await_first(p: &mut dyn SerialPort, buf: &mut [u8]) -> Result<usize, String> 
         }
         if Instant::now() >= deadline {
             return Err("the radio never sent anything. Check that \"CLONE\" is on the display, \
-                        that you pressed the send key, and that the cable is in the DATA jack."
+                        that you pressed [BAND] to send, and that the cable is in the DATA jack."
                 .into());
         }
     }
@@ -216,7 +222,10 @@ fn ft5d_clone_probe() {
         "mode: {}",
         if ident_only { "IDENT ONLY (never acks)" } else { "FULL IMAGE (one ack)" }
     );
-    println!("\nwaiting up to {}s -- press the SEND key on the radio now...\n", SEND_WAIT.as_secs());
+    println!(
+        "\nwaiting up to {}s -- press [BAND] on the radio now to send...\n",
+        SEND_WAIT.as_secs()
+    );
 
     // Phase 1: the ident block, delimited by the radio's wait for our ack.
     let mut p = open(&port, rate, IDENT_GAP).expect("open");
