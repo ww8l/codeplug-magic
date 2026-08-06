@@ -35,19 +35,21 @@
 //!
 //! ## Running it
 //!
-//! Radio off → SCU cable into the DATA jack → hold [F] while powering on
-//! until "CLONE" appears. Then, from `src-tauri/`:
+//! Radio off → SCU cable into the DATA jack → hold [F] while powering on. The
+//! screen shows CLONE above two touch buttons, RECEIVE and SEND. Then, from
+//! `src-tauri/`:
 //!
 //! ```text
 //! cargo test --lib ft5d_clone_probe -- --ignored --nocapture
 //! ```
 //!
-//! Press [BAND] once the harness prints "waiting".
+//! Tap **SEND** once the harness prints "waiting" — the radio sends, we listen.
+//! A clone-*out* later is the **RECEIVE** button.
 //!
-//! The key names come from CHIRP's `FT1Radio::get_prompts` — hold [F] to enter
-//! clone mode, [BAND] to send an image out, [Dx] to receive one (the display
-//! then reads "-WAIT-"). The FT5D is touchscreen where the FT1D was not, so its
-//! on-screen labels may differ; these are the starting point, not a measurement.
+//! Those labels are photographed off the radio (s85), not carried over from
+//! CHIRP: `FT1Radio::get_prompts` says [BAND] to send and [Dx] to receive, but
+//! the FT5D is touchscreen and has no [Dx] key. Only the [F]-while-powering-on
+//! entry survived the check.
 //!
 //! Overrides, so a retry never needs a recompile:
 //!
@@ -162,7 +164,8 @@ fn await_first(p: &mut dyn SerialPort, buf: &mut [u8]) -> Result<usize, String> 
         }
         if Instant::now() >= deadline {
             return Err("the radio never sent anything. Check that \"CLONE\" is on the display, \
-                        that you pressed [BAND] to send, and that the cable is in the DATA jack."
+                        that you tapped SEND on the screen, and that the cable is in the DATA \
+                        jack."
                 .into());
         }
     }
@@ -222,10 +225,7 @@ fn ft5d_clone_probe() {
         "mode: {}",
         if ident_only { "IDENT ONLY (never acks)" } else { "FULL IMAGE (one ack)" }
     );
-    println!(
-        "\nwaiting up to {}s -- press [BAND] on the radio now to send...\n",
-        SEND_WAIT.as_secs()
-    );
+    println!("\nwaiting up to {}s -- tap SEND on the radio now...\n", SEND_WAIT.as_secs());
 
     // Phase 1: the ident block, delimited by the radio's wait for our ack.
     let mut p = open(&port, rate, IDENT_GAP).expect("open");
