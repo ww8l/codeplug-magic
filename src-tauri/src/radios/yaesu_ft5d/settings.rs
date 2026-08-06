@@ -53,7 +53,10 @@ pub(crate) enum SK {
     Uint { width: u8 },
     /// `bits`-wide unsigned field at `shift`.
     Bits { shift: u8, bits: u8 },
-    /// Whole 1-byte flag: any non-zero value is true.
+    /// Whole 1-byte flag: any non-zero value is true. Unused by the current
+    /// table — every CHIRP boolean happens to be bit-packed — but the generator
+    /// emits it for an unpacked one, so it stays part of the vocabulary.
+    #[allow(dead_code)]
     Bool,
     /// Single bit at `shift`.
     BoolBit { shift: u8 },
@@ -92,41 +95,41 @@ fn label_for(labels: &[(u32, &'static str)], raw: u32) -> Value {
     }
 }
 
+/// Read one field out of the image, shaped like the profile form.
+fn decode_field(image: &[u8], f: &SF) -> Value {
+    let at = f.byte as usize;
+    match &f.kind {
+        SK::Uint { width } => Value::from(read_uint(image, at, *width)),
+        SK::Bits { shift, bits } => Value::from((image[at] >> shift) & ((1u8 << bits) - 1)),
+        SK::Bool => Value::Bool(image[at] != 0),
+        SK::BoolBit { shift } => Value::Bool((image[at] >> shift) & 1 == 1),
+        SK::Enum { width, labels } => label_for(labels, read_uint(image, at, *width)),
+        SK::EnumBits {
+            shift,
+            bits,
+            labels,
+        } => label_for(labels, ((image[at] >> shift) & ((1u8 << bits) - 1)) as u32),
+        SK::Text { len } => {
+            let end = (at + *len as usize).min(image.len());
+            let raw = &image[at..end];
+            let cut = raw
+                .iter()
+                .position(|&b| b == 0xFF || b == 0)
+                .unwrap_or(raw.len());
+            Value::String(String::from_utf8_lossy(&raw[..cut]).trim_end().to_string())
+        }
+    }
+}
+
 /// Decode every known setting out of a microSD image, shaped like the profile
 /// form. Unknown or out-of-range enum values come back as their raw number.
 pub(crate) fn decode_settings(image: &[u8]) -> Value {
     let mut out = Map::new();
     for f in FT5D_SETTINGS_FIELDS {
-        let at = f.byte as usize;
-        if at >= image.len() {
+        if (f.byte as usize) >= image.len() {
             continue;
         }
-        let v = match &f.kind {
-            SK::Uint { width } => Value::from(read_uint(image, at, *width)),
-            SK::Bits { shift, bits } => {
-                Value::from((image[at] >> shift) & ((1u8 << bits) - 1))
-            }
-            SK::Bool => Value::Bool(image[at] != 0),
-            SK::BoolBit { shift } => Value::Bool((image[at] >> shift) & 1 == 1),
-            SK::Enum { width, labels } => label_for(labels, read_uint(image, at, *width)),
-            SK::EnumBits {
-                shift,
-                bits,
-                labels,
-            } => label_for(labels, ((image[at] >> shift) & ((1u8 << bits) - 1)) as u32),
-            SK::Text { len } => {
-                let end = (at + *len as usize).min(image.len());
-                let raw = &image[at..end];
-                let cut = raw
-                    .iter()
-                    .position(|&b| b == 0xFF || b == 0)
-                    .unwrap_or(raw.len());
-                Value::String(
-                    String::from_utf8_lossy(&raw[..cut]).trim_end().to_string(),
-                )
-            }
-        };
-        out.insert(f.key.to_string(), v);
+        out.insert(f.key.to_string(), decode_field(image, f));
     }
     Value::Object(out)
 }
@@ -143,6 +146,16 @@ pub(crate) fn apply_settings(image: &mut [u8], settings: &Map<String, Value>) ->
         };
         let at = f.byte as usize;
         if at >= image.len() {
+            continue;
+        }
+        // A field whose stored value already matches is left ALONE, not
+        // rewritten with the same value. Re-encoding is not byte-neutral —
+        // `write_text` pads differently than the radio does — so an unchanged
+        // MYCALL still went from "WW8L      " to "WW8L\xff\xff\xff\xff\xff\xff"
+        // and the radio came up asking for a callsign. In a writer that patches
+        // the operator's own image, "no change" must mean "no bytes touched".
+        if decode_field(image, f) == *v {
+            written += 1;
             continue;
         }
         let ok = match &f.kind {
@@ -233,9 +246,22 @@ fn write_bits(image: &mut [u8], at: usize, shift: u8, bits: u8, v: u8) {
 
 /// ASCII, `0xFF`-padded — the padding Yaesu uses for callsigns and the opening
 /// message alike.
+/// Text fields do not share one padding convention: the radio writes MYCALL
+/// space-padded and leaves an unset opening message all-`0xFF`. Imposing either
+/// one everywhere rewrites the tail of a field whose text did not change, so the
+/// pad byte is taken from whatever is already in the field and only falls back
+/// to `0xFF` when the current contents give no answer.
+fn pad_byte(image: &[u8], at: usize, len: usize) -> u8 {
+    match image[at..at + len].last() {
+        Some(&b @ (0x20 | 0x00 | 0xFF)) => b,
+        _ => 0xFF,
+    }
+}
+
 fn write_text(image: &mut [u8], at: usize, len: usize, s: &str) {
+    let pad = pad_byte(image, at, len);
     for i in 0..len {
-        image[at + i] = 0xFF;
+        image[at + i] = pad;
     }
     for (i, ch) in s
         .chars()
@@ -306,6 +332,45 @@ mod tests {
         assert_eq!(back["aprs-aprs-units-temperature-f"], Value::from("F"));
         assert_eq!(back["beep-settings-beep-select"], Value::from("Key"));
         assert_eq!(back["aprs-aprs-mute"], Value::Bool(true));
+    }
+
+    /// The failure that sent a real FT5D back to its first-boot callsign
+    /// prompt. The radio stores MYCALL space-padded; the profile held the same
+    /// callsign it had just been read from; and applying it rewrote the field
+    /// `0xFF`-padded, changing six bytes for a value nobody edited. A setting
+    /// that already matches must cost zero bytes.
+    #[test]
+    fn writing_an_unchanged_setting_touches_no_bytes() {
+        const MYCALL: usize = 0xCEC6;
+        let mut img = vec![0u8; 0x20000];
+        img[MYCALL..MYCALL + 10].copy_from_slice(b"WW8L      ");
+        let before = img.clone();
+
+        let mut s = Map::new();
+        s.insert("mycall-callsign".into(), Value::from("WW8L"));
+        assert_eq!(apply_settings(&mut img, &s), 1, "still counts as applied");
+        assert_eq!(img, before, "an unchanged value must not move a single byte");
+    }
+
+    /// When the text genuinely does change, the field keeps the padding the
+    /// radio itself used rather than being forced to one convention.
+    #[test]
+    fn changed_text_keeps_the_fields_existing_padding() {
+        const MYCALL: usize = 0xCEC6;
+        let mut img = vec![0u8; 0x20000];
+        img[MYCALL..MYCALL + 10].copy_from_slice(b"WW8L      ");
+
+        let mut s = Map::new();
+        s.insert("mycall-callsign".into(), Value::from("W1AW"));
+        apply_settings(&mut img, &s);
+        assert_eq!(&img[MYCALL..MYCALL + 10], b"W1AW      ", "space-padded");
+
+        // A field the radio leaves 0xFF-filled keeps that instead.
+        let mut img = vec![0xFFu8; 0x20000];
+        let mut s = Map::new();
+        s.insert("opening-message-message-padded-yaesu".into(), Value::from("HI"));
+        apply_settings(&mut img, &s);
+        assert_eq!(&img[0x478..0x488], b"HI\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff");
     }
 
     /// A bitfield write must not disturb its neighbours: six unit selectors
