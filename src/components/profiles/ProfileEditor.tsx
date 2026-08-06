@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
-import { Trash2, Save, DownloadCloud, RefreshCw } from "lucide-react";
+import {
+  confirm as confirmDialog,
+  open as openDialog,
+} from "@tauri-apps/plugin-dialog";
+import { Trash2, Save, DownloadCloud, RefreshCw, HardDrive } from "lucide-react";
 import clsx from "clsx";
 import { api, withToast } from "../../lib/api";
-import { useDriverCapabilities } from "../../lib/radioProgramming";
+import {
+  mediaWriteForFormat,
+  useDriverCapabilities,
+} from "../../lib/radioProgramming";
 import type {
   AnytoneDownloadResult,
   AnytoneImportSummary,
@@ -16,6 +22,7 @@ import type {
 import {
   modelBands,
   modelModes,
+  modelRange,
   parseSchema,
   parseSettings,
   seedValues,
@@ -105,6 +112,65 @@ function RadioSyncBar({
       <Button variant="primary" onClick={download} disabled={!port || busy}>
         {busy ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
         Download from radio
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * FT5D settings loader. The FT5D has no proven cable modality, so its settings
+ * are read out of the `BACKUP.dat` its own Back Up menu writes to the microSD
+ * card — the same file the codeplug export patches. Nothing is written here;
+ * the values land in the form and the user Saves them like any other edit.
+ */
+function Ft5dSettingsBar({
+  onLoaded,
+}: {
+  onLoaded: (settings: SettingsValues) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  // Same descriptor the Program and Export dialogs use, so the file picker and
+  // the front-panel menu steps are written down in exactly one place.
+  const media = mediaWriteForFormat("yaesu_ft5d_sd");
+
+  const load = async () => {
+    const picked = await openDialog({
+      title: media?.pickTitle,
+      multiple: false,
+      directory: false,
+      filters: media
+        ? [{ name: media.filterName, extensions: media.extensions }]
+        : undefined,
+    });
+    if (typeof picked !== "string") return;
+    setBusy(true);
+    const res = await withToast(api.readFt5dSettingsFromBackup(picked), {
+      error: "Could not read settings from that backup",
+    });
+    setBusy(false);
+    if (res) {
+      onLoaded(res.settings as SettingsValues);
+      const { toast } = await import("sonner");
+      toast.success(
+        `Loaded ${res.count} setting${res.count === 1 ? "" : "s"} from the backup \u2014 review and Save to keep them.`,
+      );
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-end gap-2 rounded-md border border-sky-200 bg-sky-50/60 px-3 py-2.5 dark:border-sky-900/50 dark:bg-sky-950/30">
+      <div className="flex-1">
+        <span className="mb-1 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+          Read current settings from a microSD backup
+        </span>
+        <span className="block text-[11px] text-slate-400">
+          {media?.before} Nothing is written here: the values land in the form
+          and go back out with the codeplug when you program the radio.
+        </span>
+      </div>
+      <Button variant="primary" onClick={load} disabled={busy}>
+        {busy ? <Spinner className="h-3.5 w-3.5" /> : <HardDrive size={14} />}
+        Load from microSD backup
       </Button>
     </div>
   );
@@ -427,14 +493,10 @@ function Capabilities({ model }: { model: RadioModel }) {
         />
         <SpecRow label="Modes" value={modelModes(model).join(", ")} />
         <SpecRow label="APRS" value={yn(model.aprs_capable)} />
-        <SpecRow
-          label="Frequency range"
-          value={
-            model.freq_min != null && model.freq_max != null
-              ? `${model.freq_min}–${model.freq_max} MHz`
-              : "—"
-          }
-        />
+        <SpecRow label="Transmit range" value={modelRange(model, "tx") ?? "—"} />
+        {modelRange(model, "rx") && (
+          <SpecRow label="Receive range" value={modelRange(model, "rx")} />
+        )}
       </div>
       <div>
         <SpecRow label="Memory channels" value={model.memory_channels ?? "—"} />
@@ -660,6 +722,13 @@ export function ProfileEditor({
                 profileId={profile.id}
                 modelLabel={model.display_name}
                 read={api.readRadioSettings}
+                onLoaded={(s) => setValues((v) => ({ ...v, ...s }))}
+              />
+            )}
+            {/* The FT5D's settings come off its SD card rather than a cable,
+                so it gets a file picker where the others get a port picker. */}
+            {model.driver_key === "yaesu_ft5d" && fields.length > 0 && (
+              <Ft5dSettingsBar
                 onLoaded={(s) => setValues((v) => ({ ...v, ...s }))}
               />
             )}
