@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { open as openDialog, save } from "@tauri-apps/plugin-dialog";
-import { Download, CheckCircle2, XCircle } from "lucide-react";
+import { Download, CheckCircle2, XCircle, Ear } from "lucide-react";
 import { toast } from "sonner";
 import { api, withToast } from "../../lib/api";
 import type { ExportPreview } from "../../lib/types";
@@ -113,6 +113,11 @@ export function ExportDialog({
               <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                 <CheckCircle2 size={14} /> {preview.included_count} included
               </span>
+              {preview.receive_only_count > 0 && (
+                <span className="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400">
+                  <Ear size={14} /> {preview.receive_only_count} receive-only
+                </span>
+              )}
               <span className="inline-flex items-center gap-1 text-slate-400">
                 <XCircle size={14} /> {preview.excluded_count} excluded
               </span>
@@ -170,7 +175,14 @@ export function ExportDialog({
                         </td>
                         <td className="px-3 py-1.5">{r.mode}</td>
                         <td className="px-3 py-1.5">
-                          {r.included ? (
+                          {r.included && r.receive_only ? (
+                            <span
+                              className="cursor-help text-sky-600 dark:text-sky-400"
+                              title={r.reason ?? ""}
+                            >
+                              {r.reason}
+                            </span>
+                          ) : r.included ? (
                             <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                               Included
                             </Badge>
