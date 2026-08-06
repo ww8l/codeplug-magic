@@ -132,6 +132,7 @@ pub fn run() {
             commands::program::download_image,
             commands::program::read_radio_settings,
             commands::program::read_ft5d_settings_from_backup,
+            commands::program::find_ft5d_memory_cards,
             commands::program::write_radio_settings,
             commands::program::write_callsign_db,
             commands::program::program_radio,

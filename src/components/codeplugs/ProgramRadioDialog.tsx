@@ -11,11 +11,13 @@ import {
   AlertTriangle,
   Usb,
   Undo2,
+  MemoryStick,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import type {
   DownloadResult,
   ExportPreview,
+  MemoryCard,
   PortInfo,
   CodeplugProgramReport,
   RadioIdent,
@@ -25,6 +27,7 @@ import { Button, Spinner, Select } from "../ui";
 import {
   driverKeyOf,
   isProgrammable,
+  mediaWriteFor,
   useDriverCapabilities,
   type ProgramDialogProps,
 } from "../../lib/radioProgramming";
@@ -38,9 +41,15 @@ import {
  * name regions and reads them back to verify. Settings/aux memory are
  * round-tripped untouched.
  *
- * It names no radio: the driver comes from `model.driver_key` and the offered
- * actions from that driver's capability flags, so registering a new driver is
- * enough to make this dialog work for it.
+ * Some radios are programmed by writing a file onto their own memory card
+ * rather than over a cable (`mediaWriteFor`). That is still programming, so it
+ * appears here as a "Write to SD card…" action; a radio with no cable path at
+ * all simply gets no port picker and no cable actions.
+ *
+ * It names no radio: the driver comes from `model.driver_key`, the offered
+ * actions from that driver's capability flags, and the media path from the
+ * `export_format` map, so registering a new driver is enough to make this
+ * dialog work for it.
  */
 export function ProgramRadioDialog({
   open,
@@ -52,19 +61,36 @@ export function ProgramRadioDialog({
   const driverKey = driverKeyOf(model);
   const caps = useDriverCapabilities(driverKey || null);
   const modelName = model?.display_name ?? "this radio";
+  // How this radio takes a codeplug from removable media, if it does.
+  const media = mediaWriteFor(model);
   // Programmable at all? Export-only models (no driver) get the "not
   // supported" message instead of buttons that would fail at the port.
-  const isSupported = isProgrammable(model);
+  const isSupported = isProgrammable(model) || media != null;
+  // Anything that actually talks over the port. `program_codeplug` writes from
+  // the database, `program_image` clones whole images, `write_channels` is the
+  // channel-only path; a driver with none of them has no cable path at all.
+  const cableCapable =
+    caps != null &&
+    (caps.program_image || caps.program_codeplug || caps.write_channels);
+  // Only media radios can lack a cable path, so gate on `media` first: that
+  // way the cable UI never flashes on for a radio that will hide it once the
+  // capabilities land, and a normal radio never waits on them.
+  const showCable = isProgrammable(model) && (media == null || cableCapable);
   const [ports, setPorts] = useState<PortInfo[]>([]);
   const [port, setPort] = useState<string>("");
   const [preview, setPreview] = useState<ExportPreview | null>(null);
   const [busy, setBusy] = useState<
-    null | "identify" | "download" | "program" | "restore"
+    null | "identify" | "download" | "program" | "restore" | "media"
   >(null);
   const [ident, setIdent] = useState<RadioIdent | null>(null);
   const [download, setDownload] = useState<DownloadResult | null>(null);
   const [program, setProgram] = useState<CodeplugProgramReport | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [mediaWritten, setMediaWritten] = useState<{
+    count: number;
+    path: string;
+  } | null>(null);
+  const [cards, setCards] = useState<MemoryCard[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refreshPorts = async () => {
@@ -84,9 +110,14 @@ export function ProgramRadioDialog({
     setDownload(null);
     setProgram(null);
     setConfirming(false);
+    setMediaWritten(null);
     setError(null);
     setBusy(null);
+    setCards(null);
     refreshPorts();
+    if (media) {
+      api.findFt5dMemoryCards().then(setCards).catch(() => setCards([]));
+    }
     if (isSupported) {
       api.exportPreview(codeplugId).then(setPreview).catch(() => setPreview(null));
     }
@@ -94,7 +125,7 @@ export function ProgramRadioDialog({
   }, [open]);
 
   const run = async (
-    kind: "identify" | "download" | "program" | "restore",
+    kind: "identify" | "download" | "program" | "restore" | "media",
     fn: () => Promise<void>,
   ) => {
     setError(null);
@@ -128,6 +159,31 @@ export function ProgramRadioDialog({
       setIdent(null);
       setProgram(await api.programRadio(codeplugId, port));
     });
+
+  /// Patch the codeplug into the file the radio reads off its own memory card.
+  /// The picker runs before `run` so cancelling it is not an error and leaves
+  /// no spinner behind.
+  const doMediaWrite = async (target?: string) => {
+    if (!media) return;
+    let path = target;
+    if (!path) {
+      const { open: pick } = await import("@tauri-apps/plugin-dialog");
+      const picked = await pick({
+        title: media.pickTitle,
+        multiple: false,
+        directory: false,
+        filters: [{ name: media.filterName, extensions: media.extensions }],
+      });
+      if (typeof picked !== "string") return;
+      path = picked;
+    }
+    const to = path;
+    await run("media", async () => {
+      setMediaWritten(null);
+      const count = await api.generateCodeplug(codeplugId, to);
+      setMediaWritten({ count, path: to });
+    });
+  };
 
   const doRestore = async () => {
     const { open } = await import("@tauri-apps/plugin-dialog");
@@ -177,17 +233,46 @@ export function ProgramRadioDialog({
         ) : (
           <>
             {/* Safety banner */}
-            <div className="flex items-start gap-2 border-b border-sky-200 bg-sky-50 px-5 py-2.5 text-xs text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/40 dark:text-sky-300">
-              <ShieldCheck size={15} className="mt-px shrink-0" />
-              <span>
-                Programming <strong>downloads a full backup first</strong>, then
-                writes the channels, names, and your profile’s radio settings, and
-                reads the channels back to verify. Only the values your profile
-                defines change — everything else is written back as it was read.
-              </span>
-            </div>
+            {showCable && (
+              <div className="flex items-start gap-2 border-b border-sky-200 bg-sky-50 px-5 py-2.5 text-xs text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/40 dark:text-sky-300">
+                <ShieldCheck size={15} className="mt-px shrink-0" />
+                <span>
+                  Programming <strong>downloads a full backup first</strong>, then
+                  writes the channels, names, and your profile’s radio settings, and
+                  reads the channels back to verify. Only the values your profile
+                  defines change — everything else is written back as it was read.
+                </span>
+              </div>
+            )}
+
+            {media && (
+              <div className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-5 py-2.5 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
+                <MemoryStick size={15} className="mt-px shrink-0" />
+                <span>
+                  {cards?.length === 1 ? (
+                    <>
+                      <strong>
+                        Found the radio’s card mounted as “{cards[0].volume}”.
+                      </strong>{" "}
+                      It already holds a backup, so there is nothing to pick —
+                      just check it is current (the radio writes it with SD CARD
+                      menu → Backup → Memory → SD card).{" "}
+                    </>
+                  ) : (
+                    <strong>{media.before} </strong>
+                  )}
+                  Channel lists become banks, and
+                  everything else already on the radio — APRS, GPS, WIRES-X — is
+                  left untouched. The first write saves your untouched file
+                  beside it as{" "}
+                  <span className="font-mono">BACKUP.dat.orig</span>; later
+                  writes never overwrite that pristine copy.
+                </span>
+              </div>
+            )}
 
             {/* Port picker */}
+            {showCable && (
             <div className="flex items-end gap-2 px-5 py-4">
               <label className="flex-1">
                 <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -212,17 +297,22 @@ export function ProgramRadioDialog({
                 <RefreshCw size={14} />
               </Button>
             </div>
+            )}
 
             {/* Actions */}
-            <div className="flex flex-wrap items-center gap-2 px-5 pb-4">
+            <div
+              className={`flex flex-wrap items-center gap-2 px-5 pb-4 ${showCable ? "" : "pt-4"}`}
+            >
+              {showCable && (
               <Button onClick={doIdentify} disabled={!port || busy !== null}>
                 {busy === "identify" ? <Spinner className="h-3.5 w-3.5" /> : <Search size={14} />}
                 Identify
               </Button>
+              )}
               {/* Backup/restore are whole-image operations, so they exist only
                   on clone radios. A driver that programs from the database
                   (the AnyTone) takes its own backups inside the program run. */}
-              {caps?.program_image && (
+              {showCable && caps?.program_image && (
                 <>
                   <Button onClick={doDownload} disabled={!port || busy !== null}>
                     {busy === "download" ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
@@ -238,16 +328,59 @@ export function ProgramRadioDialog({
                   </Button>
                 </>
               )}
-              <div className="ml-auto">
-                <Button
-                  variant="primary"
-                  onClick={() => setConfirming(true)}
-                  disabled={!port || busy !== null || writeCount === 0}
-                  title={writeCount === 0 ? "This codeplug has no channels to program" : undefined}
-                >
-                  {busy === "program" ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
-                  Program radio
-                </Button>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                {media && (
+                  <>
+                    {/* One detected card is the whole point: write to it
+                        directly. Browse stays available for the awkward cases
+                        (card copied to disk, several radios, no card yet). */}
+                    {cards?.length === 1 && (
+                      <Button
+                        variant="primary"
+                        onClick={() => doMediaWrite(cards[0].path)}
+                        disabled={busy !== null || writeCount === 0}
+                        title={cards[0].path}
+                      >
+                        {busy === "media" ? (
+                          <Spinner className="h-3.5 w-3.5" />
+                        ) : (
+                          <MemoryStick size={14} />
+                        )}
+                        Write to “{cards[0].volume}”
+                      </Button>
+                    )}
+                    <Button
+                      variant={
+                        showCable || cards?.length === 1 ? undefined : "primary"
+                      }
+                      onClick={() => doMediaWrite()}
+                      disabled={busy !== null || writeCount === 0}
+                      title={
+                        writeCount === 0
+                          ? "This codeplug has no channels to program"
+                          : "Patch this codeplug into the backup file on the radio’s memory card"
+                      }
+                    >
+                      {busy === "media" && cards?.length !== 1 ? (
+                        <Spinner className="h-3.5 w-3.5" />
+                      ) : (
+                        <MemoryStick size={14} />
+                      )}
+                      {cards?.length === 1 ? "Choose a file…" : media.action}
+                    </Button>
+                  </>
+                )}
+                {showCable && (
+                  <Button
+                    variant="primary"
+                    onClick={() => setConfirming(true)}
+                    disabled={!port || busy !== null || writeCount === 0}
+                    title={writeCount === 0 ? "This codeplug has no channels to program" : undefined}
+                  >
+                    {busy === "program" ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
+                    Program radio
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -327,6 +460,26 @@ export function ProgramRadioDialog({
                 <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
                   <XCircle size={14} className="mt-px shrink-0" />
                   <span>{error}</span>
+                </div>
+              )}
+
+              {mediaWritten && media && (
+                <div className="space-y-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 size={14} className="shrink-0" />
+                    <span>
+                      Wrote {mediaWritten.count} channel
+                      {mediaWritten.count === 1 ? "" : "s"} and your profile’s
+                      settings into{" "}
+                      <span className="font-mono">
+                        {mediaWritten.path.split("/").pop()}
+                      </span>
+                      .
+                    </span>
+                  </div>
+                  <div className="pl-6 text-emerald-800 dark:text-emerald-200">
+                    {media.after}
+                  </div>
                 </div>
               )}
 

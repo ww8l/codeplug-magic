@@ -6,7 +6,10 @@ import {
 import { Trash2, Save, DownloadCloud, RefreshCw, HardDrive } from "lucide-react";
 import clsx from "clsx";
 import { api, withToast } from "../../lib/api";
-import { useDriverCapabilities } from "../../lib/radioProgramming";
+import {
+  mediaWriteForFormat,
+  useDriverCapabilities,
+} from "../../lib/radioProgramming";
 import type {
   AnytoneDownloadResult,
   AnytoneImportSummary,
@@ -125,13 +128,18 @@ function Ft5dSettingsBar({
   onLoaded: (settings: SettingsValues) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  // Same descriptor the Program and Export dialogs use, so the file picker and
+  // the front-panel menu steps are written down in exactly one place.
+  const media = mediaWriteForFormat("yaesu_ft5d_sd");
 
   const load = async () => {
     const picked = await openDialog({
-      title: "Select FT5D/BACKUP/BACKUP.dat on the radio\u2019s microSD card",
+      title: media?.pickTitle,
       multiple: false,
       directory: false,
-      filters: [{ name: "FT5D backup", extensions: ["dat"] }],
+      filters: media
+        ? [{ name: media.filterName, extensions: media.extensions }]
+        : undefined,
     });
     if (typeof picked !== "string") return;
     setBusy(true);
@@ -155,9 +163,8 @@ function Ft5dSettingsBar({
           Read current settings from a microSD backup
         </span>
         <span className="block text-[11px] text-slate-400">
-          On the radio: <span className="font-semibold">Back Up / Restore \u2192 Back Up</span>,
-          then pick <span className="font-mono">FT5D/BACKUP/BACKUP.dat</span> from the card.
-          Saved settings go back out with the codeplug when you export.
+          {media?.before} Nothing is written here: the values land in the form
+          and go back out with the codeplug when you program the radio.
         </span>
       </div>
       <Button variant="primary" onClick={load} disabled={busy}>

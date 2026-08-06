@@ -505,11 +505,15 @@ fn models() -> Vec<ModelSeed> {
         //    CHIRP's naming for the family (FT1D/FT2D/FT3D).
         //    Programmed via the microSD card (issue #32):
         //    `yaesu_ft5d_sd` patches the radio's own
-        //    FT5D/BACKUP/BACKUP.dat in place, so "export" here writes
+        //    FT5D/BACKUP/BACKUP.dat in place, so this "export" writes
         //    a codeplug the radio restores directly — no cable. The
-        //    settings schema stays empty because reading settings
-        //    means live USB, which is still unproven; see
-        //    radios/yaesu_ft5d/.
+        //    settings come out of and go back into that same file, so
+        //    the profile is populated too; see radios/yaesu_ft5d/.
+        //    `programming_ui` is 'generic' because the generic dialog
+        //    is what carries the "Write to SD card…" action: it drops
+        //    the port picker and the cable buttons on its own once the
+        //    driver reports no cable capability, and picks the media
+        //    path up from `export_format` (lib/radioProgramming.ts).
         //    NOTES: (a) banks_supported is on (24 banks), so channel
         //    lists map to banks once a programming path exists; the
         //    FT5D has no zones and no scan lists. (b) freq_min/max is
