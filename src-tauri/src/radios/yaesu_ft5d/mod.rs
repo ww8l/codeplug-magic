@@ -91,6 +91,11 @@
 #[cfg(test)]
 mod hw_probe;
 
+/// Checks whether the USB-serial adapter really honours a baud-rate change,
+/// which `SerialPort::baud_rate()` cannot tell you. Throwaway, like `hw_probe`.
+#[cfg(test)]
+mod baud_reality;
+
 pub(crate) mod sd_image;
 pub(crate) mod settings;
 
