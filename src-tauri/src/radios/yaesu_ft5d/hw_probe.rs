@@ -1,9 +1,21 @@
 //! Reverse-engineering harness for the FT5D clone port (issue #32).
 //!
+//! ⚠ **Cable programming was abandoned on 2026-08-06 (s85). The microSD path is
+//! the FT5D's supported route.** A full hardware session captured no image: every
+//! attempt returned three bytes, `35 52 FE`. Nothing below grew into driver code,
+//! and none of it runs unless someone asks for it by name.
+//!
+//! **The prime suspect is the cable, not the protocol.** The FT5D's DATA jack is
+//! RS-232 level; a genuine SCU-19 carries a PL2303 *plus a level shifter*, and a
+//! bare PL2303 cannot talk to it. This port measured as a bare PL2303
+//! (`067B:2303`). That also explains the one thing nothing else did — the bytes
+//! were identical across a 24x baud range, i.e. edge artifacts rather than framed
+//! data. The untried test is whether ADMS-14 / RT Systems can read the radio over
+//! this same cable. See `scratchpad/ft5d/FINDINGS.md` section 8 first.
+//!
 //! This is a measuring instrument, not driver code — `#[ignore]`d so
 //! `cargo test` stays hardware-free, one radio operation per process (see the
-//! `hw-test-harness-pattern` note). It exists to settle the clone protocol; the
-//! driver implementation that grows out of it lives in `mod.rs`.
+//! `hw-test-harness-pattern` note).
 //!
 //! ## What we are trying to learn, and why this is safe
 //!
