@@ -31,7 +31,13 @@
 //! independent unit bits packed into `0xBECC` all decode to US units
 //! (ft/mile/mph/inch/F) — an alignment error would not produce that.
 //!
-//! Not yet confirmed against the radio's own menus.
+//! Confirmed on a real FT5D (2026-08-06): a *changed* setting from each of the
+//! four address clusters — `0x04xx`, `0xBExx`, `0xC0xx`, `0xCFxx` — wrote to the
+//! card, survived a Restore, and read back correctly in the radio's own menus.
+//! One probe per cluster is what the risk called for: a bad CHIRP offset would
+//! displace a whole block, not a single field. The probes must be values that
+//! actually *changed*, because [`apply_settings`] deliberately leaves a matching
+//! setting's bytes untouched.
 
 use serde_json::{Map, Value};
 
