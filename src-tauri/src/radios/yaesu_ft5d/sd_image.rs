@@ -138,6 +138,19 @@ pub(crate) fn validate_backup(image: &[u8]) -> Result<(), String> {
             image.len()
         ));
     }
+    // Reject an image whose checksum already disagrees with its contents. The
+    // radio would refuse it and reset itself, and patching it would only bake
+    // our channels into a file that was never going to load — better to say so
+    // while the operator can still take a fresh backup.
+    let want = image_sum(image);
+    let got = stored_checksum(image);
+    if want != got {
+        return Err(format!(
+            "This backup is corrupt: its checksum is {got:08X} but its contents \
+             sum to {want:08X}. Take a fresh backup on the radio (SD CARD menu \
+             → Backup → Memory → SD card) and pick that."
+        ));
+    }
     let token = &image[MODEL_OFF..MODEL_OFF + MODEL_PREFIX.len()];
     if token != MODEL_PREFIX {
         return Err(format!(
@@ -414,7 +427,57 @@ pub(crate) fn patch_backup(
         }
     }
 
+    write_checksum(&mut img);
     Ok(img)
+}
+
+/// The image checksum: a **32-bit** big-endian sum of every preceding byte,
+/// occupying the last four bytes of the file.
+///
+/// ## Why this is not optional
+///
+/// The radio validates it. An image whose contents do not match the stored sum
+/// is rejected and the radio **factory-resets itself** — it comes up at the
+/// first-boot callsign prompt with no memories. Patching memories without
+/// recomputing this is worse than not patching at all.
+///
+/// ## Why 32 bits, learned the hard way
+///
+/// It first looked like a 16-bit sum at `0x1FDBE` with `01 C3` in front as a
+/// fixed trailer, because the two images available at the time both happened to
+/// hold `01 C3` in the high half. Writing only those low 16 bits produced three
+/// separate failures on real hardware — and the tell was that every rejected
+/// image was wrong *only* above bit 16.
+///
+/// A one-name edit (5 bytes) was accepted, because so small a delta never
+/// carried past bit 16 and the stale high half stayed accidentally right. Any
+/// bulk edit failed, and wiping records to `0xFF` failed hardest: emptying a
+/// slot *raises* the sum by ~8k, so clearing a few hundred moves it by millions.
+///
+/// What settled it was a third image — RT Systems writing the same codeplug with
+/// most channels deleted (`scratchpad/ft5d/diag/06_rt_fewer.dat`). Its high half
+/// read `01 CF`, not `01 C3`, proving those bytes vary with content. Across
+/// seven images — four the radio accepted, three it rejected — the 32-bit
+/// reading matches every acceptance and fails every rejection.
+const CKSUM_AT: usize = 0x1FDBC;
+const CKSUM_LEN: usize = 4;
+
+fn image_sum(img: &[u8]) -> u32 {
+    img[..CKSUM_AT].iter().fold(0u32, |acc, &b| acc + b as u32)
+}
+
+fn stored_checksum(img: &[u8]) -> u32 {
+    u32::from_be_bytes([
+        img[CKSUM_AT],
+        img[CKSUM_AT + 1],
+        img[CKSUM_AT + 2],
+        img[CKSUM_AT + 3],
+    ])
+}
+
+fn write_checksum(img: &mut [u8]) {
+    let sum = image_sum(img).to_be_bytes();
+    img[CKSUM_AT..CKSUM_AT + CKSUM_LEN].copy_from_slice(&sum);
 }
 
 /// 16 bytes of printable ASCII, `0xFF`-padded — the label encoding shared by
@@ -483,6 +546,9 @@ mod tests {
     fn template() -> Vec<u8> {
         let mut t = vec![0xAAu8; IMAGE_LEN];
         t[MODEL_OFF..MODEL_OFF + 5].copy_from_slice(b"AH82M");
+        // A real backup always carries a checksum matching its contents, and
+        // `validate_backup` now insists on it, so the fixture must too.
+        write_checksum(&mut t);
         t
     }
 
@@ -532,7 +598,11 @@ mod tests {
                 .contains(&i)
                 || (BANK_BASE..BANK_BASE + BANK_COUNT * BANK_STRIDE).contains(&i)
                 || (FLAG_BASE..FLAG_BASE + MEM_SLOTS).contains(&i)
-                || (MEM_BASE..MEM_BASE + MEM_SLOTS * MEM_STRIDE).contains(&i);
+                || (MEM_BASE..MEM_BASE + MEM_SLOTS * MEM_STRIDE).contains(&i)
+                // The checksum describes the patched contents, so it is ours to
+                // rewrite by definition — it is the one byte pair that MUST
+                // change when anything else does.
+                || (CKSUM_AT..CKSUM_AT + CKSUM_LEN).contains(&i);
             if !patched {
                 assert_eq!(a, b, "byte 0x{i:X} outside the patched regions changed");
             }
@@ -610,6 +680,7 @@ mod tests {
     fn clears_flags_for_slots_the_codeplug_does_not_fill() {
         let mut t = template();
         t[FLAG_BASE + 5] = 0x03; // a channel from the operator's previous codeplug
+        write_checksum(&mut t); // the radio's backup would agree with itself
         let ec = expanded(chan(1, "ONE", 146.52));
         let img = patch_backup(&t, &[&ec], &[], &model(), None).expect("patch");
 
@@ -628,6 +699,74 @@ mod tests {
     /// cargo test --lib patches_the_real_backup -- --ignored --nocapture
     /// python3 scratchpad/ft5d/verify_patched.py
     /// ```
+    /// The checksum rule, checked against every image whose fate on real
+    /// hardware we know. The rejected ones matter as much as the accepted ones:
+    /// a 16-bit reading also matched all four acceptances, and only the
+    /// rejections show it is 32 bits. Any rule that cannot tell these two
+    /// groups apart is the bug we already shipped.
+    #[test]
+    #[ignore = "needs scratchpad/ft5d/diag/, dumps of a personal radio"]
+    fn checksum_separates_images_the_radio_accepted_from_the_ones_it_reset_on() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../scratchpad/ft5d/diag");
+        let cases = [
+            ("01_radio_original.dat", true),
+            ("04_rt_good.dat", true),
+            ("06_rt_fewer.dat", true),
+            ("T1_rt_plus_one_name.dat", true),
+            ("05_ours_cksum.dat", false),
+            ("H1_ours_memory_and_flags.dat", false),
+            ("H4_wipe_only.dat", false),
+        ];
+        for (name, accepted) in cases {
+            let img = std::fs::read(format!("{dir}/{name}")).expect(name);
+            let agrees = stored_checksum(&img) == image_sum(&img);
+            assert_eq!(
+                agrees, accepted,
+                "{name}: radio {} it, but checksum agreement says {agrees}",
+                if accepted { "accepted" } else { "reset on" }
+            );
+            assert_eq!(validate_backup(&img).is_ok(), accepted, "{name}: validate");
+            if accepted {
+                // Our writer must reproduce it byte for byte, not merely agree.
+                let mut ours = img.clone();
+                write_checksum(&mut ours);
+                assert_eq!(ours, img, "{name}: recomputing changed the image");
+            }
+        }
+    }
+
+    /// The specific trap: a change small enough to leave the low 16 bits of the
+    /// sum looking right must still rewrite the high half.
+    #[test]
+    fn checksum_covers_the_high_half_not_just_the_low_word() {
+        let mut a = template();
+        // Push the sum past a 16-bit boundary the way emptying a slot does.
+        a[MEM_BASE] = 0xFF;
+        write_checksum(&mut a);
+        assert_eq!(stored_checksum(&a), image_sum(&a));
+        assert!(
+            image_sum(&a) > 0xFFFF,
+            "a real image sums well past 16 bits, so the high half carries meaning"
+        );
+    }
+
+    /// A patched image must carry a checksum matching its own new contents —
+    /// the failure that factory-reset a real FT5D was carrying the template's.
+    #[test]
+    fn patching_rewrites_the_checksum() {
+        let t = template();
+        let ec = expanded(chan(1, "W0UPS", 146.520));
+        let img = patch_backup(&t, &[&ec], &[], &model(), None).expect("patch");
+        let stored = stored_checksum(&img);
+        let want = image_sum(&img);
+        assert_eq!(stored, want, "checksum must describe the patched contents");
+        assert_ne!(
+            stored,
+            stored_checksum(&t),
+            "and must not still be the template's"
+        );
+    }
+
     #[test]
     #[ignore = "needs scratchpad/ft5d/ft5d_01_real.dat, a dump of a personal radio"]
     fn patches_the_real_backup() {
