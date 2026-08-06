@@ -154,8 +154,10 @@ impl RadioDriver for YaesuFt5d {
     /// (the family's are `AH44M` / `AH60M` / `AH72M`), which is what a future
     /// clone-mode implementation must match on.
     ///
-    /// Operator steps: radio off → cable to the DATA jack → hold [DISP] while
-    /// powering on until "CLONE" shows → run this → press [Send] on the radio.
+    /// Operator steps: radio off → cable to the DATA jack → hold [F] while
+    /// powering on until "CLONE" shows → run this → press [BAND] to send.
+    /// Key names are CHIRP's `FT1Radio::get_prompts`; the FT5D is touchscreen,
+    /// so what it labels them on screen may differ.
     fn identify(&self, port: &str) -> Result<RadioIdentity, String> {
         let mut p = open_port(port)?;
         let ident = listen_for_ident(&mut *p)?;
@@ -209,8 +211,8 @@ fn listen_for_ident(p: &mut dyn SerialPort) -> Result<Vec<u8>, String> {
         }
         if Instant::now() >= deadline {
             return Err(
-                "no data from the radio. Put the FT5D in clone mode (hold [DISP] while \
-                 powering on until \"CLONE\" shows), then press [Send] on the radio."
+                "no data from the radio. Put the FT5D in clone mode (hold [F] while \
+                 powering on until \"CLONE\" shows), then press [BAND] to send."
                     .into(),
             );
         }
