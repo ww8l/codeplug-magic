@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import clsx from "clsx";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
-import { Check, Trash2, Plus, X } from "lucide-react";
+import { Check, Copy, Trash2, Plus, X } from "lucide-react";
 import { api, withToast } from "../../lib/api";
 import type {
   Channel,
@@ -116,6 +116,16 @@ function toInput(c: Channel): ChannelInput {
   };
 }
 
+// Do the two form states hold the same values? Used to tell "the user typed
+// something that isn't saved yet" from "the panel still shows the stored row".
+function sameInput(a: ChannelInput, b: ChannelInput): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<
+    keyof ChannelInput
+  >;
+  for (const k of keys) if (a[k] !== b[k]) return false;
+  return true;
+}
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="flex flex-col gap-1">
@@ -217,6 +227,7 @@ export function ChannelDetailPanel({
   open,
   onClose,
   onSaved,
+  onDuplicated,
   sourceSuggestions = [],
   cities = [],
 }: {
@@ -225,6 +236,8 @@ export function ChannelDetailPanel({
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
+  /** The copy made by the Duplicate button, so the caller can open it. */
+  onDuplicated?: (copy: Channel) => void;
   /** Existing distinct `source` values, offered as autocomplete suggestions. */
   sourceSuggestions?: string[];
   /** City centroids from the local data, used to auto-fill coordinates. */
@@ -360,6 +373,35 @@ export function ChannelDetailPanel({
     }
   };
 
+  // Make a copy of this channel — the starting point for a variant of the same
+  // repeater (a different tone for an event, a second mode, …). Pending edits in
+  // the panel are committed first so the copy matches what's on screen.
+  const duplicate = async () => {
+    if (!channel) return;
+    setSaving(true);
+    if (!sameInput(form, toInput(channel))) {
+      const saved = await withToast(api.updateChannel(channel.id, form), {
+        error: "Could not save your changes",
+      });
+      if (!saved) {
+        setSaving(false);
+        return;
+      }
+    }
+    const copy = await withToast(api.duplicateChannel(channel.id), {
+      error: "Could not copy channel",
+    });
+    setSaving(false);
+    if (copy) {
+      const { toast } = await import("sonner");
+      toast.success(
+        `Copied as “${copy.name_long || copy.name_short || "new channel"}” — edit and save`,
+      );
+      onSaved();
+      onDuplicated?.(copy);
+    }
+  };
+
   const acceptRb = async (field: string) => {
     if (!channel) return;
     const updated = await withToast(api.acceptRbValue(channel.id, field), {
@@ -422,9 +464,14 @@ export function ChannelDetailPanel({
       footer={
         <>
           {mode === "edit" && channel && (
-            <Button variant="danger" className="mr-auto" onClick={remove}>
-              <Trash2 size={14} /> Delete
-            </Button>
+            <>
+              <Button variant="danger" onClick={remove}>
+                <Trash2 size={14} /> Delete
+              </Button>
+              <Button className="mr-auto" onClick={duplicate} disabled={saving}>
+                <Copy size={14} /> Duplicate
+              </Button>
+            </>
           )}
           <Button variant="ghost" onClick={onClose}>
             Cancel

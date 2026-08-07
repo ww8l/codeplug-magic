@@ -41,6 +41,7 @@ pub fn run() {
             commands::channels::get_channel,
             commands::channels::create_channel,
             commands::channels::update_channel,
+            commands::channels::duplicate_channel,
             commands::channels::delete_channel,
             commands::channels::delete_channels,
             commands::channels::accept_rb_value,

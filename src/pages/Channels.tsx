@@ -508,6 +508,12 @@ export function Channels() {
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
         onSaved={reload}
+        // Stay in the panel but switch it to the copy, so the whole point of
+        // copying — tweak one field and save — is the very next action.
+        onDuplicated={(copy) => {
+          setSelected(copy);
+          setPanelMode("edit");
+        }}
         sourceSuggestions={sources}
         cities={cities}
       />

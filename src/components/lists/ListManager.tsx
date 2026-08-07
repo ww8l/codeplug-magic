@@ -407,6 +407,13 @@ export function ListManager({ adapter }: { adapter: ListAdapter }) {
         open={editOpen}
         onClose={() => setEditOpen(false)}
         onSaved={refreshChannels}
+        // A copy made while working inside a list belongs in that list too —
+        // otherwise it lands in the master table only and looks like nothing
+        // happened. The panel then switches to the copy for the follow-up edit.
+        onDuplicated={async (copy) => {
+          setEditChannel(copy);
+          await addChannel(copy.id);
+        }}
         // Suggestions come from this list's channels rather than the whole
         // library — it is only autocomplete, and the master table is not loaded
         // here.
