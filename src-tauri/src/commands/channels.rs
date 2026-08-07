@@ -4,7 +4,7 @@ use tauri::State;
 use crate::db::AppState;
 use crate::error::MapErrString;
 use crate::models::{Channel, ChannelFilter, ChannelInput, CityCentroid};
-use crate::util::{derive_band, derive_duplex, gen_name_long, gen_name_short};
+use crate::util::{derive_band, derive_duplex, gen_name_long, gen_name_short, truncate};
 
 /// Normalize a search term for matching against frequency text. If the term
 /// looks like a decimal number (e.g. "445.050"), strip trailing zeros and any
@@ -546,6 +546,140 @@ pub async fn update_channel(
     get_channel(state, id).await
 }
 
+/// Build the display name for a copy: the original with "Copy " in front,
+/// trimmed to the radio's `max` character budget ("W0CPH Denver" →
+/// "Copy W0CPH Denv"). `taken` holds the lowercased names already in use; when
+/// that name is one of them — a second copy of the same channel — a counter is
+/// appended so the radio never shows two identical names.
+fn copy_name(original: &str, max: usize, taken: &std::collections::HashSet<String>) -> String {
+    let original = original.trim();
+    if original.is_empty() {
+        return String::new();
+    }
+    let prefixed = truncate(&format!("Copy {original}"), max);
+    if !taken.contains(&prefixed.to_lowercase()) {
+        return prefixed;
+    }
+    let mut candidate = prefixed.clone();
+    for n in 2..=999 {
+        let suffix = format!(" {n}");
+        let room = max.saturating_sub(suffix.chars().count());
+        candidate = format!("{}{}", truncate(&prefixed, room), suffix);
+        if !taken.contains(&candidate.to_lowercase()) {
+            return candidate;
+        }
+    }
+    candidate
+}
+
+/// Copy a channel — the starting point for a variant of the same repeater (a
+/// different tone for an event, a second mode, …). Everything carries over
+/// including any DMR talkgroup assignments; the long name is prefixed with
+/// "Copy " so the copy is recognizable, and the RepeaterBook link is dropped so
+/// a later re-import updates only the original.
+#[tauri::command]
+pub async fn duplicate_channel(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<Channel, String> {
+    let new_id = duplicate_impl(&state.pool, id).await?;
+    get_channel(state, new_id).await
+}
+
+/// Insert the copy and return its id.
+async fn duplicate_impl(pool: &sqlx::SqlitePool, id: i64) -> Result<i64, String> {
+    let (name_long,): (Option<String>,) =
+        sqlx::query_as("SELECT name_long FROM channels WHERE id = ?1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .estr()?;
+
+    // Long names already in use, so a repeat copy doesn't land on one of them.
+    let existing: Vec<(Option<String>,)> =
+        sqlx::query_as("SELECT name_long FROM channels")
+            .fetch_all(pool)
+            .await
+            .estr()?;
+    let longs: std::collections::HashSet<String> = existing
+        .into_iter()
+        .filter_map(|(l,)| l)
+        .map(|l| l.trim().to_lowercase())
+        .collect();
+
+    // The short name is left alone: at 7 characters a "Copy " prefix would eat
+    // the callsign, which is the only thing a narrow radio display has room for.
+    let new_long = copy_name(name_long.as_deref().unwrap_or_default(), 16, &longs);
+
+    let mut conn = pool.acquire().await.estr()?;
+    let mut tx = conn.begin().await.estr()?;
+
+    // Every column carries over except the identity ones: `id` is fresh,
+    // `repeaterbook_id` is dropped (it is UNIQUE, and the copy is the user's own
+    // variant), and the timestamps mark this as a new manual edit.
+    let new_id = sqlx::query(
+        r#"
+        INSERT INTO channels (
+            name_long, name_short, rb_name, callsign, rx_freq, tx_freq, offset,
+            duplex, band, mode, tone_mode, ctcss_uplink, ctcss_downlink,
+            dcs_code, dcs_rx_code, dcs_polarity, cross_mode, power,
+            dmr_color_code, dmr_timeslot, dmr_talkgroup,
+            dstar_capable, ysf_capable, nxdn_capable, p25_capable, p25_nac,
+            m17_capable, m17_can, tetra_capable,
+            allstar_node, echolink_node, irlp_node, wires_node,
+            ares, races, skywarn, canwarn,
+            use_type, operational_status, service_type,
+            city, county, state, country, latitude, longitude, notes, source,
+            rb_ctcss_uplink, rb_ctcss_downlink, rb_operational_status, rb_notes,
+            ctcss_uplink_overridden, ctcss_downlink_overridden,
+            operational_status_overridden, notes_overridden, has_overrides,
+            last_rb_update, last_user_edit
+        )
+        SELECT
+            ?2, name_short, rb_name, callsign, rx_freq, tx_freq, offset,
+            duplex, band, mode, tone_mode, ctcss_uplink, ctcss_downlink,
+            dcs_code, dcs_rx_code, dcs_polarity, cross_mode, power,
+            dmr_color_code, dmr_timeslot, dmr_talkgroup,
+            dstar_capable, ysf_capable, nxdn_capable, p25_capable, p25_nac,
+            m17_capable, m17_can, tetra_capable,
+            allstar_node, echolink_node, irlp_node, wires_node,
+            ares, races, skywarn, canwarn,
+            use_type, operational_status, service_type,
+            city, county, state, country, latitude, longitude, notes, source,
+            rb_ctcss_uplink, rb_ctcss_downlink, rb_operational_status, rb_notes,
+            ctcss_uplink_overridden, ctcss_downlink_overridden,
+            operational_status_overridden, notes_overridden, has_overrides,
+            last_rb_update, CURRENT_TIMESTAMP
+        FROM channels WHERE id = ?1
+        "#,
+    )
+    .bind(id)
+    .bind(&new_long)
+    .execute(&mut *tx)
+    .await
+    .estr()?
+    .last_insert_rowid();
+
+    // A DMR repeater's talkgroups are part of what makes it that repeater, so
+    // the copy carries them too.
+    sqlx::query(
+        r#"
+        INSERT INTO repeater_talkgroups (channel_id, talkgroup_id, timeslot, position, name_override)
+        SELECT ?1, talkgroup_id, timeslot, position, name_override
+        FROM repeater_talkgroups WHERE channel_id = ?2
+        "#,
+    )
+    .bind(new_id)
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    .estr()?;
+
+    tx.commit().await.estr()?;
+
+    Ok(new_id)
+}
+
 #[tauri::command]
 pub async fn delete_channel(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     sqlx::query("DELETE FROM channels WHERE id = ?1")
@@ -684,6 +818,104 @@ mod tests {
         assert_eq!(best.state.as_deref(), Some("MO"));
         // A state we don't have → no local match (would fall through to online).
         assert!(match_centroid(&centroids, "Springfield", Some("TX")).is_none());
+    }
+
+    #[test]
+    fn copy_names_are_prefixed_and_fit_the_radio() {
+        let mut taken = std::collections::HashSet::new();
+        // Short enough to keep whole.
+        assert_eq!(copy_name("W0CPH", 16, &taken), "Copy W0CPH");
+        // The tail is trimmed so "Copy " still fits the 16-char budget.
+        assert_eq!(copy_name("W0CPH Denver", 16, &taken), "Copy W0CPH Denve");
+        // A second copy of the same channel counts on instead of colliding.
+        taken.insert("copy w0cph denve".to_string());
+        assert_eq!(copy_name("W0CPH Denver", 16, &taken), "Copy W0CPH Den 2");
+        // A blank name stays blank — nothing to prefix.
+        assert_eq!(copy_name("", 16, &taken), "");
+    }
+
+    /// A copy carries every field plus the DMR talkgroup assignments, gets a
+    /// counted name, and drops the RepeaterBook link so a re-import of the
+    /// original never overwrites the user's variant.
+    #[tokio::test]
+    async fn duplicate_copies_fields_and_talkgroups() {
+        let dir = std::env::temp_dir().join(format!("cpm_dup_{}", std::process::id()));
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        let src = sqlx::query(
+            "INSERT INTO channels (name_long, name_short, callsign, rx_freq, tx_freq,
+                 mode, tone_mode, ctcss_uplink, city, state, source, repeaterbook_id)
+             VALUES ('W0CPH Denver', 'W0CPH', 'W0CPH', 447.0, 442.0, 'DMR', 'Tone',
+                     100.0, 'Denver', 'CO', 'repeaterbook', 'RB|W0CPH|447')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_rowid();
+
+        // A number the seeded library doesn't already carry.
+        let tg = sqlx::query("INSERT INTO talkgroups (tg_number, name) VALUES (9999901, 'Test TG')")
+            .execute(&pool)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        sqlx::query(
+            "INSERT INTO repeater_talkgroups (channel_id, talkgroup_id, timeslot) VALUES (?1, ?2, 2)",
+        )
+        .bind(src)
+        .bind(tg)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let copy_id = duplicate_impl(&pool, src).await.expect("duplicate");
+        assert_ne!(copy_id, src);
+
+        let (long, short, rx, tone, rb_id, source): (
+            Option<String>,
+            Option<String>,
+            f64,
+            Option<f64>,
+            Option<String>,
+            String,
+        ) = sqlx::query_as(
+            "SELECT name_long, name_short, rx_freq, ctcss_uplink, repeaterbook_id, source
+             FROM channels WHERE id = ?1",
+        )
+        .bind(copy_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(long.as_deref(), Some("Copy W0CPH Denve"));
+        assert_eq!(short.as_deref(), Some("W0CPH"), "short name is left alone");
+        assert_eq!(rx, 447.0, "settings carry over untouched");
+        assert_eq!(tone, Some(100.0));
+        assert_eq!(rb_id, None, "the copy is not the RepeaterBook row");
+        assert_eq!(source, "repeaterbook", "provenance is preserved");
+
+        let slots: Vec<(i64, i64)> = sqlx::query_as(
+            "SELECT talkgroup_id, timeslot FROM repeater_talkgroups WHERE channel_id = ?1",
+        )
+        .bind(copy_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(slots, vec![(tg, 2)], "talkgroup assignments come along");
+
+        // Copying again counts on instead of repeating the same name.
+        let second = duplicate_impl(&pool, src).await.expect("duplicate again");
+        let (long2,): (Option<String>,) =
+            sqlx::query_as("SELECT name_long FROM channels WHERE id = ?1")
+                .bind(second)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(long2.as_deref(), Some("Copy W0CPH Den 2"));
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&db_path);
     }
 
     /// End-to-end offline path: a channel with coordinates seeds a centroid, and

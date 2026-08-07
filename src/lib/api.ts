@@ -83,6 +83,8 @@ export const api = {
     invoke<Channel>("create_channel", { input }),
   updateChannel: (id: number, input: ChannelInput) =>
     invoke<Channel>("update_channel", { id, input }),
+  duplicateChannel: (id: number) =>
+    invoke<Channel>("duplicate_channel", { id }),
   deleteChannel: (id: number) => invoke<void>("delete_channel", { id }),
   deleteChannels: (ids: number[]) =>
     invoke<number>("delete_channels", { ids }),
