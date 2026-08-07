@@ -109,6 +109,46 @@ export function fmtOffset(n: number | null | undefined): string {
   return n.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 }
 
+/** Round to 4 decimals (100 Hz), the resolution of an amateur frequency. */
+export function round4(n: number): number {
+  return Math.round(n * 10_000) / 10_000;
+}
+
+/**
+ * The customary repeater offset (MHz) for the band an RX/output frequency
+ * falls in — what a "+" or "-" means when the operator doesn't say. Mirrors
+ * `standard_offsets` in src-tauri/src/util.rs, taking the common choice where a
+ * band has more than one. Returns null outside the repeater bands.
+ */
+export function defaultOffset(rx: number): number | null {
+  if (!rx || rx <= 0) return null;
+  if (rx < 30) return 0.1; // 10m
+  if (rx < 54) return 0.5; // 6m
+  if (rx < 148) return 0.6; // 2m
+  if (rx < 225) return 1.6; // 1.25m
+  if (rx < 470) return 5.0; // 70cm / GMRS
+  if (rx < 928) return 12.0; // 33cm
+  if (rx < 1300) return 12.0; // 23cm
+  return null;
+}
+
+/**
+ * Duplex direction and positive offset implied by a pair of frequencies — the
+ * same rule the backend applies on save (`derive_duplex` in src-tauri/src/util.rs),
+ * mirrored here so the panel can show what will be stored as the user types.
+ */
+export function deriveDuplex(
+  rx: number,
+  tx: number | null | undefined,
+): { duplex: string; offset: number } {
+  if (tx == null) return { duplex: "none", offset: 0 };
+  const diff = tx - rx;
+  if (Math.abs(diff) < 0.0001) return { duplex: "none", offset: 0 };
+  // Unusually large separation -> treat as an odd/cross-band split.
+  if (Math.abs(diff) > 15.0) return { duplex: "split", offset: round4(Math.abs(diff)) };
+  return { duplex: diff > 0 ? "+" : "-", offset: round4(Math.abs(diff)) };
+}
+
 /** Sort rank for a channel's mode; lower sorts first, blank/unknown modes last. */
 function zoneModeRank(mode: string | null | undefined): number {
   const m = (mode ?? "").trim().toUpperCase();
