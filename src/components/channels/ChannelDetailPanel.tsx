@@ -24,9 +24,12 @@ import {
   TIMESLOTS,
   TONE_MODES,
   USE_TYPES,
+  defaultOffset,
+  deriveDuplex,
   fmtFreq,
   fmtOffset,
   presentFacet,
+  round4,
 } from "../../lib/constants";
 import { SlideOver } from "../overlays";
 import { TalkgroupModal } from "../talkgroups/TalkgroupModal";
@@ -250,6 +253,14 @@ export function ChannelDetailPanel({
   // to a number on each keystroke would drop the trailing dot and block typing.
   const [rxText, setRxText] = useState("");
   const [txText, setTxText] = useState("");
+  // Same for the offset, plus a flag for "the user typed their own" — an
+  // untouched offset follows the band standard, so retuning a 2m channel to
+  // 70cm moves the offset from 600 kHz to 5 MHz instead of leaving it wrong.
+  const [offsetText, setOffsetText] = useState("");
+  const offsetTouchedRef = useRef(false);
+  // The band standard in force when they typed it, so their value holds while
+  // RX stays on that band but yields to the standard when RX moves to another.
+  const offsetStandardRef = useRef<number | null>(null);
   // Coordinates we last auto-filled, so the geocode effect can tell "the user
   // hasn't touched these" from "the user typed their own" and avoid clobbering.
   const autoGeoRef = useRef<{ lat: number; lon: number } | null>(null);
@@ -268,6 +279,12 @@ export function ChannelDetailPanel({
     setForm(seeded);
     setRxText(seeded.rx_freq ? String(seeded.rx_freq) : "");
     setTxText(seeded.tx_freq != null ? String(seeded.tx_freq) : "");
+    setOffsetText(fmtOffset(seeded.offset));
+    // An offset that is neither absent nor the band standard is one this
+    // channel chose deliberately (an odd split), so treat it as the user's.
+    offsetTouchedRef.current =
+      !!seeded.offset && seeded.offset !== defaultOffset(seeded.rx_freq);
+    offsetStandardRef.current = defaultOffset(seeded.rx_freq);
     setLastKey(seedKey);
     autoGeoRef.current = null;
     setGeoStatus("idle");
@@ -352,6 +369,69 @@ export function ChannelDetailPanel({
     const n = Number(v);
     return Number.isNaN(n) ? null : n;
   };
+
+  // RX, TX, duplex and offset are four views of the same two numbers, so a
+  // change to any one of them re-syncs the rest. With a "+"/"-" direction
+  // picked, TX is what follows: the operator types the output frequency they
+  // read off RepeaterBook, chooses the shift, and the input frequency is
+  // rx ± offset. "none" is simplex; "split" leaves the two frequencies alone
+  // because there is no rule to compute one from the other.
+  // `keepOffsetText` is for the offset field's own handler: rewriting the box
+  // the user is typing in would eat a half-entered "0." the way it would in the
+  // frequency boxes.
+  const syncFreqs = (
+    rx: number,
+    tx: number | null,
+    duplex: string | null,
+    offset: number | null,
+    keepOffsetText = false,
+  ) => {
+    const showOffset = (v: number) => {
+      if (!keepOffsetText) setOffsetText(fmtOffset(v));
+    };
+    if (duplex === "+" || duplex === "-") {
+      const off = offset ?? defaultOffset(rx) ?? 0;
+      const shifted = rx > 0 && off > 0 ? round4(rx + (duplex === "+" ? off : -off)) : tx;
+      setTxText(shifted != null ? String(shifted) : "");
+      showOffset(off);
+      setForm((f) => ({
+        ...f,
+        rx_freq: rx,
+        tx_freq: shifted,
+        duplex,
+        offset: off,
+      }));
+      return;
+    }
+    if (duplex === "none") {
+      setTxText("");
+      showOffset(0);
+      setForm((f) => ({
+        ...f,
+        rx_freq: rx,
+        tx_freq: null,
+        duplex: "none",
+        offset: 0,
+      }));
+      return;
+    }
+    // "split", or no direction chosen: the frequency pair is what's true, and
+    // the offset is read back off it. The choice itself is left alone — "auto"
+    // stays "auto" until the user picks a direction (the backend derives the
+    // stored value from RX/TX either way).
+    const d = deriveDuplex(rx, tx);
+    showOffset(d.offset);
+    setForm((f) => ({ ...f, rx_freq: rx, tx_freq: tx, duplex, offset: d.offset }));
+  };
+
+  // The offset to shift by: the user's if they typed one for the band RX is
+  // still on, otherwise null so syncFreqs falls back to that band's standard.
+  const activeOffset = (rx: number) =>
+    offsetTouchedRef.current && defaultOffset(rx) === offsetStandardRef.current
+      ? num(offsetText)
+      : null;
+
+  const duplexShifts = form.duplex === "+" || form.duplex === "-";
 
   const save = async () => {
     if (!form.rx_freq || form.rx_freq <= 0) {
@@ -551,8 +631,9 @@ export function ChannelDetailPanel({
               inputMode="decimal"
               placeholder="146.940"
               onChange={(e) => {
+                const rx = num(e.target.value) ?? 0;
                 setRxText(e.target.value);
-                set("rx_freq", num(e.target.value) ?? 0);
+                syncFreqs(rx, form.tx_freq, form.duplex, activeOffset(rx));
               }}
             />
           </Field>
@@ -563,12 +644,36 @@ export function ChannelDetailPanel({
               placeholder="146.340"
               onChange={(e) => {
                 setTxText(e.target.value);
-                set("tx_freq", num(e.target.value));
+                // A hand-typed TX is the authority: the direction and offset
+                // shown follow it, and an offset that isn't the band standard
+                // becomes the user's so a later RX change keeps it.
+                const tx = num(e.target.value);
+                const d = deriveDuplex(form.rx_freq, tx);
+                setOffsetText(fmtOffset(d.offset));
+                offsetTouchedRef.current =
+                  !!d.offset && d.offset !== defaultOffset(form.rx_freq);
+                offsetStandardRef.current = defaultOffset(form.rx_freq);
+                setForm((f) => ({
+                  ...f,
+                  tx_freq: tx,
+                  duplex: d.duplex,
+                  offset: d.offset,
+                }));
               }}
             />
           </Field>
-          <Field label="Duplex (derived)">
-            <Select value={form.duplex ?? ""} onChange={(e) => set("duplex", e.target.value || null)}>
+          <Field label="Duplex">
+            <Select
+              value={form.duplex ?? ""}
+              onChange={(e) =>
+                syncFreqs(
+                  form.rx_freq,
+                  form.tx_freq,
+                  e.target.value || null,
+                  activeOffset(form.rx_freq),
+                )
+              }
+            >
               <option value="">auto</option>
               {DUPLEX_OPTIONS.map((d) => (
                 <option key={d} value={d}>
@@ -577,8 +682,25 @@ export function ChannelDetailPanel({
               ))}
             </Select>
           </Field>
-          <Field label="Offset (derived)">
-            <TextInput disabled value={fmtOffset(form.offset)} placeholder="auto from RX/TX" />
+          <Field label={duplexShifts ? "Offset (MHz)" : "Offset (derived)"}>
+            <TextInput
+              value={offsetText}
+              inputMode="decimal"
+              disabled={!duplexShifts}
+              placeholder={duplexShifts ? "0.6" : "auto from RX/TX"}
+              onChange={(e) => {
+                setOffsetText(e.target.value);
+                offsetTouchedRef.current = e.target.value.trim() !== "";
+                offsetStandardRef.current = defaultOffset(form.rx_freq);
+                syncFreqs(
+                  form.rx_freq,
+                  form.tx_freq,
+                  form.duplex,
+                  num(e.target.value),
+                  true,
+                );
+              }}
+            />
           </Field>
         </Section>
 
