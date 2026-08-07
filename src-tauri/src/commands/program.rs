@@ -366,6 +366,98 @@ pub async fn read_radio_settings(
     .estr()?
 }
 
+/// Read an FT5D's non-channel settings out of a microSD `BACKUP.dat`.
+///
+/// Removable cards that look like a radio's own backup card.
+///
+/// The radio always writes to the same place on the card, so there is nothing
+/// for the operator to navigate to — asking them to find
+/// `FT5D/BACKUP/BACKUP.dat` themselves is how you end up patching the wrong
+/// file. Only cards that actually hold a readable, valid backup are offered;
+/// anything doubtful is left to the manual picker.
+#[derive(serde::Serialize)]
+pub struct MemoryCard {
+    /// Full path to the backup file, ready to hand to the exporter.
+    pub path: String,
+    /// The mounted volume, for showing the user which card this is.
+    pub volume: String,
+    /// True once a previous write has left a pristine copy beside it.
+    pub has_original: bool,
+}
+
+/// Find mounted cards holding an FT5D backup. Never errors: a card that cannot
+/// be read is simply not offered, and an empty list means "use the picker".
+#[tauri::command]
+pub async fn find_ft5d_memory_cards() -> Vec<MemoryCard> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut out = Vec::new();
+        // macOS mounts removable media under /Volumes; Windows gives each card
+        // a drive letter. Both are cheap to enumerate and neither needs any
+        // permission the app does not already have.
+        let roots: Vec<std::path::PathBuf> = if cfg!(target_os = "windows") {
+            ('D'..='Z')
+                .map(|d| std::path::PathBuf::from(format!("{d}:\\")))
+                .collect()
+        } else {
+            std::fs::read_dir("/Volumes")
+                .map(|rd| rd.flatten().map(|e| e.path()).collect())
+                .unwrap_or_default()
+        };
+        for root in roots {
+            let path = root.join("FT5D").join("BACKUP").join("BACKUP.dat");
+            let Ok(image) = std::fs::read(&path) else {
+                continue;
+            };
+            // Validate rather than trust the name — a stale file from another
+            // model would otherwise be offered as a safe target.
+            if crate::radios::yaesu_ft5d::sd_image::validate_backup(&image).is_err() {
+                continue;
+            }
+            out.push(MemoryCard {
+                has_original: path.with_extension("dat.orig").exists(),
+                volume: root
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| root.to_string_lossy().into_owned()),
+                path: path.to_string_lossy().into_owned(),
+            });
+        }
+        out
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// The file-based sibling of [`read_radio_settings`]. The FT5D has no proven
+/// cable modality, so its "radio" for settings purposes is the backup file its
+/// own Back Up menu writes — the same file the codeplug export patches. Nothing
+/// is written here, and no backup copy is taken, because the source file is
+/// itself the operator's backup and is left untouched.
+///
+/// Returns the decoded settings for the profile form to merge; saving them is
+/// the form's job, exactly as with the cable path.
+#[tauri::command]
+pub async fn read_ft5d_settings_from_backup(path: String) -> Result<RadioSettingsRead, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let image = std::fs::read(&path).map_err(|e| {
+            format!(
+                "Could not read {path}: {e}. Pick FT5D/BACKUP/BACKUP.dat from the \
+                 radio's microSD card."
+            )
+        })?;
+        crate::radios::yaesu_ft5d::sd_image::validate_backup(&image)?;
+        let settings = crate::radios::yaesu_ft5d::settings::decode_settings(&image);
+        let count = settings.as_object().map(|o| o.len()).unwrap_or(0);
+        Ok(RadioSettingsRead {
+            settings,
+            count,
+            backup_path: path,
+        })
+    })
+    .await
+    .estr()?
+}
+
 /// Push a saved radio profile's non-channel settings to the connected radio,
 /// leaving channels untouched. Every driver takes a mandatory backup before the
 /// first byte goes out; the returned report says how to verify (in-session
@@ -444,10 +536,11 @@ pub async fn write_callsign_db(
     })?;
 
     let users = select_prioritized_dmr_users(&state.pool, max_count, &priority_countries).await?;
-    let records: Vec<CallsignRecord> = users
+    let mut records: Vec<CallsignRecord> = users
         .into_iter()
         .map(|u| CallsignRecord {
             dmr_id: u.dmr_id as u32,
+            group_call: false,
             name: u.display_name(),
             callsign: u.callsign,
             city: u.city,
@@ -456,10 +549,49 @@ pub async fn write_callsign_db(
             comment: u.remarks,
         })
         .collect();
+
+    // Append the talkgroup library as GROUP-call entries (issue #30). The
+    // caller-ID DB is what the radio's TX screen resolves a talkgroup ID
+    // through, so a DB holding only individual users leaves TX showing a bare
+    // number. `talkgroups` is a global reusable library, not codeplug-scoped,
+    // which matches this command being radio-wide.
+    //
+    // Appended AFTER the users so that on a number collision the hand-curated
+    // talkgroup wins the encoder's last-wins dedup. `max_count` deliberately
+    // does not apply: it caps the bulk user library, and the talkgroups are the
+    // few dozen entries the user actually cares about naming.
+    let talkgroups: Vec<(i64, String, String)> =
+        sqlx::query_as("SELECT tg_number, name, call_type FROM talkgroups ORDER BY tg_number")
+            .fetch_all(&state.pool)
+            .await
+            .estr()?;
+    records.extend(talkgroups.into_iter().map(|(tg_number, name, call_type)| {
+        CallsignRecord {
+            dmr_id: tg_number.max(0) as u32,
+            // The library models a "talkgroup" that is really a private contact
+            // (call_type 'Private'), so honour the column rather than assuming.
+            group_call: !call_type.eq_ignore_ascii_case("private"),
+            // Description field 1 ("name") is what the TX screen renders for a
+            // group call — HW-proven (s76): TG 31088 displayed "Colorado HD" in
+            // full, not the 8-char "Colorado" that field 3 ("call") would have
+            // been truncated to. A talkgroup has no callsign, so field 3 stays
+            // empty; do not put the name there too.
+            name,
+            callsign: String::new(),
+            city: None,
+            state: None,
+            country: None,
+            comment: None,
+        }
+    }));
+
+    // Checked on the COMBINED set, not on the users alone: a codeplug with
+    // talkgroups but no downloaded user library is still worth writing — it is
+    // exactly what gives the TX screen its names.
     if records.is_empty() {
         return Err(
-            "No DMR contacts to write — open DMR Contacts and Refresh the library first \
-             (or widen the country selection)."
+            "No DMR contacts or talkgroups to write — open DMR Contacts and Refresh the \
+             library first (or widen the country selection)."
                 .to_string(),
         );
     }

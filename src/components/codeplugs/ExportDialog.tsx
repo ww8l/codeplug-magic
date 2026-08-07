@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
-import { Download, CheckCircle2, XCircle } from "lucide-react";
+import { open as openDialog, save } from "@tauri-apps/plugin-dialog";
+import { Download, CheckCircle2, XCircle, Ear } from "lucide-react";
 import { toast } from "sonner";
 import { api, withToast } from "../../lib/api";
 import type { ExportPreview } from "../../lib/types";
 import { fmtFreq } from "../../lib/constants";
 import { Modal } from "../overlays";
 import { Button, Spinner, Badge } from "../ui";
+import { mediaWriteForFormat } from "../../lib/radioProgramming";
 
 export function ExportDialog({
   open,
@@ -39,13 +40,28 @@ export function ExportDialog({
   }, [open, codeplugId]);
 
   const isAnytone = preview?.export_format === "anytone_csv";
+  // Media radios are programmed by patching a file the radio itself wrote, so
+  // the user picks an EXISTING file to rewrite rather than naming a new one.
+  // Same descriptor the Program dialog uses, so the two can't drift apart.
+  const media = mediaWriteForFormat(preview?.export_format ?? null);
 
   const doExport = async () => {
-    const safe = codeplugName.replace(/[^\w.-]+/g, "_");
-    const path = await save({
-      defaultPath: `${safe}.csv`,
-      filters: [{ name: isAnytone ? "Anytone CSV" : "CHIRP CSV", extensions: ["csv"] }],
-    });
+    let path: string | null;
+    if (media) {
+      const picked = await openDialog({
+        title: media.pickTitle,
+        multiple: false,
+        directory: false,
+        filters: [{ name: media.filterName, extensions: media.extensions }],
+      });
+      path = typeof picked === "string" ? picked : null;
+    } else {
+      const safe = codeplugName.replace(/[^\w.-]+/g, "_");
+      path = await save({
+        defaultPath: `${safe}.csv`,
+        filters: [{ name: isAnytone ? "Anytone CSV" : "CHIRP CSV", extensions: ["csv"] }],
+      });
+    }
     if (!path) return;
     setExporting(true);
     const count = await withToast(api.generateCodeplug(codeplugId, path), {
@@ -55,10 +71,13 @@ export function ExportDialog({
     if (count !== undefined) {
       const fileName = path.split("/").pop() ?? "";
       const base = fileName.replace(/\.csv$/i, "");
+      const plural = count === 1 ? "" : "s";
       toast.success(
-        isAnytone
-          ? `Exported ${count} channel${count === 1 ? "" : "s"} to ${base}_Channels.csv + ${base}_TalkGroups.csv`
-          : `Exported ${count} channel${count === 1 ? "" : "s"} to ${fileName}`,
+        media
+          ? `Wrote ${count} channel${plural} into ${fileName}. ${media.after}`
+          : isAnytone
+            ? `Exported ${count} channel${plural} to ${base}_Channels.csv + ${base}_TalkGroups.csv`
+            : `Exported ${count} channel${plural} to ${fileName}`,
       );
       onExported();
       onClose();
@@ -94,6 +113,11 @@ export function ExportDialog({
               <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                 <CheckCircle2 size={14} /> {preview.included_count} included
               </span>
+              {preview.receive_only_count > 0 && (
+                <span className="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400">
+                  <Ear size={14} /> {preview.receive_only_count} receive-only
+                </span>
+              )}
               <span className="inline-flex items-center gap-1 text-slate-400">
                 <XCircle size={14} /> {preview.excluded_count} excluded
               </span>
@@ -102,7 +126,22 @@ export function ExportDialog({
                   DMR-native · writes _Channels.csv + _TalkGroups.csv
                 </Badge>
               )}
+              {media && (
+                <Badge className="bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300">
+                  microSD · patches BACKUP.dat in place
+                </Badge>
+              )}
             </div>
+
+            {media && (
+              <div className="border-b border-slate-200 bg-amber-50 px-5 py-2.5 text-[11px] leading-relaxed text-amber-900 dark:border-slate-700 dark:bg-amber-950/40 dark:text-amber-200">
+                <span className="font-semibold">{media.before}</span> Channel lists become banks, and
+                everything else on the radio — APRS, GPS, WIRES-X — is left untouched. The first
+                write saves your untouched file beside it as{" "}
+                <span className="font-mono">BACKUP.dat.orig</span>; later writes never overwrite
+                that pristine copy.
+              </div>
+            )}
 
             <div className="max-h-[50vh] overflow-auto">
               {preview.rows.length === 0 ? (
@@ -136,7 +175,14 @@ export function ExportDialog({
                         </td>
                         <td className="px-3 py-1.5">{r.mode}</td>
                         <td className="px-3 py-1.5">
-                          {r.included ? (
+                          {r.included && r.receive_only ? (
+                            <span
+                              className="cursor-help text-sky-600 dark:text-sky-400"
+                              title={r.reason ?? ""}
+                            >
+                              {r.reason}
+                            </span>
+                          ) : r.included ? (
                             <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                               Included
                             </Badge>
@@ -173,7 +219,13 @@ export function ExportDialog({
             }
           >
             <Download size={14} />
-            {exporting ? "Exporting…" : `Export ${preview?.included_count ?? 0} Channels`}
+            {exporting
+              ? media
+                ? "Writing…"
+                : "Exporting…"
+              : media
+                ? `Write ${preview?.included_count ?? 0} Channels to microSD`
+                : `Export ${preview?.included_count ?? 0} Channels`}
           </Button>
         </div>
       </div>

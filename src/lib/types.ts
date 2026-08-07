@@ -136,6 +136,12 @@ export interface RadioModel {
   covers_900: boolean;
   freq_min: number | null;
   freq_max: number | null;
+  /// JSON `[[min_mhz, max_mhz], …]`: the bands the radio can transmit on, for
+  /// radios whose TX coverage is not one contiguous span. Null = unsurveyed,
+  /// and freq_min/freq_max plus the covers_* flags decide (migration 0016).
+  tx_bands: string | null;
+  /// Same shape, for the receiver. Null means "the same as transmit".
+  rx_bands: string | null;
   memory_channels: number | null;
   zones_supported: boolean;
   max_zones: number | null;
@@ -421,6 +427,9 @@ export interface ExportPreviewRow {
   rx_freq: number;
   mode: string | null;
   included: boolean;
+  /// Programmed, but the radio cannot transmit there. `included` is still true;
+  /// `reason` explains the restriction rather than an exclusion.
+  receive_only: boolean;
   reason: string | null;
 }
 
@@ -431,6 +440,8 @@ export interface ExportPreview {
   export_format: string;
   included_count: number;
   excluded_count: number;
+  /// How many of `included_count` are receive-only.
+  receive_only_count: number;
   rows: ExportPreviewRow[];
 }
 
@@ -738,8 +749,57 @@ export interface ImportSummary {
   skipped: number;
 }
 
+// ============================================================
+// Standard (built-in) channel lists — GMRS, FRS, MURS, marine, …
+// ============================================================
+
+export interface StandardListChannel {
+  name: string;
+  name_short: string;
+  rx_freq: number;
+  // null marks a receive-only channel (NOAA weather, marine 15 and 70).
+  tx_freq: number | null;
+  band: string;
+  duplex: string;
+  offset: number;
+  mode: string;
+  power: string | null;
+  notes: string;
+}
+
+export interface StandardListInfo {
+  id: string;
+  name: string;
+  full_name: string;
+  description: string;
+  service_type: string;
+  bands: string[];
+  channel_count: number;
+  channels: StandardListChannel[];
+}
+
+export interface StandardImportSummary {
+  added: number;
+  // Already in the library (matched on frequency pair + name) and left alone.
+  skipped: number;
+  list_id: number | null;
+  list_name: string | null;
+  list_added: number;
+}
+
 // Native channel-backup preview. The backend projects each backed-up channel
 // down to the same shape as an import row, so the import dialog can render
 // either source with one table. (Full fidelity is preserved in the file and
 // applied on import, not via the preview.)
 export type ChannelBackupPreview = ImportPreview;
+
+/// A mounted memory card already holding a valid radio backup, from
+/// `find_ft5d_memory_cards`. Offering these beats asking the operator to
+/// navigate to `FT5D/BACKUP/BACKUP.dat` themselves — picking the wrong file is
+/// how you patch something that never reaches the radio.
+export interface MemoryCard {
+  path: string;
+  volume: string;
+  /// A pristine `.orig` from an earlier write already sits beside it.
+  has_original: boolean;
+}

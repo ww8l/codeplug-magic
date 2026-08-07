@@ -32,6 +32,7 @@ fn parse_entry(s: &str) -> CallsignDbEntry {
     let call = parts.next().unwrap_or("").to_string();
     CallsignDbEntry {
         dmr_id: id,
+        group_call: false,
         name,
         call,
         city: String::new(),

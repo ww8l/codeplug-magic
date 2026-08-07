@@ -21,6 +21,16 @@
 //!    DMR ID (4-byte big-endian BCD) + a `\0`-separated UTF-16LE description
 //!    (`name\0city\0call\0state\0country\0comment`, each field NUL-terminated).
 //!
+//! # Two kinds of entry live here (issue #30)
+//! This DB holds BOTH individual DMR users (Private Call) and the codeplug's
+//! **talkgroups** (Group Call) — the group flag is part of the map key, so the
+//! same number can appear as both. It matters because the radio resolves names
+//! from two unrelated places: the **RX** label comes from the contact bank
+//! (`program.rs`), while the **TX** label is looked up by ID through THIS map.
+//! Writing only users here is what made the TX screen show a bare talkgroup
+//! number with no name. The command layer merges the `talkgroups` table in; see
+//! `commands/program.rs::write_callsign_db`.
+//!
 //! # Decisions the empty factory unit cannot arbitrate (see module tests)
 //! This unit ships empty and we never populate it via AnyTone's CPS (standing
 //! project rule), so there is no populated byte image to diff against — the
@@ -75,7 +85,14 @@ pub const DB_BANK_CAP: usize = 0x0003_0D40;
 pub struct CallsignDbEntry {
     /// DMR ID, 1..=99_999_999 (8 BCD digits).
     pub dmr_id: u32,
-    /// Person/display name (description field 1).
+    /// `true` for a talkgroup (Group Call), `false` for a DMR user (Private
+    /// Call). Sets both the record's Call Type byte and the Contact Map key's
+    /// low bit, which together are what let the radio's **TX screen** resolve a
+    /// talkgroup ID to a name — the TX label comes from this DB, NOT from the
+    /// contact bank that drives the RX label. Populating only private-call
+    /// entries here is what left TX showing a bare number (issue #30).
+    pub group_call: bool,
+    /// Person/display name (description field 1). For a talkgroup, its name.
     pub name: String,
     /// City (field 2).
     pub city: String,
@@ -89,14 +106,18 @@ pub struct CallsignDbEntry {
     pub comment: String,
 }
 
-/// Contact Map lookup key for a private-call caller-ID record:
-/// `(bcd8be(dmr_id) << 1) | group_call_flag`. `bcd8be` is the DMR ID as a
-/// 4-byte big-endian BCD value read back as a u32 (e.g. id 3112345 →
-/// bytes 03 11 23 45 → 0x03112345). Group-call flag is 0 for private calls.
-fn map_key(dmr_id: u32) -> u32 {
+/// Contact Map lookup key: `(bcd8be(dmr_id) << 1) | group_call_flag`, exactly as
+/// the RE doc names the field ("DMR ID and Group Call Flag"). `bcd8be` is the
+/// DMR ID as a 4-byte big-endian BCD value read back as a u32 (e.g. id 3112345 →
+/// bytes 03 11 23 45 → 0x03112345).
+///
+/// ★ The flag bit is part of the KEY, so the same number can appear twice — once
+/// as a user and once as a talkgroup — as two distinct, separately-resolvable
+/// entries. Group entries sort immediately after their private twin.
+fn map_key(dmr_id: u32, group_call: bool) -> u32 {
     let bcd = bcd_be_encode(dmr_id as u64, 4);
     let bcd8be = u32::from_be_bytes([bcd[0], bcd[1], bcd[2], bcd[3]]);
-    bcd8be << 1
+    (bcd8be << 1) | u32::from(group_call)
 }
 
 /// Per-field maximum lengths, in characters, exactly as qdmr's D868/D890
@@ -131,11 +152,17 @@ fn encode_description(e: &CallsignDbEntry) -> Vec<u8> {
     out
 }
 
-/// One Call-sign DB record: Call Type (0 = Private) + packed flags (0) +
-/// DMR ID (4-byte BE BCD) + description.
+/// Call Type byte of a Call-sign DB record. The RE doc's enum for the
+/// "Call-sign database entry" element: 0 = Private Call, 1 = Group Call,
+/// 2 = All Call (we never emit All Call).
+const CALL_TYPE_PRIVATE: u8 = 0x00;
+const CALL_TYPE_GROUP: u8 = 0x01;
+
+/// One Call-sign DB record: Call Type + packed flags (0) + DMR ID (4-byte BE
+/// BCD) + description.
 fn encode_db_record(e: &CallsignDbEntry) -> Vec<u8> {
     let mut rec = Vec::with_capacity(6 + e.name.len() * 2 + 16);
-    rec.push(0x00); // Call Type: Private Call
+    rec.push(if e.group_call { CALL_TYPE_GROUP } else { CALL_TYPE_PRIVATE });
     rec.push(0x00); // packed flags: Friend=0, Ring Tone=0
     rec.extend_from_slice(&bcd_be_encode(e.dmr_id as u64, 4));
     rec.extend_from_slice(&encode_description(e));
@@ -159,17 +186,26 @@ pub fn encode_callsign_db(entries: &[CallsignDbEntry]) -> Result<Vec<RegionPatch
         return Err("no call-sign DB entries supplied".to_string());
     }
 
-    // Sort ascending by DMR ID and drop duplicate IDs (last wins), so the map
-    // is binary-searchable and DB ordinals line up with map contact indices.
-    let mut sorted: Vec<CallsignDbEntry> = entries.to_vec();
-    sorted.sort_by_key(|e| e.dmr_id);
-    sorted.dedup_by_key(|e| e.dmr_id);
-
-    for e in &sorted {
+    // Range-check BEFORE building any key: `bcd_be_encode` silently truncates a
+    // value wider than its 8 BCD digits, so an out-of-range ID would otherwise
+    // sort under a wrong (aliased) key before being rejected.
+    for e in entries {
         if e.dmr_id == 0 || e.dmr_id > 99_999_999 {
             return Err(format!("DMR ID {} out of range (1..=99_999_999)", e.dmr_id));
         }
     }
+
+    // Sort ascending by the MAP KEY — not by DMR ID — and drop duplicate keys
+    // (last wins), so the map is binary-searchable and DB ordinals line up with
+    // map contact indices.
+    //
+    // ★ Sorting on the key (not the id) is load-bearing now that group-call
+    // entries exist: the key carries the group flag in its low bit, so a user
+    // and a talkgroup sharing a number are two entries that must land adjacent
+    // in key order. Deduping by id alone would silently drop one of them.
+    let mut sorted: Vec<CallsignDbEntry> = entries.to_vec();
+    sorted.sort_by_key(|e| map_key(e.dmr_id, e.group_call));
+    sorted.dedup_by_key(|e| map_key(e.dmr_id, e.group_call));
     if sorted.len() > MAP_BANKS * MAP_ENTRIES_PER_BANK {
         return Err(format!(
             "{} entries exceed contact-map capacity ({})",
@@ -227,7 +263,7 @@ pub fn encode_callsign_db(entries: &[CallsignDbEntry]) -> Result<Vec<RegionPatch
             patches.push(RegionPatch { addr: base, data: std::mem::take(&mut map_bank) });
             map_bank_idx += 1;
         }
-        map_bank.extend_from_slice(&map_key(e.dmr_id).to_le_bytes());
+        map_bank.extend_from_slice(&map_key(e.dmr_id, e.group_call).to_le_bytes());
         map_bank.extend_from_slice(&virtual_offsets[i].to_le_bytes());
     }
     if !map_bank.is_empty() {
@@ -267,6 +303,7 @@ impl CallsignDbWriter for AnytoneAtd890uv {
             .filter(|r| r.dmr_id > 0 && r.dmr_id <= 99_999_999)
             .map(|r| CallsignDbEntry {
                 dmr_id: r.dmr_id,
+                group_call: r.group_call,
                 name: r.name.clone(),
                 city: r.city.clone().unwrap_or_default(),
                 call: r.callsign.clone(),
@@ -296,6 +333,7 @@ mod tests {
     fn entry(dmr_id: u32, name: &str, call: &str) -> CallsignDbEntry {
         CallsignDbEntry {
             dmr_id,
+            group_call: false,
             name: name.to_string(),
             city: String::new(),
             call: call.to_string(),
@@ -324,8 +362,73 @@ mod tests {
     #[test]
     fn map_key_is_bcd8be_shifted() {
         // 3112345 -> BE BCD 03 11 23 45 -> 0x03112345 -> <<1.
-        assert_eq!(map_key(3_112_345), 0x0311_2345 << 1);
-        assert_eq!(map_key(1), 0x0000_0001 << 1);
+        assert_eq!(map_key(3_112_345, false), 0x0311_2345 << 1);
+        assert_eq!(map_key(1, false), 0x0000_0001 << 1);
+    }
+
+    #[test]
+    fn map_key_sets_the_group_call_flag_bit() {
+        // The RE doc's field is "DMR Id (bcd8be << 1) | GCF": the low bit is the
+        // group-call flag, so a talkgroup's key is its private twin plus one.
+        assert_eq!(map_key(3108, true), (0x0000_3108 << 1) | 1);
+        assert_eq!(map_key(3108, true), map_key(3108, false) + 1);
+    }
+
+    #[test]
+    fn group_record_uses_call_type_group() {
+        let mut e = entry(3108, "Colorado", "");
+        e.group_call = true;
+        assert_eq!(encode_db_record(&e)[0], CALL_TYPE_GROUP);
+        assert_eq!(encode_db_record(&entry(3108, "x", ""))[0], CALL_TYPE_PRIVATE);
+    }
+
+    #[test]
+    fn same_number_as_user_and_talkgroup_survives_as_two_entries() {
+        // ★ The regression this guards: deduping/sorting by DMR ID alone (what
+        // the encoder did before issue #30) collapses a user and a talkgroup
+        // that share a number into one entry, silently losing whichever came
+        // second. They are distinct KEYS and must both be written, adjacent and
+        // ascending so the radio's binary search still works.
+        let mut tg = entry(3108, "Colorado", "");
+        tg.group_call = true;
+        let patches = encode_callsign_db(&[tg, entry(3108, "A User", "W0CPH")]).unwrap();
+
+        let limits = at(&patches, LIMITS_BASE);
+        assert_eq!(u32::from_le_bytes(limits.data[0..4].try_into().unwrap()), 2);
+
+        let map = at(&patches, MAP_BASE);
+        assert_eq!(map.data.len(), 2 * MAP_ENTRY_LEN);
+        let keys: Vec<u32> = (0..2)
+            .map(|i| u32::from_le_bytes(map.data[i * 8..i * 8 + 4].try_into().unwrap()))
+            .collect();
+        assert_eq!(keys, vec![map_key(3108, false), map_key(3108, true)]);
+        assert!(keys[0] < keys[1], "map stays ascending by key");
+    }
+
+    #[test]
+    fn talkgroups_sort_into_key_order_among_users() {
+        // Mixed batch supplied out of order: the map must come back ascending by
+        // key regardless of which kind each entry is.
+        let mut tg_a = entry(400, "TG Four Hundred", "");
+        tg_a.group_call = true;
+        let mut tg_b = entry(100, "TG One Hundred", "");
+        tg_b.group_call = true;
+        let patches =
+            encode_callsign_db(&[entry(500, "E", "E"), tg_a, entry(100, "A", "A"), tg_b]).unwrap();
+        let map = at(&patches, MAP_BASE);
+        let keys: Vec<u32> = (0..4)
+            .map(|i| u32::from_le_bytes(map.data[i * 8..i * 8 + 4].try_into().unwrap()))
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                map_key(100, false),
+                map_key(100, true),
+                map_key(400, true),
+                map_key(500, false),
+            ]
+        );
+        assert!(keys.windows(2).all(|w| w[0] < w[1]), "strictly ascending");
     }
 
     #[test]
@@ -359,7 +462,7 @@ mod tests {
         let idxs: Vec<u32> = (0..3)
             .map(|i| u32::from_le_bytes(map.data[i * 8 + 4..i * 8 + 8].try_into().unwrap()))
             .collect();
-        assert_eq!(keys, vec![map_key(100), map_key(300), map_key(500)]);
+        assert_eq!(keys, vec![map_key(100, false), map_key(300, false), map_key(500, false)]);
         // Records are DMR-ID sorted: A(100), C(300), E(500). Offsets are cumulative.
         let la = encode_db_record(&entry(100, "A", "A")).len() as u32;
         let lc = encode_db_record(&entry(300, "C", "C")).len() as u32;
@@ -380,6 +483,7 @@ mod tests {
     fn db_record_layout_call_type_flags_bcd_and_utf16_description() {
         let e = CallsignDbEntry {
             dmr_id: 3_112_345,
+            group_call: false,
             name: "Tim".to_string(),
             city: "Denver".to_string(),
             call: "W0CPH".to_string(),
@@ -415,6 +519,7 @@ mod tests {
         // UTF-16 units so it can't overflow the radio's fixed name buffer.
         let e = CallsignDbEntry {
             dmr_id: 3_112_345,
+            group_call: false,
             name: "Canadian Caribbean Amateur Radio Club".to_string(), // 37 chars
             city: "Bowmanville".to_string(),                            // 11, under 15
             call: "VE3BRA".to_string(),                                 // 6, under 8
@@ -469,6 +574,7 @@ mod tests {
         let entries: Vec<CallsignDbEntry> = (1..=1400)
             .map(|id| CallsignDbEntry {
                 dmr_id: id,
+                group_call: false,
                 name: "N".repeat(16),
                 city: "C".repeat(15),
                 call: "K".repeat(8),

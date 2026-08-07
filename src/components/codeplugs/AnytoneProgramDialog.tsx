@@ -255,7 +255,8 @@ export function AnytoneProgramDialog({
       id: "userdb",
       icon: Users,
       label: "Call-sign DB",
-      detail: "DMR caller-ID database from your DMR Contacts library — prioritized, capacity-capped.",
+      detail:
+        "DMR caller-ID database from your DMR Contacts library — prioritized, capacity-capped. Includes your talkgroups, which name them on the TX screen.",
       disabled: false,
     },
     {
@@ -364,6 +365,11 @@ export function AnytoneProgramDialog({
                 calls show the operator's callsign and name. Choose a size cap and a
                 country/continent priority — the highest-priority contacts fill the cap
                 first. Refresh the library from the DMR Contacts page if it looks empty.
+                <div className="mt-2">
+                  Your <strong>talkgroups</strong> are always included on top of that cap
+                  — this is what lets the radio show a talkgroup's name, not just its
+                  number, on the transmit screen.
+                </div>
               </div>
 
               <label className="flex flex-col gap-1">

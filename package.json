@@ -1,7 +1,7 @@
 {
   "name": "ww8l-codeplug-magic",
   "private": true,
-  "version": "26.8.3",
+  "version": "26.8.6",
   "type": "module",
   "scripts": {
     "dev": "vite",

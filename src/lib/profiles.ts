@@ -65,6 +65,46 @@ export function modelBands(m: RadioModel): string[] {
   return bands;
 }
 
+/**
+ * The transmit or receive range as an operator reads it. Prefers the real band
+ * list (`tx_bands`/`rx_bands`, JSON `[[min,max], …]`) so a radio with disjoint
+ * bands shows both — "144–148, 430–450 MHz" — and falls back to the single
+ * freq_min/freq_max span for models that have not been surveyed. Returns null
+ * when neither is known.
+ */
+export function modelRange(m: RadioModel, which: "tx" | "rx"): string | null {
+  const raw = which === "tx" ? m.tx_bands : m.rx_bands;
+  const spans = parseBands(raw);
+  if (spans) {
+    return `${spans.map(([lo, hi]) => `${trim(lo)}–${trim(hi)}`).join(", ")} MHz`;
+  }
+  // No rx_bands means the receiver was never surveyed separately; it is not the
+  // same claim as "it receives only what it transmits on", so say nothing.
+  if (which === "rx") return null;
+  if (m.freq_min == null || m.freq_max == null) return null;
+  return `${trim(m.freq_min)}–${trim(m.freq_max)} MHz`;
+}
+
+function parseBands(raw: string | null): [number, number][] | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const spans = parsed.filter(
+      (b): b is [number, number] =>
+        Array.isArray(b) && b.length === 2 && b.every((n) => typeof n === "number"),
+    );
+    return spans.length > 0 ? spans : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 148 → "148", 462.5625 → "462.5625". Band edges should read like band edges. */
+function trim(mhz: number): string {
+  return String(Number(mhz.toFixed(4)));
+}
+
 /** Human-readable list of the modes a model supports. */
 export function modelModes(m: RadioModel): string[] {
   const modes: string[] = [];

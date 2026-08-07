@@ -15,12 +15,15 @@ import type {
   ExportPreview,
   ImportPreview,
   ImportSummary,
+  StandardListInfo,
+  StandardImportSummary,
   RadioModel,
   RadioProfile,
   RadioProfileInput,
   RepeaterTalkgroup,
   DownloadResult,
   DriverCapabilities,
+  MemoryCard,
   PortInfo,
   CodeplugProgramReport,
   RadioIdent,
@@ -103,6 +106,23 @@ export const api = {
     invoke<ImportPreview>("preview_channel_import", { path }),
   importChannels: (path: string) =>
     invoke<ImportSummary>("import_channels", { path }),
+
+  // ---- built-in standard channel lists (GMRS, FRS, MURS, marine, …) ----
+  listStandardLists: () =>
+    invoke<StandardListInfo[]>("list_standard_lists"),
+  // channelNames picks a subset by name; null imports the whole list.
+  importStandardList: (
+    id: string,
+    createList: boolean,
+    listName: string | null,
+    channelNames: string[] | null,
+  ) =>
+    invoke<StandardImportSummary>("import_standard_list", {
+      id,
+      createList,
+      listName,
+      channelNames,
+    }),
 
   // ---- whole-database master backup & restore ----
   exportDatabase: (path: string) =>
@@ -298,6 +318,9 @@ export const api = {
   // Static per driver — `useDriverCapabilities` caches it (3.7).
   driverCapabilities: (driverKey: string) =>
     invoke<DriverCapabilities>("driver_capabilities", { driverKey }),
+  // Mounted cards already holding a valid FT5D backup. Empty list = fall back
+  // to the manual file picker.
+  findFt5dMemoryCards: () => invoke<MemoryCard[]>("find_ft5d_memory_cards"),
   identifyRadio: (driverKey: string, port: string) =>
     invoke<RadioIdent>("identify_radio", { driverKey, port }),
   downloadImage: (driverKey: string, port: string) =>
@@ -307,6 +330,10 @@ export const api = {
   // a radio profile, whose model row already carries the key.
   readRadioSettings: (port: string, profileId: number) =>
     invoke<RadioSettingsRead>("read_radio_settings", { port, profileId }),
+  // The FT5D's settings live on its microSD card, not on a cable — same
+  // decoded shape, different source. See radios/yaesu_ft5d/settings.rs.
+  readFt5dSettingsFromBackup: (path: string) =>
+    invoke<RadioSettingsRead>("read_ft5d_settings_from_backup", { path }),
   writeRadioSettings: (port: string, profileId: number) =>
     invoke<SettingsWriteReport>("write_radio_settings", { port, profileId }),
   // One program command for every radio (3.6e). Dispatches on capability:

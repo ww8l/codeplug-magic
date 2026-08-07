@@ -67,7 +67,17 @@ export const DTCS_CODES = [
   "723", "731", "732", "734", "743", "754",
 ];
 export const USE_TYPES = ["Open", "Closed", "Members"];
-export const SERVICE_TYPES = ["Amateur", "GMRS"];
+// Radio services a channel can belong to. Everything past "Amateur" is a
+// regulated service with a fixed channel plan — see the standard lists.
+export const SERVICE_TYPES = [
+  "Amateur",
+  "GMRS",
+  "FRS",
+  "MURS",
+  "CB",
+  "Marine",
+  "Weather",
+];
 
 // DMR talkgroup library
 export const DMR_NETWORKS = ["Brandmeister", "TGIF", "DMR-MARC", "Other"];
