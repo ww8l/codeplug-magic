@@ -47,6 +47,7 @@ async fn main() {
                 .join(" ");
             CallsignDbEntry {
                 dmr_id: dmr_id as u32,
+                group_call: false,
                 name,
                 city: city.unwrap_or_default(),
                 call: callsign,
@@ -56,8 +57,37 @@ async fn main() {
             }
         })
         .collect();
+    let user_count = entries.len();
 
-    println!("selected {} entries", entries.len());
+    // Mirror the Tauri command: append the talkgroup library as GROUP-call
+    // entries (issue #30). Keep this in step with
+    // `commands/program.rs::write_callsign_db` or the dry run stops predicting
+    // what actually gets written.
+    let tg_rows: Vec<(i64, String, String)> =
+        sqlx::query_as("SELECT tg_number, name, call_type FROM talkgroups ORDER BY tg_number")
+            .fetch_all(&pool)
+            .await
+            .expect("talkgroup query");
+    let mut entries = entries;
+    entries.extend(tg_rows.into_iter().map(|(tg_number, name, call_type)| {
+        CallsignDbEntry {
+            dmr_id: tg_number.max(0) as u32,
+            group_call: !call_type.eq_ignore_ascii_case("private"),
+            name,
+            city: String::new(),
+            call: String::new(),
+            state: String::new(),
+            country: String::new(),
+            comment: String::new(),
+        }
+    }));
+
+    println!(
+        "selected {} entries ({} users + {} talkgroups)",
+        entries.len(),
+        user_count,
+        entries.len() - user_count
+    );
     let patches = encode_callsign_db(&entries).expect("encode");
     println!("emitted {} patches\n", patches.len());
 
@@ -95,5 +125,38 @@ async fn main() {
     println!("last 4 patches:");
     for p in patches.iter().rev().take(4).rev() {
         println!("  {} 0x{:08X}  {} bytes", region(p.addr), p.addr, p.data.len());
+    }
+
+    // --- Decode the emitted Contact Map back out and audit the group-call
+    //     entries (issue #30). This is the check that matters: the TX screen
+    //     resolves a talkgroup through a GCF=1 key, so if none are present the
+    //     fix is not in the bytes. Also re-verifies the whole map is strictly
+    //     ascending, which the radio's binary search depends on.
+    let mut keys: Vec<u32> = Vec::new();
+    let mut group_keys: Vec<u32> = Vec::new();
+    for p in patches.iter().filter(|p| p.addr >= MAP_BASE && p.addr < DB_BASE) {
+        for e in p.data.chunks_exact(8) {
+            let key = u32::from_le_bytes([e[0], e[1], e[2], e[3]]);
+            keys.push(key);
+            if key & 1 == 1 {
+                group_keys.push(key);
+            }
+        }
+    }
+    let ascending = keys.windows(2).all(|w| w[0] < w[1]);
+    println!("\ncontact map audit:");
+    println!("  {} entries, strictly ascending: {}", keys.len(), ascending);
+    println!("  {} group-call (GCF=1) entries", group_keys.len());
+    // Report the group entries as the decimal talkgroup numbers they encode, so
+    // the list can be eyeballed against the Talkgroups screen.
+    let as_tg = |key: u32| -> u32 {
+        let bcd = (key >> 1).to_be_bytes();
+        bcd.iter().fold(0u32, |acc, b| acc * 100 + (b >> 4) as u32 * 10 + (b & 0x0F) as u32)
+    };
+    let shown: Vec<String> = group_keys.iter().take(40).map(|k| as_tg(*k).to_string()).collect();
+    println!("  talkgroups: {}", shown.join(", "));
+    if !ascending || group_keys.is_empty() {
+        eprintln!("\n!! FAILED: map must be ascending and contain group-call entries");
+        std::process::exit(1);
     }
 }

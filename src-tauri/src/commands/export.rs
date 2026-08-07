@@ -8,7 +8,7 @@ use crate::models::{
     Channel, ExportPreview, ExportPreviewRow, RadioModel, RepeaterTalkgroup,
 };
 
-const MODEL_COLUMNS_PREFIXED: &str = "rm.id, rm.manufacturer, rm.model, rm.display_name, rm.analog_capable, rm.dmr_capable, rm.dstar_capable, rm.ysf_capable, rm.nxdn_capable, rm.p25_capable, rm.m17_capable, rm.aprs_capable, rm.covers_hf, rm.covers_vhf, rm.covers_uhf, rm.covers_220, rm.covers_900, rm.freq_min, rm.freq_max, rm.memory_channels, rm.zones_supported, rm.max_zones, rm.channels_per_zone, rm.scan_lists_supported, rm.max_scan_lists, rm.banks_supported, rm.max_name_length, rm.export_format, rm.connection_type, rm.non_channel_settings_schema, rm.driver_key, rm.programming_ui";
+const MODEL_COLUMNS_PREFIXED: &str = "rm.id, rm.manufacturer, rm.model, rm.display_name, rm.analog_capable, rm.dmr_capable, rm.dstar_capable, rm.ysf_capable, rm.nxdn_capable, rm.p25_capable, rm.m17_capable, rm.aprs_capable, rm.covers_hf, rm.covers_vhf, rm.covers_uhf, rm.covers_220, rm.covers_900, rm.freq_min, rm.freq_max, rm.tx_bands, rm.rx_bands, rm.memory_channels, rm.zones_supported, rm.max_zones, rm.channels_per_zone, rm.scan_lists_supported, rm.max_scan_lists, rm.banks_supported, rm.max_name_length, rm.export_format, rm.connection_type, rm.non_channel_settings_schema, rm.driver_key, rm.programming_ui";
 
 /// Resolve the radio model backing a codeplug (via its radio profile).
 pub(crate) async fn codeplug_model(
@@ -370,10 +370,36 @@ pub(crate) async fn resolve_codeplug_payload(
     })
 }
 
+/// How a channel fits a radio: programmed, programmed but muted on transmit, or
+/// not programmed at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ChannelFit {
+    /// The radio can hear it and talk on it — an ordinary memory.
+    Included,
+    /// The radio can hear it but not transmit on it (GMRS on an FT5D). Still
+    /// programmed — a memory you can only listen to is worth having, and a
+    /// radio modified to transmit out of band will use it — but the operator is
+    /// told, because on a stock radio the PTT will simply refuse.
+    ReceiveOnly(String),
+    /// Dropped from the codeplug entirely, with the reason why.
+    Excluded(String),
+}
+
 /// Decide whether a channel can be exported to a given radio.
-/// Returns `None` if the channel is included, or `Some(reason)` if excluded.
+/// Returns `None` if the channel is programmed (transmit-capable OR
+/// receive-only), or `Some(reason)` if it is dropped. See [`channel_fit`] for
+/// the three-way answer.
 pub(crate) fn exclusion_reason(channel: &Channel, model: &RadioModel) -> Option<String> {
-    // Mode compatibility.
+    match channel_fit(channel, model) {
+        ChannelFit::Excluded(reason) => Some(reason),
+        _ => None,
+    }
+}
+
+/// The full verdict on one channel against one radio.
+pub(crate) fn channel_fit(channel: &Channel, model: &RadioModel) -> ChannelFit {
+    // Mode compatibility. Nothing rescues a mode the radio cannot demodulate,
+    // so this is a hard exclusion — receive-only does not apply.
     let mode = channel.mode.as_deref().unwrap_or("FM").to_uppercase();
     let mode_ok = match mode.as_str() {
         "FM" | "NFM" | "AM" | "USB" | "LSB" | "CW" => model.analog_capable,
@@ -386,34 +412,134 @@ pub(crate) fn exclusion_reason(channel: &Channel, model: &RadioModel) -> Option<
         _ => model.analog_capable,
     };
     if !mode_ok {
-        return Some(format!(
+        return ChannelFit::Excluded(format!(
             "Mode {mode} not supported by {}",
             model.display_name
         ));
     }
 
-    // Frequency: the min/max pair is one contiguous span, so it cannot describe
-    // a radio with a hole in the middle (a UV-5R is 136–520 but dead between
-    // 174 and 400). Check the band-coverage flags too, or a 224 MHz channel
-    // sails through 136–520 onto a radio that cannot transmit on it.
-    if let (Some(min), Some(max)) = (model.freq_min, model.freq_max) {
-        if channel.rx_freq < min || channel.rx_freq > max {
-            return Some(format!(
-                "Frequency {:.4} MHz is outside the {} range ({:.1}–{:.1} MHz)",
-                channel.rx_freq, model.display_name, min, max
-            ));
-        }
-    }
-    if let Some((covered, band)) = band_coverage(model, channel.rx_freq) {
-        if !covered {
-            return Some(format!(
-                "Frequency {:.4} MHz is in the {band} band, which {} does not cover",
-                channel.rx_freq, model.display_name
-            ));
-        }
+    // Transmit: both ends of the channel have to land in a band the radio can
+    // key up on — a repeater channel is no use if the input is out of band.
+    let tx_freq = tx_frequency(channel);
+    let tx_ok = tx_capable(model, channel.rx_freq) && tx_capable(model, tx_freq);
+    if tx_ok {
+        return ChannelFit::Included;
     }
 
-    None
+    // It cannot transmit. If the radio can still *hear* the channel, program it
+    // anyway and say so; otherwise it is genuinely no use on this radio.
+    let offending = if tx_capable(model, channel.rx_freq) {
+        tx_freq
+    } else {
+        channel.rx_freq
+    };
+    if rx_capable(model, channel.rx_freq) {
+        ChannelFit::ReceiveOnly(format!(
+            "Receive only — {:.4} MHz is outside the {} transmit range ({})",
+            offending,
+            model.display_name,
+            tx_range_label(model)
+        ))
+    } else {
+        ChannelFit::Excluded(tx_exclusion_reason(model, offending))
+    }
+}
+
+/// Why a frequency the radio cannot transmit on is also not worth keeping. Kept
+/// in the shape the old messages had, since these are what the export preview
+/// and every program dialog show.
+fn tx_exclusion_reason(model: &RadioModel, freq: f64) -> String {
+    if let (Some(min), Some(max)) = (model.freq_min, model.freq_max) {
+        if freq < min || freq > max {
+            return format!(
+                "Frequency {:.4} MHz is outside the {} range ({:.1}–{:.1} MHz)",
+                freq, model.display_name, min, max
+            );
+        }
+    }
+    if let Some((covered, band)) = band_coverage(model, freq) {
+        if !covered {
+            return format!(
+                "Frequency {:.4} MHz is in the {band} band, which {} does not cover",
+                freq, model.display_name
+            );
+        }
+    }
+    format!(
+        "Frequency {:.4} MHz is outside the {} transmit range ({})",
+        freq,
+        model.display_name,
+        tx_range_label(model)
+    )
+}
+
+/// Parse a `tx_bands`/`rx_bands` column: JSON `[[min, max], …]` in MHz. A
+/// malformed or empty value is treated as absent rather than as "no bands at
+/// all", so bad reference data can never silently empty a codeplug.
+fn bands(json: Option<&String>) -> Option<Vec<(f64, f64)>> {
+    let parsed: Vec<(f64, f64)> = serde_json::from_str::<Vec<Vec<f64>>>(json?.as_str())
+        .ok()?
+        .into_iter()
+        .filter(|b| b.len() == 2)
+        .map(|b| (b[0], b[1]))
+        .collect();
+    (!parsed.is_empty()).then_some(parsed)
+}
+
+fn in_bands(list: &[(f64, f64)], freq: f64) -> bool {
+    list.iter().any(|&(lo, hi)| freq >= lo && freq <= hi)
+}
+
+/// Can this radio transmit on `freq`?
+///
+/// `tx_bands` answers exactly when a model defines it. Otherwise it falls back
+/// to what the library always used: the contiguous `freq_min`–`freq_max` span,
+/// which cannot describe a radio with a hole in the middle (a UV-5R is 136–520
+/// but dead between 174 and 400), plus the band-coverage flags that plug that
+/// hole — without them a 224 MHz channel sails straight through 136–520.
+fn tx_capable(model: &RadioModel, freq: f64) -> bool {
+    if let Some(list) = bands(model.tx_bands.as_ref()) {
+        return in_bands(&list, freq);
+    }
+    if let (Some(min), Some(max)) = (model.freq_min, model.freq_max) {
+        if freq < min || freq > max {
+            return false;
+        }
+    }
+    !matches!(band_coverage(model, freq), Some((false, _)))
+}
+
+/// Can this radio receive `freq`? A model that has not had its receiver
+/// surveyed (`rx_bands` NULL) is assumed to hear exactly what it can talk on,
+/// which is the behaviour every radio had before `rx_bands` existed.
+fn rx_capable(model: &RadioModel, freq: f64) -> bool {
+    match bands(model.rx_bands.as_ref()) {
+        Some(list) => in_bands(&list, freq),
+        None => tx_capable(model, freq),
+    }
+}
+
+/// The transmit range as the operator should read it: the real band list when
+/// we have one ("144–148, 430–450 MHz"), else the contiguous span.
+fn tx_range_label(model: &RadioModel) -> String {
+    if let Some(list) = bands(model.tx_bands.as_ref()) {
+        let spans: Vec<String> = list
+            .iter()
+            .map(|&(lo, hi)| format!("{}–{}", trim_mhz(lo), trim_mhz(hi)))
+            .collect();
+        return format!("{} MHz", spans.join(", "));
+    }
+    match (model.freq_min, model.freq_max) {
+        (Some(min), Some(max)) => format!("{}–{} MHz", trim_mhz(min), trim_mhz(max)),
+        _ => "its transmit bands".to_string(),
+    }
+}
+
+/// 148.0 → "148", 462.5625 → "462.5625". Band edges are round numbers and
+/// should read like it.
+fn trim_mhz(mhz: f64) -> String {
+    let s = format!("{mhz:.4}");
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
 /// Which `covers_*` flag governs a frequency, and whether the model sets it.
@@ -484,25 +610,32 @@ pub async fn export_preview(
     let mut rows = Vec::with_capacity(expanded.len());
     let mut included = 0usize;
     let mut excluded = 0usize;
+    let mut receive_only = 0usize;
 
     // Dedup runs over the included set only — those are the names that share a
     // radio — so the preview shows exactly what programming will write.
-    let reasons: Vec<Option<String>> = expanded
+    // Receive-only channels take a memory slot like any other, so they are part
+    // of that set.
+    let fits: Vec<ChannelFit> = expanded
         .iter()
-        .map(|ec| exclusion_reason(&ec.channel, &model))
+        .map(|ec| channel_fit(&ec.channel, &model))
         .collect();
     let mut included_names = expanded_names(
         expanded
             .iter()
-            .zip(&reasons)
-            .filter(|(_, r)| r.is_none())
+            .zip(&fits)
+            .filter(|(_, f)| !matches!(f, ChannelFit::Excluded(_)))
             .map(|(ec, _)| ec),
         &model,
     )
     .into_iter();
 
-    for (ec, reason) in expanded.iter().zip(reasons) {
-        let is_included = reason.is_none();
+    for (ec, fit) in expanded.iter().zip(fits) {
+        let (is_included, is_rx_only, reason) = match fit {
+            ChannelFit::Included => (true, false, None),
+            ChannelFit::ReceiveOnly(r) => (true, true, Some(r)),
+            ChannelFit::Excluded(r) => (false, false, Some(r)),
+        };
         let name = if is_included {
             included_names.next().unwrap_or_default()
         } else {
@@ -510,6 +643,9 @@ pub async fn export_preview(
         };
         if is_included {
             included += 1;
+            if is_rx_only {
+                receive_only += 1;
+            }
         } else {
             excluded += 1;
         }
@@ -519,6 +655,7 @@ pub async fn export_preview(
             rx_freq: ec.channel.rx_freq,
             mode: ec.channel.mode.clone(),
             included: is_included,
+            receive_only: is_rx_only,
             reason,
         });
     }
@@ -529,6 +666,7 @@ pub async fn export_preview(
         export_format: model.export_format.clone().unwrap_or_default(),
         included_count: included,
         excluded_count: excluded,
+        receive_only_count: receive_only,
         rows,
     })
 }
@@ -548,6 +686,23 @@ pub async fn generate_codeplug(
         .filter(|ec| exclusion_reason(&ec.channel, &model).is_none())
         .collect();
 
+    // Bank/zone-capable formats need to know which channel list each channel
+    // came from, which the flattened `included` view has thrown away.
+    let groups = resolve_codeplug_groups(&state.pool, codeplug_id).await?;
+
+    // The codeplug's radio profile, for formats that carry non-channel settings
+    // (the FT5D writes them into the same microSD image as the channels).
+    let profile_settings: Option<String> = sqlx::query_scalar(
+        "SELECT p.non_channel_settings FROM codeplugs c
+         JOIN radio_profiles p ON p.id = c.radio_profile_id
+         WHERE c.id = ?1",
+    )
+    .bind(codeplug_id)
+    .fetch_optional(&state.pool)
+    .await
+    .estr()?
+    .flatten();
+
     // Format-keyed registry lookup (Chunk 3.8): a model picks its exporter by
     // `export_format`, never by name and never by driver — an export-only model
     // has no driver but still names a format. Unclaimed formats (and NULL) get
@@ -558,7 +713,13 @@ pub async fn generate_codeplug(
         .and_then(crate::radios::registry::exporter_for_format)
     {
         Some(exporter) => {
-            exporter.export(&path, &included, &model)?;
+            let req = crate::radios::driver::ExportRequest {
+                channels: &included,
+                groups: &groups,
+                model: &model,
+                profile_settings: profile_settings.as_deref(),
+            };
+            exporter.export(&path, &req)?;
         }
         None => {
             let csv = render_chirp_csv(&included, &model)?;
@@ -1269,5 +1430,125 @@ mod tests {
                 "{freq} should be included"
             );
         }
+    }
+
+    /// The FT5D as seeded: two disjoint TX bands, a receiver that covers
+    /// everything from longwave up.
+    fn wideband_rx_model() -> RadioModel {
+        RadioModel {
+            display_name: "Yaesu FT5D".into(),
+            analog_capable: true,
+            ysf_capable: true,
+            covers_vhf: true,
+            covers_uhf: true,
+            freq_min: Some(144.0),
+            freq_max: Some(450.0),
+            tx_bands: Some("[[144.0,148.0],[430.0,450.0]]".into()),
+            rx_bands: Some("[[0.5,999.995]]".into()),
+            max_name_length: Some(16),
+            ..Default::default()
+        }
+    }
+
+    fn fm_at(rx_freq: f64) -> Channel {
+        Channel {
+            rx_freq,
+            mode: Some("FM".into()),
+            ..Default::default()
+        }
+    }
+
+    /// Issue #32: GMRS was dropped from an FT5D codeplug because 462 MHz is
+    /// outside the radio's transmit range — but the radio receives it perfectly
+    /// well, so the channel belongs in the codeplug, labelled receive-only.
+    #[test]
+    fn channels_the_radio_hears_but_cannot_transmit_on_are_kept() {
+        let model = wideband_rx_model();
+        for freq in [462.5625, 156.800, 162.550, 118.100, 224.840, 927.0125] {
+            let ch = fm_at(freq);
+            match channel_fit(&ch, &model) {
+                ChannelFit::ReceiveOnly(reason) => {
+                    assert!(
+                        reason.contains("144–148, 430–450 MHz"),
+                        "reason should name the real TX bands: {reason}"
+                    );
+                }
+                other => panic!("{freq} MHz should be receive-only, got {other:?}"),
+            }
+            // Receive-only is still programmed: the exporters filter on this.
+            assert!(exclusion_reason(&ch, &model).is_none());
+        }
+    }
+
+    /// The gap between the two TX bands is the whole point of `tx_bands`: MURS
+    /// sits inside 144–450 and inside the VHF coverage flag, and the radio
+    /// still cannot transmit there.
+    #[test]
+    fn a_frequency_inside_the_span_but_between_the_tx_bands_is_receive_only() {
+        let model = wideband_rx_model();
+        assert!(matches!(
+            channel_fit(&fm_at(151.820), &model),
+            ChannelFit::ReceiveOnly(_)
+        ));
+        // Both real bands still transmit.
+        assert_eq!(channel_fit(&fm_at(146.940), &model), ChannelFit::Included);
+        assert_eq!(channel_fit(&fm_at(449.850), &model), ChannelFit::Included);
+    }
+
+    /// A repeater output the radio can transmit on whose *input* it cannot is
+    /// still only good for listening.
+    #[test]
+    fn a_transmit_frequency_outside_the_bands_makes_the_channel_receive_only() {
+        let model = wideband_rx_model();
+        let ch = Channel {
+            rx_freq: 147.000,
+            tx_freq: Some(462.675),
+            mode: Some("FM".into()),
+            ..Default::default()
+        };
+        match channel_fit(&ch, &model) {
+            ChannelFit::ReceiveOnly(reason) => {
+                assert!(reason.contains("462.6750"), "should name the TX side: {reason}")
+            }
+            other => panic!("expected receive-only, got {other:?}"),
+        }
+    }
+
+    /// Past the receiver too — nothing to hear, so nothing to program.
+    #[test]
+    fn beyond_the_receiver_is_still_excluded() {
+        let model = wideband_rx_model();
+        let reason = exclusion_reason(&fm_at(1296.0), &model).expect("1296 MHz must be excluded");
+        assert!(reason.contains("1296"), "unexpected reason: {reason}");
+        // And a mode the radio cannot demodulate is excluded no matter how well
+        // it hears the frequency.
+        let dmr = Channel {
+            mode: Some("DMR".into()),
+            ..fm_at(146.940)
+        };
+        assert!(exclusion_reason(&dmr, &model).unwrap().contains("Mode DMR"));
+    }
+
+    /// Reference data that will not parse must never quietly empty a codeplug:
+    /// a broken `tx_bands` falls back to the contiguous span it replaced.
+    #[test]
+    fn malformed_band_json_falls_back_to_the_old_rules() {
+        let mut model = wideband_rx_model();
+        model.tx_bands = Some("not json".into());
+        model.rx_bands = Some("[]".into());
+        assert_eq!(channel_fit(&fm_at(146.940), &model), ChannelFit::Included);
+        // 151.82 is inside 144–450 and VHF is covered, so the old rules pass it.
+        assert_eq!(channel_fit(&fm_at(151.820), &model), ChannelFit::Included);
+        // And with no usable rx_bands, out-of-span is an exclusion as before.
+        assert!(exclusion_reason(&fm_at(462.5625), &model).is_some());
+    }
+
+    /// Models that have not been surveyed keep the behaviour they always had.
+    #[test]
+    fn a_model_without_bands_is_unchanged() {
+        let model = model_with(7);
+        assert_eq!(channel_fit(&fm_at(146.940), &model), ChannelFit::Included);
+        assert!(exclusion_reason(&fm_at(600.0), &model).is_some());
+        assert!(exclusion_reason(&fm_at(224.840), &model).is_some());
     }
 }

@@ -419,7 +419,7 @@ export function CodeplugDetail() {
               title={
                 profileId == null
                   ? "Assign a radio profile first"
-                  : "Program the radio directly over the cable"
+                  : "Program the radio over the cable or its memory card"
               }
             >
               <RadioTower size={14} /> Program Radio

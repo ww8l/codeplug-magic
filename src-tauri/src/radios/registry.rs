@@ -7,8 +7,9 @@
 //! adding its folder under `radios/<key>/` and one line to `all_drivers()` —
 //! never a new arm in `lib.rs`, `Codeplugs.tsx`, or `export.rs`.
 //!
-//! All three drivers are registered: `baofeng_uv5r` (3.3), `tidradio_tdh3`
-//! (3.4), `anytone_atd890uv` (3.5). `driver_for_key` is live as of 3.6c —
+//! Registered: `baofeng_uv5r` (3.3), `tidradio_tdh3` (3.4), `anytone_atd890uv`
+//! (3.5), and `yaesu_ft5d` (issue #32, scaffolding — identify only, no
+//! capabilities yet). `driver_for_key` is live as of 3.6c —
 //! `identify_radio` and `download_image` dispatch through it, joined by the
 //! settings and call-sign DB commands in 3.6d — so a lookup returning `None`
 //! now means a bad `driver_key`, not an unmigrated radio.
@@ -22,10 +23,11 @@ use crate::models::RadioModel;
 /// Every driver compiled into the app. Order is not significant — lookups are
 /// by `key()`, which is unique. (A static array rather than a slice literal:
 /// references to statics aren't const-promotable inside a returned temporary.)
-static DRIVERS: [&dyn RadioDriver; 3] = [
+static DRIVERS: [&dyn RadioDriver; 4] = [
     &super::baofeng_uv5r::DRIVER,
     &super::tidradio_tdh3::DRIVER,
     &super::anytone_atd890uv::DRIVER,
+    &super::yaesu_ft5d::DRIVER,
 ];
 
 pub(crate) fn all_drivers() -> &'static [&'static dyn RadioDriver] {
@@ -68,7 +70,12 @@ mod tests {
     /// a user-visible failure rather than a compile error. Lock the keys.
     #[test]
     fn every_driver_key_resolves_and_is_unique() {
-        for key in ["baofeng_uv5r", "tidradio_tdh3", "anytone_atd890uv"] {
+        for key in [
+            "baofeng_uv5r",
+            "tidradio_tdh3",
+            "anytone_atd890uv",
+            "yaesu_ft5d",
+        ] {
             let d = driver_for_key(key).unwrap_or_else(|| panic!("no driver for '{key}'"));
             assert_eq!(d.key(), key);
         }
@@ -83,18 +90,25 @@ mod tests {
 
     /// The generic settings commands (3.6d) dispatch on these two accessors, so
     /// the read/write split is what decides which radios each command accepts.
-    /// Every driver reads settings; the UV-5R cannot write them on its own (its
-    /// settings ride along in the image `program_codeplug` uploads), which is
-    /// exactly why `SettingsReader` and `SettingsWriter` are separate traits.
+    /// The UV-5R reads settings but cannot write them on its own (its settings
+    /// ride along in the image `program_codeplug` uploads), which is exactly why
+    /// `SettingsReader` and `SettingsWriter` are separate traits. The FT5D does
+    /// neither: it is scaffolding until a modality is proven on the radio
+    /// (issue #32), so it must not be offered a settings action at all.
     #[test]
-    fn every_driver_reads_settings_but_the_uv5r_cannot_write_them() {
+    fn settings_capabilities_match_each_radios_reality() {
         for d in all_drivers() {
-            assert!(
+            let (expect_read, expect_write) = match d.key() {
+                "baofeng_uv5r" => (true, false),
+                "yaesu_ft5d" => (false, false),
+                _ => (true, true),
+            };
+            assert_eq!(
                 d.as_settings_reader().is_some(),
-                "{} should read settings",
+                expect_read,
+                "{} settings-read capability",
                 d.key()
             );
-            let expect_write = d.key() != "baofeng_uv5r";
             assert_eq!(
                 d.as_settings_writer().is_some(),
                 expect_write,
