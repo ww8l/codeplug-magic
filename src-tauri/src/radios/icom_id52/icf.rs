@@ -50,6 +50,12 @@
 //! while the memory map is still waiting on dumps from a real radio
 //! (`scratchpad/id52/FINDINGS.md` §5).
 
+// Reached only from this module's tests until the settings path lands, which is
+// the caller that reads and patches an image. Finished and proven ahead of its
+// consumer on purpose: the checksum is the part that decides whether the radio
+// accepts a file at all, and it was implementable before any hardware arrived.
+#![allow(dead_code)]
+
 use md5::{Digest, Md5};
 
 /// Data-line record size Icom uses on SD-card-era models: 32 bytes per line,
@@ -224,10 +230,9 @@ impl IcfFile {
     /// The model id as it appears on line 1, e.g. `"32200000"`. The one piece
     /// of identity a caller needs to check it has the right radio's file.
     ///
-    /// Unused until the settings writer lands, which is the caller that must
-    /// refuse an `.icf` belonging to some other Icom before patching it — the
-    /// ID-52's own id is not known until a file comes off the radio.
-    #[allow(dead_code)]
+    /// The settings writer is the caller that must refuse an `.icf` belonging to
+    /// some other Icom before patching it — the ID-52's own id is not known
+    /// until a file comes off the radio.
     pub(crate) fn model_id(&self) -> &str {
         &self.model_line
     }
