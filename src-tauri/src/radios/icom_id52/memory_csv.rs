@@ -85,13 +85,22 @@ const HEADER: [&str; 20] = [
     "RPT2 Call Sign",
 ];
 
-/// Tuning step written for every memory.
+/// Tuning step. The channel database has no per-channel step, and the step only
+/// affects what happens when you dial *off* a memory — the stored frequency is
+/// exact regardless.
 ///
-/// The channel database has no per-channel step, and the step only affects what
-/// happens when you dial *off* a memory — the stored frequency is exact
-/// regardless. Both independent ID-52 converters write `12.5kHz`, so that is
-/// the spelling known to be accepted by the radio's importer.
-const TUNE_STEP: &str = "12.5kHz";
+/// These are the two values the radio writes for itself: `5kHz` for everything,
+/// and `8.33kHz` for airband AM, which is that band's real channel spacing.
+/// (Both third-party ID-52 converters write `12.5kHz` instead; the radio's own
+/// export says otherwise, and the radio wins.)
+fn tune_step(ec: &ExpandedChannel) -> &'static str {
+    let f = ec.channel.rx_freq;
+    if mode_of(ec) == "AM" && (108.0..137.0).contains(&f) {
+        "8.33kHz"
+    } else {
+        "5kHz"
+    }
+}
 
 /// Fallback tone frequency. The radio wants both tone columns populated on
 /// every row whatever the TONE column says, and 88.5 Hz is its own default.
@@ -200,9 +209,16 @@ pub(crate) fn render_csv(
         let c = &ec.channel;
         let p = &placements[i];
         let (dup, offset) = duplex_and_offset(ec);
-        let dv = is_dv(ec);
+        let mode = mode_of(ec);
+        // Which family of columns this row fills. The radio's own export is
+        // strict about this: an FM row leaves every digital column empty, a DV
+        // row leaves every tone column empty, and an AM row — which has no
+        // squelch of either kind — leaves both sets empty.
+        let dv = mode == "DV";
+        let analog = matches!(mode, "FM" | "FM-N");
         let (tone, rpt_tone, tsql_tone) = tone_columns(ec);
         let (your, rpt1, rpt2) = call_signs(ec, dv);
+        let blank = String::new();
 
         wtr.write_record([
             format!("{:02}", p.group_no),
@@ -212,20 +228,34 @@ pub(crate) fn render_csv(
             format!("{:.6}", c.rx_freq),
             dup.to_string(),
             format!("{offset:.6}"),
-            TUNE_STEP.to_string(),
-            mode_of(ec).to_string(),
+            tune_step(ec).to_string(),
+            mode.to_string(),
             // The channel database has no per-channel scan skip, so nothing is
             // skipped. Same gap the FT5D writer has, and for the same reason.
             "OFF".to_string(),
-            tone.to_string(),
-            format!("{rpt_tone:.1}Hz"),
-            format!("{tsql_tone:.1}Hz"),
-            c.dcs_code.clone().unwrap_or_else(|| DEFAULT_DTCS.into()),
-            dtcs_polarity(&c.dcs_polarity).to_string(),
-            // Digital squelch applies only to DV memories; on an FM row the
-            // radio expects these blank, not "OFF".
-            if dv { "OFF".into() } else { String::new() },
-            String::new(),
+            if analog { tone.into() } else { blank.clone() },
+            if analog {
+                format!("{rpt_tone:.1}Hz")
+            } else {
+                blank.clone()
+            },
+            if analog {
+                format!("{tsql_tone:.1}Hz")
+            } else {
+                blank.clone()
+            },
+            if analog {
+                c.dcs_code.clone().unwrap_or_else(|| DEFAULT_DTCS.into())
+            } else {
+                blank.clone()
+            },
+            if analog {
+                dtcs_polarity(&c.dcs_polarity).into()
+            } else {
+                blank.clone()
+            },
+            if dv { "OFF".into() } else { blank.clone() },
+            if dv { "0".into() } else { blank },
             your,
             rpt1,
             rpt2,
@@ -254,7 +284,18 @@ fn duplex_and_offset(ec: &ExpandedChannel) -> (&'static str, f64) {
         _ => match (c.duplex.as_deref(), c.offset) {
             (Some("-"), Some(off)) if off.abs() > 1e-9 => c.rx_freq - off.abs(),
             (Some("+"), Some(off)) if off.abs() > 1e-9 => c.rx_freq + off.abs(),
-            _ => return ("OFF", 0.0),
+            // Simplex. The radio still stores an offset it is not using, and
+            // fills it with the band's standard shift — so a memory the operator
+            // later flips to DUP on the front panel lands somewhere sensible
+            // instead of on top of itself. Matching that keeps a file we wrote
+            // indistinguishable from one the radio exported.
+            _ => {
+                let standard = crate::util::standard_offsets(c.rx_freq)
+                    .first()
+                    .copied()
+                    .unwrap_or(0.0);
+                return ("OFF", standard);
+            }
         },
     };
     let diff = tx - c.rx_freq;
@@ -295,8 +336,8 @@ fn mode_of(ec: &ExpandedChannel) -> &'static str {
 /// radios without cross modes get.
 fn tone_columns(ec: &ExpandedChannel) -> (&'static str, f64, f64) {
     let c = &ec.channel;
-    let up = c.ctcss_uplink.unwrap_or(DEFAULT_TONE_HZ);
-    let down = c.ctcss_downlink.or(c.ctcss_uplink).unwrap_or(DEFAULT_TONE_HZ);
+    let up = c.ctcss_uplink;
+    let down = c.ctcss_downlink;
     let tone = match c.tone_mode.as_deref() {
         Some(m) if m.eq_ignore_ascii_case("tone") => "TONE",
         Some(m) if m.eq_ignore_ascii_case("tsql") => "TSQL",
@@ -310,17 +351,39 @@ fn tone_columns(ec: &ExpandedChannel) -> (&'static str, f64, f64) {
         },
         _ => "OFF",
     };
-    (tone, up, down)
+    // Which of the two frequency columns the radio reads depends on the TONE
+    // column, and the other one is a leftover it ignores — the real export is
+    // full of rows carrying an unrelated 88.5 Hz next to a live tone. So the
+    // live one is placed deliberately and the spare gets the radio's default:
+    // `TONE` transmits the Repeater Tone, `TSQL` uses the TSQL Frequency both
+    // ways, and cross mode is the only one that reads both.
+    let (rpt, tsql) = match tone {
+        "TONE" => (up, down),
+        "TSQL" => {
+            let t = down.or(up);
+            (t, t)
+        }
+        // DTCS carries its code in its own column; neither tone is read.
+        "DTCS" => (None, None),
+        _ => (up, down),
+    };
+    (
+        tone,
+        rpt.unwrap_or(DEFAULT_TONE_HZ),
+        tsql.unwrap_or(DEFAULT_TONE_HZ),
+    )
 }
 
-/// `DTCS Polarity`, in the radio's own words (Advanced Manual p. 12-4). The
-/// database stores CHIRP's two-letter form.
+/// `DTCS Polarity`. The database stores CHIRP's two-letter form.
+///
+/// The manual writes these as "Both N" but the CSV the radio exports uses
+/// `BOTH N` — the file's spelling is the one that has to match.
 fn dtcs_polarity(stored: &str) -> &'static str {
     match stored.to_uppercase().as_str() {
         "NR" => "TN-RR",
         "RN" => "TR-RN",
-        "RR" => "Both R",
-        _ => "Both N",
+        "RR" => "BOTH R",
+        _ => "BOTH N",
     }
 }
 
@@ -441,6 +504,7 @@ mod tests {
     const FREQ: usize = 4;
     const DUP: usize = 5;
     const OFFSET: usize = 6;
+    const TS: usize = 7;
     const MODE: usize = 8;
     const TONE: usize = 10;
     const RPT_TONE: usize = 11;
@@ -448,15 +512,17 @@ mod tests {
     const DTCS: usize = 13;
     const DTCS_POL: usize = 14;
     const DV_SQL: usize = 15;
+    const DV_CSQL: usize = 16;
     const YOUR: usize = 17;
     const RPT1: usize = 18;
     const RPT2: usize = 19;
 
     /// The header is what the radio's importer matches on, so it is pinned
-    /// exactly — including column order. When a real export off the radio
-    /// settles the `SEL` question, this is the test that has to change.
+    /// exactly — including column order. CONFIRMED against a real Memory CH
+    /// export off Tim's ID-52: 20 columns, and no `SEL` (that column belongs to
+    /// a third-party tool's combined IC-705/ID-52 target, not to this radio).
     #[test]
-    fn the_header_is_the_documented_twenty_columns() {
+    fn the_header_is_the_radios_own_twenty_columns() {
         let csv = render_csv(&[], &[], &model()).unwrap();
         assert_eq!(
             csv.lines().next().unwrap(),
@@ -484,12 +550,35 @@ mod tests {
         assert_eq!(r[OFFSET], "0.600000");
         assert_eq!(r[TONE], "TONE");
         assert_eq!(r[RPT_TONE], "100.0Hz");
+        // TONE transmits the Repeater Tone and never reads this column, so it
+        // gets the radio's default rather than an echo of the TX tone — which
+        // is exactly what the radio's own export does.
+        assert_eq!(r[TSQL_TONE], "88.5Hz");
         assert_eq!(r[MODE], "FM");
-        assert_eq!(r[DTCS_POL], "Both N");
+        assert_eq!(r[TS], "5kHz");
+        assert_eq!(r[DTCS_POL], "BOTH N");
     }
 
-    /// Simplex: no shift, no tone, and the tone columns still carry the radio's
-    /// own default rather than being left blank.
+    /// Tone squelch is the same tone both ways, and the radio reads it from the
+    /// TSQL column — so a channel that only carries an uplink tone must still
+    /// land there, not just in Repeater Tone.
+    #[test]
+    fn tone_squelch_fills_the_column_the_radio_reads() {
+        let mut c = chan(1, "W0UPS", 145.115);
+        c.tone_mode = Some("TSQL".into());
+        c.ctcss_uplink = Some(100.0);
+        let ec = expand(c);
+
+        let r = &rows(&render_csv(&[&ec], &[], &model()).unwrap())[0];
+        assert_eq!(r[TONE], "TSQL");
+        assert_eq!(r[TSQL_TONE], "100.0Hz");
+        assert_eq!(r[RPT_TONE], "100.0Hz");
+    }
+
+    /// Simplex: no shift. The offset column still carries the band's standard
+    /// shift, because that is what the radio stores for its own simplex
+    /// memories — an unused value, but one that makes sense if the operator
+    /// later turns duplex on from the front panel.
     #[test]
     fn a_simplex_channel_has_no_shift_and_no_tone() {
         let ec = expand(chan(1, "Calling", 146.520));
@@ -497,10 +586,26 @@ mod tests {
         let r = &rows(&csv)[0];
 
         assert_eq!(r[DUP], "OFF");
-        assert_eq!(r[OFFSET], "0.000000");
+        assert_eq!(r[OFFSET], "0.600000", "2m standard shift");
         assert_eq!(r[TONE], "OFF");
         assert_eq!(r[RPT_TONE], "88.5Hz");
         assert_eq!(r[DTCS], "023");
+    }
+
+    /// Airband AM has neither kind of squelch, and the radio writes its real
+    /// 8.33 kHz channel spacing — both straight off the radio's own export.
+    #[test]
+    fn an_airband_am_memory_has_no_squelch_columns_at_all() {
+        let mut c = chan(1, "FNL CTAF", 118.400);
+        c.mode = Some("AM".into());
+        let ec = expand(c);
+
+        let r = &rows(&render_csv(&[&ec], &[], &model()).unwrap())[0];
+        assert_eq!(r[MODE], "AM");
+        assert_eq!(r[TS], "8.33kHz");
+        for col in [TONE, RPT_TONE, TSQL_TONE, DTCS, DTCS_POL, DV_SQL, YOUR] {
+            assert_eq!(r[col], "", "column {col} should be empty on an AM memory");
+        }
     }
 
     /// A shift stored as duplex + offset, with no transmit frequency of its own,
@@ -550,7 +655,13 @@ mod tests {
         assert_eq!(r[RPT1], "W0ABC  B", "70cm repeaters use port B");
         assert_eq!(r[RPT2], "W0ABC  G");
         assert_eq!(r[DV_SQL], "OFF");
+        assert_eq!(r[DV_CSQL], "0");
         assert_eq!(r[RPT1].len(), 8, "Icom call signs are exactly 8 characters");
+        // A DV memory has no analog squelch, and the radio leaves every tone
+        // column empty rather than carrying a default through.
+        for col in [TONE, RPT_TONE, TSQL_TONE, DTCS, DTCS_POL] {
+            assert_eq!(r[col], "", "column {col} should be empty on a DV memory");
+        }
     }
 
     /// An analog memory must leave the digital columns empty — an FM row with
