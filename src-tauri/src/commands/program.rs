@@ -234,7 +234,7 @@ pub async fn download_image(
             image_bytes: image.len(),
             backup_path: backup_path.to_string_lossy().to_string(),
             channel_count: channels.len(),
-            channels: channels.into_iter().take(20).collect(),
+            channels,
         })
     })
     .await

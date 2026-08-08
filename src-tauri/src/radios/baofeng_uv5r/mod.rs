@@ -271,11 +271,7 @@ impl ImageProgrammer for BaofengUv5r {
             verified: Some(verified),
             note,
             backup_path: backup_path.to_string_lossy().to_string(),
-            channels: channels
-                .into_iter()
-                .take(20)
-                .map(decoded_to_sample)
-                .collect(),
+            channels: channels.into_iter().map(decoded_to_sample).collect(),
             // The UV-5R programs channels + settings only, and rewrites whole
             // ranges rather than addressed windows.
             zones_written: 0,
