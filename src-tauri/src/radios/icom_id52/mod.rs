@@ -47,6 +47,22 @@ pub(crate) mod memory_csv;
 
 use crate::radios::driver::{RadioDriver, RadioIdentity};
 
+/// Line 1 of an ID-52 `.icf`. Measured from a real export off the radio (s88);
+/// the trailing `0001` is part of the id, not padding, though only the first
+/// two bytes feed the checksum magic.
+pub(crate) const ID52_MODEL_ID: &str = "38670001";
+
+/// `#MapRev` of the files this driver understands.
+///
+/// The radio can be told to write an **earlier firmware version** of the file
+/// (SET > SD Card > Save Form), which is exactly the kind of switch that moves a
+/// memory map. Anything that patches measured offsets must check this rather
+/// than assume.
+pub(crate) const ID52_MAP_REV: u32 = 3;
+
+/// Decoded image length, 256,576 bytes. Measured from the same file.
+pub(crate) const ID52_IMAGE_LEN: usize = 0x3EA40;
+
 pub(crate) struct IcomId52;
 
 pub(crate) static DRIVER: IcomId52 = IcomId52;

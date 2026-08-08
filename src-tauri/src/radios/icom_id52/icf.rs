@@ -448,4 +448,41 @@ mod tests {
             assert!(IcfFile::parse(bad).is_err(), "accepted {bad:?}");
         }
     }
+
+    /// The same round trip against a **real file off Tim's ID-52**, which is the
+    /// only source that can be wrong in ways the synthetic fixture is not.
+    ///
+    /// `#[ignore]`d because the file is a personal radio's dump under
+    /// `scratchpad/` (gitignored), so it cannot exist in CI. Run it whenever a
+    /// fresh capture lands:
+    ///
+    ///     cargo test --lib icf -- --ignored --nocapture
+    #[test]
+    #[ignore = "needs a real .icf under scratchpad/id52/"]
+    fn a_real_radio_file_round_trips() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../scratchpad/id52/id52_01_base.icf"
+        );
+        let Ok(text) = std::fs::read_to_string(path) else {
+            eprintln!("skipped: no capture at {path}");
+            return;
+        };
+
+        let icf = IcfFile::parse(&text).expect("a real ID-52 file must parse");
+        assert_eq!(icf.model_id(), super::super::ID52_MODEL_ID);
+        assert_eq!(icf.map_rev(), Some(super::super::ID52_MAP_REV));
+        assert_eq!(icf.image().len(), super::super::ID52_IMAGE_LEN);
+        assert_eq!(
+            icf.render(),
+            text,
+            "an untouched real file must come back byte for byte"
+        );
+        eprintln!(
+            "ok: model {} rev {:?}, {} bytes of image",
+            icf.model_id(),
+            icf.map_rev(),
+            icf.image().len()
+        );
+    }
 }
