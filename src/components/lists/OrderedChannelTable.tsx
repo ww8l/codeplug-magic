@@ -3,6 +3,7 @@ import { ChevronUp, ChevronDown, X, GripVertical } from "lucide-react";
 import clsx from "clsx";
 import type { Channel } from "../../lib/types";
 import { fmtFreq } from "../../lib/constants";
+import { useDragAutoScroll } from "../../lib/dragAutoScroll";
 import { channelLabel } from "./channelLabel";
 import { Badge } from "../ui";
 
@@ -21,6 +22,7 @@ export function OrderedChannelTable({
   // Index of the row being dragged, and the row it's currently hovering over.
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
+  const tableRef = useDragAutoScroll<HTMLTableElement>(dragIndex !== null);
 
   const move = (index: number, dir: -1 | 1) => {
     const target = index + dir;
@@ -47,7 +49,7 @@ export function OrderedChannelTable({
   };
 
   return (
-    <table className="w-full text-xs">
+    <table ref={tableRef} className="w-full text-xs">
       <thead className="sticky top-0 bg-slate-50 text-slate-500 dark:bg-slate-900/80 dark:text-slate-400">
         <tr className="border-b border-slate-200 dark:border-slate-700">
           <th className="w-6 px-1 py-1.5"></th>
