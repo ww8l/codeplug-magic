@@ -43,6 +43,7 @@
 //! radio. Nothing is claimed until it has been proven against one.
 
 pub(crate) mod icf;
+pub(crate) mod memory_csv;
 
 use crate::radios::driver::{RadioDriver, RadioIdentity};
 
@@ -79,6 +80,10 @@ impl RadioDriver for IcomId52 {
              USB Connect > SD Card Mode — and use the card actions instead."
             .into())
     }
+
+    fn as_codeplug_exporter(&self) -> Option<&dyn crate::radios::driver::CodeplugExporter> {
+        Some(self)
+    }
 }
 
 #[cfg(test)]
@@ -86,13 +91,13 @@ mod tests {
     use super::*;
     use crate::radios::driver::DriverCapabilities;
 
-    /// The ID-52 claims nothing yet. When the card paths land, this test is the
-    /// thing that forces the capability set to be updated deliberately rather
-    /// than drifting — in either direction: an unclaimed capability is an
+    /// File export — the Memory CH CSV — and nothing else. Every other flag
+    /// means a cable session this radio has no protocol for. Locking the exact
+    /// set catches drift in either direction: an unclaimed capability is an
     /// action the UI never offers, and a claimed one that does not work is an
     /// action that fails on the radio.
     #[test]
-    fn advertises_nothing_until_a_path_is_proven() {
+    fn advertises_file_export_only() {
         let caps = DriverCapabilities::of(&DRIVER);
         assert_eq!(
             caps,
@@ -103,7 +108,7 @@ mod tests {
                 write_channels: false,
                 program_codeplug: false,
                 write_callsign_db: false,
-                export: false,
+                export: true,
                 diagnostics: false,
             }
         );
