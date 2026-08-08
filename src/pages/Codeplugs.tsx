@@ -28,6 +28,7 @@ import type {
   ScanListSummary,
 } from "../lib/types";
 import { modelBands, modelModes } from "../lib/profiles";
+import { useDragAutoScroll } from "../lib/dragAutoScroll";
 import {
   PageHeader,
   Button,
@@ -193,6 +194,7 @@ export function CodeplugDetail() {
   // Index of the channel-list row being dragged, and the row it is over.
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
+  const listsRef = useDragAutoScroll<HTMLUListElement>(dragIndex !== null);
   const [scanLists, setScanLists] = useState<ScanListSummary[]>([]);
   const [allChannelLists, setAllChannelLists] = useState<ChannelListSummary[]>([]);
   const [allScanLists, setAllScanLists] = useState<ScanListSummary[]>([]);
@@ -539,7 +541,10 @@ export function CodeplugDetail() {
                   ordering on export.
                 </p>
               ) : (
-                <ul className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                <ul
+                  ref={listsRef}
+                  className="divide-y divide-slate-100 dark:divide-slate-700/60"
+                >
                   {channelLists.map((l, i) => (
                     <li
                       key={l.id}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Columns3, RotateCcw, GripVertical, X, Plus } from "lucide-react";
 import clsx from "clsx";
 import type { Channel } from "../../lib/types";
+import { useDragAutoScroll } from "../../lib/dragAutoScroll";
 import { Button } from "../ui";
 
 interface ColumnOption {
@@ -23,6 +24,7 @@ export function ColumnPicker({
   const [open, setOpen] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const shownRef = useDragAutoScroll<HTMLDivElement>(dragIndex !== null);
 
   // Close on outside click or Escape.
   useEffect(() => {
@@ -82,7 +84,7 @@ export function ColumnPicker({
             </button>
           </div>
 
-          <div className="max-h-64 overflow-auto py-1">
+          <div ref={shownRef} className="max-h-64 overflow-auto py-1">
             {shown.map((key, i) => (
               <div
                 key={String(key)}
