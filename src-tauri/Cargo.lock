@@ -6018,6 +6018,7 @@ version = "26.8.6"
 dependencies = [
  "chrono",
  "csv",
+ "md-5",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

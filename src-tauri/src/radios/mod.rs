@@ -9,10 +9,15 @@
 //! `yaesu_ft5d` is the first driver added after Chunk 3 and is scaffolding
 //! only — registered and identifiable, but advertising no capabilities until a
 //! programming modality is proven against the radio (issue #32).
+//!
+//! `icom_id52` is the second (issue #38), and the second radio programmed from
+//! a memory card rather than a cable. Its `.icf` container is finished; its
+//! memory map is waiting on dumps from the radio.
 
 pub(crate) mod anytone_atd890uv;
 pub(crate) mod baofeng_uv5r;
 pub(crate) mod driver;
+pub(crate) mod icom_id52;
 pub(crate) mod registry;
 pub(crate) mod tidradio_tdh3;
 pub(crate) mod yaesu_ft5d;
