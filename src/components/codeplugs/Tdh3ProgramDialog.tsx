@@ -394,9 +394,9 @@ function ResultBlock({
       {channels.length > 0 && (
         <div>
           <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            <Usb size={12} /> Channels on the radio
+            <Usb size={12} /> Channels on the radio ({channels.length})
           </div>
-          <div className="max-h-48 overflow-auto rounded-md border border-slate-200 dark:border-slate-700">
+          <div className="max-h-72 overflow-auto rounded-md border border-slate-200 dark:border-slate-700">
             <table className="w-full text-left text-[11px]">
               <thead className="sticky top-0 bg-slate-100 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-900 dark:text-slate-400">
                 <tr>
