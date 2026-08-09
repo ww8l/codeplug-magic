@@ -195,8 +195,14 @@ pub(crate) fn write_codeplug(
         Some(rev) if rev == super::ID52_MAP_REV => {}
         other => {
             return Err(format!(
-                "This settings file is layout revision {}, and this app only knows revision {}. \
-                 Check SET > SD Card > Save Form on the radio, then save the settings again.",
+                "This settings file is layout revision {}, and this app only writes revision {} — \
+                 the one the radio saves for itself.\n\n\
+                 Save a fresh file on the radio with SET > SD Card > Save Setting and use that. \
+                 Files written by third-party programming software declare an older revision even \
+                 when their contents match, and the radio's own file is the only one whose layout \
+                 has been verified.\n\n\
+                 If the radio itself is writing an older revision, check SET > SD Card > Save Form \
+                 — it should be set to \"Now Ver\".",
                 other.map_or_else(|| "unknown".to_string(), |r| r.to_string()),
                 super::ID52_MAP_REV
             ));
@@ -867,6 +873,34 @@ mod tests {
         let mut img = blank();
         let err = write_memories(&mut img, &refs, &[], &model()).unwrap_err();
         assert!(err.contains("1000"), "{err}");
+    }
+
+    /// `#MapRev` turns out to be an author fingerprint, not just a firmware
+    /// marker: every file the radio saved declares **3**, and both files written
+    /// by RT Systems declare **1** despite laying their contents out identically.
+    ///
+    /// So the guard put here for the Save Form case earns its keep for a second
+    /// reason, and the message has to name both — a third-party file is by far
+    /// the likelier cause, and sending the operator to Save Form for it would be
+    /// a dead end.
+    ///
+    /// `#[ignore]`d because it needs the captures under `scratchpad/`.
+    #[test]
+    #[ignore = "needs real captures under scratchpad/id52/"]
+    fn a_file_the_radio_did_not_write_is_refused_with_the_right_advice() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../scratchpad/id52/");
+        let Ok(text) = std::fs::read_to_string(format!("{dir}id52_05_rtsprobe.icf")) else {
+            eprintln!("skipped: no third-party capture in {dir}");
+            return;
+        };
+        let mut icf = IcfFile::parse(&text).expect("a third-party file still parses");
+        assert_eq!(icf.map_rev(), Some(1), "RT Systems declares revision 1");
+
+        let a = expand(chan(1, "Nope", 146.520));
+        let err = write_codeplug(&mut icf, &[&a], &[], &model()).unwrap_err();
+        assert!(err.contains("Save Setting"), "{err}");
+        assert!(err.contains("Save Form"), "{err}");
+        eprintln!("ok: refused revision 1 with both remedies named");
     }
 
     /// An image of the wrong size is a file from some other radio, or a truncated
