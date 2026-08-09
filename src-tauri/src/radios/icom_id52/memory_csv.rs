@@ -32,6 +32,16 @@
 //! columns **plus a `SEL` scan-select column after `Name`** for its combined
 //! IC-705/IC-9700/ID-52 target.
 //!
+//! ## Why half of this module is `pub(super)`
+//!
+//! [`super::memory`] writes the same memories into the `.icf` image, and the two
+//! writers must not disagree about what a channel *is* — which mode it lands in,
+//! which way its shift goes, which tone column the radio will actually read. So
+//! every one of those decisions is made exactly once, here, and each writer only
+//! renders the answer: this one as CSV text, the image writer as bytes. That is
+//! also what makes the CSV a usable cross-check on the image — the same codeplug
+//! through both paths should describe the same radio.
+//!
 //! Which is right for *this* radio is not settled from a desk, so the header is
 //! a single constant here and `scratchpad/id52/CAPTURE-CHECKLIST.md` step 1 asks
 //! for a real export off the radio to decide it. Value spellings are the
@@ -48,12 +58,12 @@ use crate::radios::driver::{CodeplugExporter, ExportRequest};
 use super::IcomId52;
 
 /// Memory capacity, and how it is divided up (Advanced Manual p. 9-2).
-const MAX_MEMORIES: usize = 1000;
-const MAX_GROUPS: usize = 100;
-const MAX_PER_GROUP: usize = 100;
+pub(super) const MAX_MEMORIES: usize = 1000;
+pub(super) const MAX_GROUPS: usize = 100;
+pub(super) const MAX_PER_GROUP: usize = 100;
 
 /// Group and memory names are 16 characters (Advanced Manual p. iv).
-const MAX_NAME: usize = 16;
+pub(super) const MAX_NAME: usize = 16;
 
 /// Where a channel goes when the codeplug has no channel lists to make groups
 /// out of. The radio always shows *some* group, so an unnamed one would just
@@ -93,7 +103,7 @@ const HEADER: [&str; 20] = [
 /// and `8.33kHz` for airband AM, which is that band's real channel spacing.
 /// (Both third-party ID-52 converters write `12.5kHz` instead; the radio's own
 /// export says otherwise, and the radio wins.)
-fn tune_step(ec: &ExpandedChannel) -> &'static str {
+pub(super) fn tune_step(ec: &ExpandedChannel) -> &'static str {
     let f = ec.channel.rx_freq;
     if mode_of(ec) == "AM" && (108.0..137.0).contains(&f) {
         "8.33kHz"
@@ -109,9 +119,9 @@ const DEFAULT_DTCS: &str = "023";
 
 /// One memory row's group placement: which group it landed in, and its number
 /// within that group.
-struct Placement {
-    group_no: usize,
-    ch_no: usize,
+pub(super) struct Placement {
+    pub(super) group_no: usize,
+    pub(super) ch_no: usize,
 }
 
 /// Decide which group each memory belongs to and number it within that group.
@@ -124,7 +134,7 @@ struct Placement {
 ///
 /// Channels in no list at all collect in one trailing group, so a codeplug with
 /// no channel lists still exports as a usable single group rather than nothing.
-fn assign_groups(
+pub(super) fn assign_groups(
     channels: &[&ExpandedChannel],
     groups: &[CodeplugGroup],
 ) -> Result<(Vec<Placement>, Vec<String>), String> {
@@ -275,7 +285,7 @@ pub(crate) fn render_csv(
 /// split — which this radio has no separate encoding for — comes out as a shift
 /// of the real difference. That is how the radio behaves anyway, and it is what
 /// the FT5D writer does with the same case.
-fn duplex_and_offset(ec: &ExpandedChannel) -> (&'static str, f64) {
+pub(super) fn duplex_and_offset(ec: &ExpandedChannel) -> (&'static str, f64) {
     let c = &ec.channel;
     let tx = match c.tx_freq {
         Some(tx) if (tx - c.rx_freq).abs() > 1e-9 => tx,
@@ -289,11 +299,20 @@ fn duplex_and_offset(ec: &ExpandedChannel) -> (&'static str, f64) {
             // later flips to DUP on the front panel lands somewhere sensible
             // instead of on top of itself. Matching that keeps a file we wrote
             // indistinguishable from one the radio exported.
+            //
+            // Airband is the exception: there is no repeater shift to fall back
+            // on, and the radio writes a flat zero for its own airband memories.
+            // Measured — an AM memory that carried 0.600 would be claiming a 2 m
+            // convention on a band that has none.
             _ => {
-                let standard = crate::util::standard_offsets(c.rx_freq)
-                    .first()
-                    .copied()
-                    .unwrap_or(0.0);
+                let standard = if tune_step(ec) == "8.33kHz" {
+                    0.0
+                } else {
+                    crate::util::standard_offsets(c.rx_freq)
+                        .first()
+                        .copied()
+                        .unwrap_or(0.0)
+                };
                 return ("OFF", standard);
             }
         },
@@ -314,7 +333,7 @@ fn is_dv(ec: &ExpandedChannel) -> bool {
 
 /// `Mode`. The ID-52 spells narrow FM `FM-N`; everything it cannot do is
 /// programmed as plain FM, which is what a receive-only memory needs anyway.
-fn mode_of(ec: &ExpandedChannel) -> &'static str {
+pub(super) fn mode_of(ec: &ExpandedChannel) -> &'static str {
     if is_dv(ec) {
         return "DV";
     }
@@ -334,7 +353,7 @@ fn mode_of(ec: &ExpandedChannel) -> &'static str {
 /// repeater with different uplink and downlink tones is programmed exactly as
 /// stored — no need for the "keep the TX tone, drop the RX tone" fallback the
 /// radios without cross modes get.
-fn tone_columns(ec: &ExpandedChannel) -> (&'static str, f64, f64) {
+pub(super) fn tone_columns(ec: &ExpandedChannel) -> (&'static str, f64, f64) {
     let c = &ec.channel;
     let up = c.ctcss_uplink;
     let down = c.ctcss_downlink;
@@ -378,7 +397,7 @@ fn tone_columns(ec: &ExpandedChannel) -> (&'static str, f64, f64) {
 ///
 /// The manual writes these as "Both N" but the CSV the radio exports uses
 /// `BOTH N` — the file's spelling is the one that has to match.
-fn dtcs_polarity(stored: &str) -> &'static str {
+pub(super) fn dtcs_polarity(stored: &str) -> &'static str {
     match stored.to_uppercase().as_str() {
         "NR" => "TN-RR",
         "RN" => "TR-RN",
@@ -393,7 +412,7 @@ fn dtcs_polarity(stored: &str) -> &'static str {
 /// `OE1XDS C`. The port is the repeater's band — `C` on 2 m, `B` on 70 cm, `A`
 /// on 23 cm — and the gateway is the same call with `G`. `CQCQCQ` in `Your` is
 /// the ordinary "call anyone" destination.
-fn call_signs(ec: &ExpandedChannel, dv: bool) -> (String, String, String) {
+pub(super) fn call_signs(ec: &ExpandedChannel, dv: bool) -> (String, String, String) {
     if !dv {
         return (String::new(), String::new(), String::new());
     }
@@ -421,7 +440,7 @@ fn call_signs(ec: &ExpandedChannel, dv: bool) -> (String, String, String) {
     )
 }
 
-fn truncate(s: &str, max: usize) -> String {
+pub(super) fn truncate(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
 
@@ -606,6 +625,20 @@ mod tests {
         for col in [TONE, RPT_TONE, TSQL_TONE, DTCS, DTCS_POL, DV_SQL, YOUR] {
             assert_eq!(r[col], "", "column {col} should be empty on an AM memory");
         }
+    }
+
+    /// Airband is the one band with no standard shift to fall back on, and the
+    /// radio writes a flat zero for its own airband memories. Measured: carrying
+    /// 0.600 here would be claiming a 2 m convention on a band that has none.
+    #[test]
+    fn an_airband_memory_carries_no_standard_shift() {
+        let mut c = chan(1, "FNL CTAF", 118.400);
+        c.mode = Some("AM".into());
+        let ec = expand(c);
+
+        let r = &rows(&render_csv(&[&ec], &[], &model()).unwrap())[0];
+        assert_eq!(r[DUP], "OFF");
+        assert_eq!(r[OFFSET], "0.000000");
     }
 
     /// A shift stored as duplex + offset, with no transmit frequency of its own,
