@@ -16,7 +16,16 @@
 //! does not depend on for any radio — the radio writes the files itself, and
 //! reads them back itself.
 //!
-//! ## Status: the container is finished, the memory map is not
+//! ## One file, not two
+//!
+//! The table above is how the radio presents it, but the `.icf` is the better
+//! path and is the one the app programs from: `Load Setting` offers **ALL**,
+//! which restores "all Memory channels, settings on the MENU screen, and the
+//! Repeater List" in a single operation. The Memory CH CSV stays as a plain
+//! export — useful on its own, and useful as a cross-check, since the same
+//! codeplug down both paths should describe the same radio.
+//!
+//! ## Status: container and memories done, settings not
 //!
 //! [`icf`] is complete and tested: it parses a settings file, hands out the
 //! memory image to patch, and re-emits it with a correct `#CD` MD5 — the
@@ -25,12 +34,17 @@
 //! algorithm, which is a far better position than the FT5D's undocumented
 //! 32-bit checksum (four failed writes and a factory reset before it fell).
 //!
-//! What is NOT known is where anything lives *inside* that image. CHIRP has no
-//! ID-52 driver; the nearest relative, `id31.py`, describes 500 memories in 26
-//! banks where the ID-52 has **1000 memories in 100 groups**, so its addresses
-//! cannot carry over. They will be measured from a paired CSV export and `.icf`
-//! taken off Tim's radio at the same moment — the radio's own export as known
-//! plaintext, with no third-party software in the loop.
+//! [`memory`] writes the memory pool into that image: records, the skip bitmap,
+//! the group table, the chains and the channel-number maps. Every address in it
+//! was measured off Tim's radio, none inferred from CHIRP's `id31.py` — that
+//! driver describes 500 memories in 26 banks where this radio has **1000 in 100
+//! groups**, so its addresses could not carry over even as a starting point.
+//! The check that matters: re-encoding the radio's own 80 memories from its own
+//! CSV export reproduces the bytes the radio wrote, exactly, in every field the
+//! radio reads.
+//!
+//! What is still unmeasured is where the **settings** live inside the image —
+//! 182 items across 22 MENU sections, located one save/diff cycle at a time.
 //!
 //! Working notes, the CSV column table and the capture plan:
 //! `scratchpad/id52/FINDINGS.md` and `CAPTURE-CHECKLIST.md` (gitignored — they
@@ -43,6 +57,7 @@
 //! radio. Nothing is claimed until it has been proven against one.
 
 pub(crate) mod icf;
+pub(crate) mod memory;
 pub(crate) mod memory_csv;
 
 use crate::radios::driver::{RadioDriver, RadioIdentity};
