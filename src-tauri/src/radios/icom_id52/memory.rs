@@ -996,6 +996,32 @@ mod tests {
             "{} bytes the radio acts on differ from what it wrote itself",
             failures.len()
         );
+
+        // Emit the round-trip candidate: the operator's own memories, written
+        // back into their own settings file. Every frequency, tone, mode and
+        // call sign survives byte-identically (that is what this test just
+        // asserted), so loading it exercises all six structures against a real
+        // radio with a known-correct answer on the screen.
+        //
+        // It is not a no-op, and the differences are worth predicting:
+        //
+        // - The pool compacts, closing the hole at slot 4 left by a deletion.
+        // - Group 00 gains the name `Memories`, because a codeplug with no
+        //   channel lists becomes one default group. That is the only check
+        //   anything has on the group-name field, whose position is inferred
+        //   from the entry stride rather than seen holding content.
+        // - Duplicate names get disambiguated — this operator has seven
+        //   memories called `W0UPS` — because `expanded_names` makes them
+        //   distinct, the same way it does for every other radio.
+        // - **The 58 SKIP flags are lost.** The channel database has nowhere to
+        //   store a per-channel scan skip, so this writer clears them all. That
+        //   is a genuine feature gap rather than an artefact of the test, and
+        //   the CSV path has it too.
+        let mut round_trip = IcfFile::parse(&text).expect("parse");
+        write_codeplug(&mut round_trip, &refs, &[], &model()).expect("patch");
+        std::fs::write(format!("{dir}id52_out_roundtrip.icf"), round_trip.render())
+            .expect("write the round-trip candidate");
+        eprintln!("wrote {dir}id52_out_roundtrip.icf — the radio's own memories, re-written");
     }
 
     fn hex(bytes: &[u8]) -> String {
