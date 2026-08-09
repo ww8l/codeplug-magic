@@ -18,8 +18,8 @@
 //! | address | shape | what |
 //! |---|---|---|
 //! | `0x000000` | 1000 x 51 | the memory records; all-`FF` means empty |
-//! | `0x00DE00` | 125 bytes | SKIP bitmap, LSB-first |
-//! | `0x00DE7D` | 125 bytes | a second flag bitmap, unidentified |
+//! | `0x00DE00` | 125 bytes | "skipped at all" bitmap, LSB-first |
+//! | `0x00DE7D` | 125 bytes | narrows the above to PSKIP |
 //! | `0x00DEFA` | 125 bytes | a third flag bitmap, unidentified |
 //! | `0x03CF58` | 100 x 19 | group table: `[ordinal][u16 BE head slot][16-char name]` |
 //! | `0x03D6C4` | 1000 x u16 BE | `next[slot]`, `FFFF` ends a chain |
@@ -78,8 +78,8 @@ use crate::models::RadioModel;
 
 use super::icf::IcfFile;
 use super::memory_csv::{
-    assign_groups, call_signs, duplex_and_offset, mode_of, tone_columns, truncate, tune_step,
-    MAX_MEMORIES, MAX_NAME,
+    assign_groups, call_signs, dtcs_polarity, duplex_and_offset, mode_of, tone_columns, truncate,
+    tune_step, MAX_MEMORIES, MAX_NAME,
 };
 
 /// One memory record, and how many of them the pool holds for user memories.
@@ -93,17 +93,19 @@ const POOL: usize = 0x000000;
 
 /// Flag bitmaps, 125 bytes each (1000 bits, LSB-first within a byte).
 ///
-/// Only the first is identified. All three are **set** for every unused slot and
-/// clear for every used one, so an empty slot is `1` in all three; the SKIP
-/// bitmap then carries the real flag on the slots that are in use.
+/// All three are **set** for every unused slot and clear for every used one, so
+/// an empty slot reads `1` in all three; the flags only mean anything on slots
+/// that are in use.
 ///
-/// The other two are byte-identical in every capture so far, because they are
-/// set for exactly the unused slots and nothing in the sample uses whatever they
-/// mean. One is plausibly PSKIP. Telling them apart needs one memory set to
-/// PSKIP on the radio, which is on the capture checklist.
+/// Skip is a pair, not one flag. `0xDE00` means "skipped at all" and `0xDE7D`
+/// narrows that to PSKIP, so a plain-SKIP memory sets the first alone and a
+/// PSKIP memory sets both — measured from one memory switched to PSKIP, against
+/// 58 plain-SKIP memories that leave `0xDE7D` clear.
+///
+/// `0xDEFA` is still unidentified: it has never been seen set on a slot in use.
 const SKIP_BITMAP: usize = 0x00DE00;
-const FLAG_BITMAP_B: usize = 0x00DE7D;
-const FLAG_BITMAP_C: usize = 0x00DEFA;
+const PSKIP_BITMAP: usize = 0x00DE7D;
+const UNKNOWN_BITMAP: usize = 0x00DEFA;
 const BITMAP_LEN: usize = 125;
 
 /// The three group tables. See the module docs for the shapes.
@@ -125,11 +127,18 @@ const TABLES_ARE_CONTIGUOUS: () = {
     assert!(NEXT_TABLE + SLOTS * 2 == POSMAP);
 };
 
-/// Byte `0x1C`: which squelch the memory uses. Measured values only.
+/// Byte `0x1C`: which squelch the memory uses. Measured values only — the
+/// numbering clearly has room for the other cross modes and the reverse forms,
+/// but nothing has pinned them, so they are absent rather than guessed.
 const SQL_OFF: u8 = 0;
 const SQL_TONE: u8 = 1;
 const SQL_TSQL: u8 = 3;
 const SQL_DTCS: u8 = 5;
+/// `TONE(T)/TSQL(R)` — the radio calls it Split Tone. Measured from a memory set
+/// to transmit 103.5 and receive 107.2: the squelch byte went to `0x0B`, the
+/// repeater tone took the **transmit** tone and the TSQL tone the **receive**
+/// one. This is the only cross mode the channel importer actually produces.
+const SQL_TONE_TSQL: u8 = 0x0B;
 
 /// Byte `0x09`: mode.
 const MODE_FM: u8 = 0;
@@ -239,7 +248,7 @@ pub(crate) fn write_memories(
 
     // Flag bitmaps. Set everywhere means "unused", so filling first and clearing
     // the used slots gets the empty tail right without a second pass.
-    for base in [SKIP_BITMAP, FLAG_BITMAP_B, FLAG_BITMAP_C] {
+    for base in [SKIP_BITMAP, PSKIP_BITMAP, UNKNOWN_BITMAP] {
         image[base..base + BITMAP_LEN].fill(0xFF);
         for slot in 0..used {
             clear_bit(&mut image[base..base + BITMAP_LEN], slot);
@@ -342,11 +351,12 @@ fn encode(rec: &mut [u8], ec: &ExpandedChannel, name: &str) {
     // The low nibble is `F` in every record in the sample, whatever the duplex.
     rec[0x0B] = (duplex << 4) | 0x0F;
     ascii_field(&mut rec[0x0C..0x1C], name);
-    rec[0x1D] = 0;
+    rec[0x1D] = dtcs_polarity_index(dtcs_polarity(&c.dcs_polarity));
 
     if mode == MODE_DV {
         let (your, rpt1, rpt2) = call_signs(ec, true);
         rec[0x1C] = SQL_OFF;
+        rec[0x1D] = 0;
         rec[0x1E..0x25].copy_from_slice(&pack_call(&your));
         rec[0x25..0x2C].copy_from_slice(&pack_call(&rpt1));
         rec[0x2C..0x33].copy_from_slice(&pack_call(&rpt2));
@@ -358,20 +368,23 @@ fn encode(rec: &mut [u8], ec: &ExpandedChannel, name: &str) {
         "TONE" => SQL_TONE,
         "TSQL" => SQL_TSQL,
         "DTCS" => SQL_DTCS,
+        "TONE(T)/TSQL(R)" => SQL_TONE_TSQL,
         "OFF" => SQL_OFF,
-        // The ID-52 really does have cross-tone modes, and the CSV path writes
-        // them by name — but no capture has ever contained one, so there is no
-        // measured byte to put here. Rather than guess an index, degrade to the
-        // transmit tone, which is the fallback every radio without cross modes
-        // already gets. One capture with a cross-tone memory retires this.
+        // The two DTCS-flavoured cross modes are still unmeasured. Rather than
+        // guess an index, degrade to the transmit tone — the fallback every
+        // radio without cross modes already gets. The common cross mode, the one
+        // above, is now exact.
         _ => SQL_TONE,
     };
+    // On a cross-tone memory these are not interchangeable: the repeater tone is
+    // what the radio transmits and the TSQL tone is what it opens squelch on.
+    // `tone_columns` already returns them in that order.
     rec[0x1E] = tone_index(rpt_hz);
     rec[0x1F] = tone_index(tsql_hz);
     rec[0x20] = dtcs_index(c.dcs_code.as_deref());
-    // Polarity: every DTCS memory in the sample is `BOTH N`, so 0 is the only
-    // value ever observed and the other three are unmeasured. The capture
-    // checklist asks for a `TN-RR` memory to settle it.
+    // `0x21` looked like the polarity byte for a while and is not: it is 0 in
+    // every record ever captured, including six DTCS memories and the `TN-RR`
+    // one that finally located the real field at `0x1D`.
     rec[0x21] = 0;
     rec[0x22..0x25].copy_from_slice(&ANALOG_TAIL);
     // An analog memory leaves both repeater call signs as `FF`, not as packed
@@ -408,6 +421,23 @@ fn tone_index(hz: f64) -> u8 {
         .min_by_key(|(_, &t)| t.abs_diff(want))
         .map(|(i, _)| i as u8)
         .unwrap_or(0)
+}
+
+/// DTCS polarity, byte `0x1D`.
+///
+/// `BOTH N` (0) and `TN-RR` (1) are measured — six of the operator's DTCS
+/// memories carry 0, and one switched to `TN-RR` carries 1, while switching a
+/// memory to DTCS on its own leaves the byte alone. The remaining two follow the
+/// order the radio's own CSV column uses. That last step is an inference, and a
+/// small one to get wrong: a bad polarity means squelch does not open, not a
+/// damaged radio.
+fn dtcs_polarity_index(polarity: &str) -> u8 {
+    match polarity {
+        "TN-RR" => 1,
+        "TR-RN" => 2,
+        "BOTH R" => 3,
+        _ => 0,
+    }
 }
 
 /// The stored DTCS code's index, or the radio's default `023` when the channel
@@ -659,6 +689,52 @@ mod tests {
         assert_eq!(unpack_call(&r[0x2C..0x33]), "W0ABC  G");
     }
 
+    /// The radio calls it Split Tone, and the two frequencies are not
+    /// interchangeable: the repeater tone is transmitted, the TSQL tone opens
+    /// squelch. Measured from a memory set to send 103.5 and receive 107.2.
+    #[test]
+    fn a_cross_tone_memory_keeps_transmit_and_receive_apart() {
+        let mut c = chan(1, "PROBE CROSS", 145.115);
+        c.tone_mode = Some("Cross".into());
+        c.ctcss_uplink = Some(103.5);
+        c.ctcss_downlink = Some(107.2);
+        let ec = expand(c);
+
+        let r = rec(&write(&[&ec], &[]), 0).to_vec();
+        assert_eq!(r[0x1C], SQL_TONE_TSQL);
+        assert_eq!(r[0x1E], 13, "103.5 Hz transmitted");
+        assert_eq!(r[0x1F], 14, "107.2 Hz for squelch");
+    }
+
+    /// DTCS polarity lives at `0x1D`, which spent a while looking like a spare
+    /// byte. `0x21` is the one that is genuinely always zero.
+    #[test]
+    fn dtcs_polarity_lands_in_the_byte_that_actually_carries_it() {
+        let mut c = chan(1, "PROBE POL", 146.850);
+        c.tone_mode = Some("DTCS".into());
+        c.dcs_code = Some("023".into());
+        c.dcs_polarity = "NR".into();
+        let ec = expand(c);
+
+        let r = rec(&write(&[&ec], &[]), 0).to_vec();
+        assert_eq!(r[0x1C], SQL_DTCS);
+        assert_eq!(r[0x1D], 1, "TN-RR");
+        assert_eq!(r[0x21], 0, "not the polarity byte, whatever it is");
+        assert_eq!(dtcs_polarity_index("BOTH N"), 0);
+    }
+
+    /// A DV memory must not carry an analog polarity into the record: `0x1D`
+    /// sits right beside the packed destination call sign.
+    #[test]
+    fn a_dv_memory_leaves_the_polarity_byte_clear() {
+        let mut c = chan(1, "DV", 442.100);
+        c.mode = Some("DSTAR".into());
+        c.dcs_polarity = "RR".into();
+        let ec = expand(c);
+
+        assert_eq!(rec(&write(&[&ec], &[]), 0)[0x1D], 0);
+    }
+
     /// Decode Icom's 7-bit packing, so the encoder is checked against something
     /// other than itself.
     fn unpack_call(packed: &[u8]) -> String {
@@ -726,7 +802,7 @@ mod tests {
         let b = expand(chan(2, "Two", 146.540));
         let img = write(&[&a, &b], &[]);
 
-        for base in [SKIP_BITMAP, FLAG_BITMAP_B, FLAG_BITMAP_C] {
+        for base in [SKIP_BITMAP, PSKIP_BITMAP, UNKNOWN_BITMAP] {
             assert!(!bit(&img, base, 0));
             assert!(!bit(&img, base, 1));
             assert!(bit(&img, base, 2), "slot 2 is unused");
@@ -846,8 +922,8 @@ mod tests {
         let allowed = |i: usize| {
             (POOL..POOL + SLOTS * REC_LEN).contains(&i)
                 || (SKIP_BITMAP..SKIP_BITMAP + BITMAP_LEN).contains(&i)
-                || (FLAG_BITMAP_B..FLAG_BITMAP_B + BITMAP_LEN).contains(&i)
-                || (FLAG_BITMAP_C..FLAG_BITMAP_C + BITMAP_LEN).contains(&i)
+                || (PSKIP_BITMAP..PSKIP_BITMAP + BITMAP_LEN).contains(&i)
+                || (UNKNOWN_BITMAP..UNKNOWN_BITMAP + BITMAP_LEN).contains(&i)
                 || (GROUP_TABLE..POSMAP + GROUPS * POSMAP_LEN).contains(&i)
         };
         let strays: Vec<String> = touched
@@ -928,21 +1004,23 @@ mod tests {
             let (sql, duplex, dv) = (r[0x1C], r[0x0B] >> 4, r[0x09] == MODE_DV);
             match range.start {
                 0x04 => duplex != 0,
-                0x1E => dv || sql == SQL_TONE,
-                0x1F => dv || sql == SQL_TSQL,
+                0x1D => dv || sql == SQL_DTCS,
+                0x1E => dv || sql == SQL_TONE || sql == SQL_TONE_TSQL,
+                0x1F => dv || sql == SQL_TSQL || sql == SQL_TONE_TSQL,
                 0x20 => dv || sql == SQL_DTCS,
                 _ => true,
             }
         };
-        let fields: [(&str, std::ops::Range<usize>); 10] = [
+        let fields: [(&str, std::ops::Range<usize>); 11] = [
             ("frequency", 0x00..0x04),
             ("offset", 0x04..0x08),
             ("raster", 0x08..0x09),
             ("mode/step/duplex", 0x09..0x0C),
-            ("squelch mode", 0x1C..0x1E),
+            ("squelch mode", 0x1C..0x1D),
+            ("DTCS polarity", 0x1D..0x1E),
             ("repeater tone", 0x1E..0x1F),
             ("TSQL tone", 0x1F..0x20),
-            ("DTCS + polarity", 0x20..0x22),
+            ("DTCS code", 0x20..0x22),
             ("analog tail", 0x22..0x25),
             ("call signs", 0x25..0x33),
         ];
