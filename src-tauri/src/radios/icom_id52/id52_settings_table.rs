@@ -51,6 +51,7 @@ pub(crate) const ID52_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "backlight", byte: 0x03C9E4, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "On"), (2, "Auto"), (3, "Auto(DC IN)")] } },  // Backlight
     SF { key: "voltage-indication", byte: 0x03C9E5, kind: SK::Bool },  // Voltage Indication
     SF { key: "brightness", byte: 0x03C9E6, kind: SK::Enum { width: 1, labels: &[(0, "1"), (1, "2"), (2, "3"), (3, "4"), (4, "5"), (5, "6"), (6, "7"), (7, "8")] } },  // Brightness
+    SF { key: "rx-call-sign", byte: 0x03C9E7, kind: SK::Enum { width: 1, labels: &[(0, "OFF"), (1, "Normal"), (2, "RX Hold"), (3, "Hold")] } },  // Rx Callsign Display
     SF { key: "tx-callsign-display", byte: 0x03C9E8, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "Your"), (2, "My")] } },  // TX Callsign Display
     SF { key: "rx-position-display", byte: 0x03C9EA, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "On(Main/Sub)"), (2, "On(Main Only)")] } },  // Rx Position Display
     SF { key: "rx-position-timer", byte: 0x03C9EB, kind: SK::Enum { width: 1, labels: &[(0, "5s"), (1, "10s"), (2, "15s"), (3, "30s"), (4, "Hold")] } },  // Rx Position Timer
