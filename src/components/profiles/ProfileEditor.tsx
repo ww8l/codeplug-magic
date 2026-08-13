@@ -117,21 +117,41 @@ function RadioSyncBar({
   );
 }
 
+/// The card file each media format's settings are decoded out of. A radio
+/// programmed from a card gets a settings loader the moment its format has a
+/// reader here — no new branch in the editor.
+const CARD_SETTINGS_READERS: Record<
+  string,
+  (path: string) => Promise<RadioSettingsRead>
+> = {
+  yaesu_ft5d_sd: api.readFt5dSettingsFromBackup,
+  icom_id52_icf: api.readId52SettingsFromCard,
+};
+
 /**
- * FT5D settings loader. The FT5D has no proven cable modality, so its settings
- * are read out of the `BACKUP.dat` its own Back Up menu writes to the microSD
- * card — the same file the codeplug export patches. Nothing is written here;
- * the values land in the form and the user Saves them like any other edit.
+ * Settings loader for a card radio. Neither the FT5D nor the ID-52 has a cable
+ * settings session, so their "radio" for settings purposes is the file the
+ * radio itself writes to its microSD card — the same file the codeplug export
+ * patches. Nothing is written here; the values land in the form and the user
+ * Saves them like any other edit.
+ *
+ * `format` is the model's `export_format`, which is what both the file picker
+ * and the front-panel menu steps are keyed on, and `read` is the command that
+ * decodes that particular file.
  */
-function Ft5dSettingsBar({
+function CardSettingsBar({
+  format,
+  read,
   onLoaded,
 }: {
+  format: string;
+  read: (path: string) => Promise<RadioSettingsRead>;
   onLoaded: (settings: SettingsValues) => void;
 }) {
   const [busy, setBusy] = useState(false);
   // Same descriptor the Program and Export dialogs use, so the file picker and
   // the front-panel menu steps are written down in exactly one place.
-  const media = mediaWriteForFormat("yaesu_ft5d_sd");
+  const media = mediaWriteForFormat(format);
 
   const load = async () => {
     const picked = await openDialog({
@@ -144,15 +164,15 @@ function Ft5dSettingsBar({
     });
     if (typeof picked !== "string") return;
     setBusy(true);
-    const res = await withToast(api.readFt5dSettingsFromBackup(picked), {
-      error: "Could not read settings from that backup",
+    const res = await withToast(read(picked), {
+      error: "Could not read settings from that file",
     });
     setBusy(false);
     if (res) {
       onLoaded(res.settings as SettingsValues);
       const { toast } = await import("sonner");
       toast.success(
-        `Loaded ${res.count} setting${res.count === 1 ? "" : "s"} from the backup \u2014 review and Save to keep them.`,
+        `Loaded ${res.count} setting${res.count === 1 ? "" : "s"} from the card \u2014 review and Save to keep them.`,
       );
     }
   };
@@ -161,7 +181,7 @@ function Ft5dSettingsBar({
     <div className="flex flex-wrap items-end gap-2 rounded-md border border-sky-200 bg-sky-50/60 px-3 py-2.5 dark:border-sky-900/50 dark:bg-sky-950/30">
       <div className="flex-1">
         <span className="mb-1 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
-          Read current settings from a microSD backup
+          Read current settings from the radio’s microSD card
         </span>
         <span className="block text-[11px] text-slate-400">
           {media?.before} Nothing is written here: the values land in the form
@@ -170,7 +190,7 @@ function Ft5dSettingsBar({
       </div>
       <Button variant="primary" onClick={load} disabled={busy}>
         {busy ? <Spinner className="h-3.5 w-3.5" /> : <HardDrive size={14} />}
-        Load from microSD backup
+        Load from microSD
       </Button>
     </div>
   );
@@ -557,6 +577,17 @@ function SettingsField({
         value={String(value)}
         onChange={(e) => onChange(e.target.value)}
       >
+        {/* A value the option list does not contain would otherwise display as
+            the first option, which is a lie in both directions: an unset field
+            would read as a real setting, and a value the radio holds but this
+            app cannot name would read as a different one. Both happen — a card
+            radio's profile starts blank on purpose, and an unrecognised stored
+            value decodes to its raw number. */}
+        {!(field.options ?? []).includes(String(value)) && (
+          <option value={String(value)}>
+            {String(value) === "" ? "— not set —" : `${value} (unrecognised)`}
+          </option>
+        )}
         {(field.options ?? []).map((o) => (
           <option key={o} value={o}>
             {o}
@@ -612,6 +643,12 @@ export function ProfileEditor({
   const [saving, setSaving] = useState(false);
 
   const fields = useMemo(() => parseSchema(model), [model]);
+  // Programmed from its own memory card, which means its settings are patched
+  // into a file that already holds the operator's — see the seeding note below.
+  const cardReader = model?.export_format
+    ? CARD_SETTINGS_READERS[model.export_format]
+    : undefined;
+  const isCardRadio = cardReader !== undefined;
   // What this model's driver can actually do — gates the read-from-radio bar.
   const caps = useDriverCapabilities(model?.driver_key ?? null);
 
@@ -623,7 +660,16 @@ export function ProfileEditor({
   if (profile.id !== lastId) {
     setName(profile.display_name);
     setNotes(profile.notes ?? "");
-    setValues(seedValues(fields, parseSettings(profile.non_channel_settings)));
+    // A card radio's settings are patched into the operator's own file, so this
+    // form must not invent values for fields they have never set — see
+    // `seedValues`. Read them off the card first, or leave them alone.
+    setValues(
+      seedValues(
+        fields,
+        parseSettings(profile.non_channel_settings),
+        !isCardRadio,
+      ),
+    );
     setLastId(profile.id);
     setTab("settings");
   }
@@ -725,10 +771,15 @@ export function ProfileEditor({
                 onLoaded={(s) => setValues((v) => ({ ...v, ...s }))}
               />
             )}
-            {/* The FT5D's settings come off its SD card rather than a cable,
-                so it gets a file picker where the others get a port picker. */}
-            {model.driver_key === "yaesu_ft5d" && fields.length > 0 && (
-              <Ft5dSettingsBar
+            {/* A card radio's settings come off its microSD rather than a
+                cable, so it gets a file picker where the others get a port
+                picker. Keyed on the export format — the same key that names the
+                file and the menu steps — with the decode command beside it,
+                since each radio's card file is its own format. */}
+            {cardReader && model.export_format && fields.length > 0 && (
+              <CardSettingsBar
+                format={model.export_format}
+                read={cardReader}
                 onLoaded={(s) => setValues((v) => ({ ...v, ...s }))}
               />
             )}

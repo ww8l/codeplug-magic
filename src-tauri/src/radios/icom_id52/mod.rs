@@ -25,7 +25,7 @@
 //! export — useful on its own, and useful as a cross-check, since the same
 //! codeplug down both paths should describe the same radio.
 //!
-//! ## Status: container and memories done, settings not
+//! ## What is built
 //!
 //! [`icf`] is complete and tested: it parses a settings file, hands out the
 //! memory image to patch, and re-emits it with a correct `#CD` MD5 — the
@@ -43,18 +43,31 @@
 //! CSV export reproduces the bytes the radio wrote, exactly, in every field the
 //! radio reads.
 //!
-//! What is still unmeasured is where the **settings** live inside the image —
-//! 182 items across 22 MENU sections, located one save/diff cycle at a time.
+//! [`settings`] does the same for the MENU settings — 160 of them, every offset
+//! measured by diffing two real saves, and the same file carries them, which is
+//! what makes `Load Setting > ALL` a complete programming operation.
 //!
 //! Working notes, the CSV column table and the capture plan:
-//! `scratchpad/id52/FINDINGS.md` and `CAPTURE-CHECKLIST.md` (gitignored — they
-//! reference dumps of a personal radio).
+//! `scratchpad/id52/FINDINGS.md`, `CAPTURE-CHECKLIST.md` and
+//! `PASS3-SHEET.md` (gitignored — they reference dumps of a personal radio).
 //!
-//! ## Why no capabilities are advertised yet
+//! ## What is claimed, and what is not
 //!
 //! The `as_*` accessors are what the UI reads to decide which actions to offer,
 //! so a capability claimed before it works becomes a button that fails on the
-//! radio. Nothing is claimed until it has been proven against one.
+//! radio. Only [`CodeplugExporter`](crate::radios::driver::CodeplugExporter) is
+//! claimed, and that is the whole card path: the exporter patches the operator's
+//! own `.icf` (or writes the Memory CH CSV, by extension). The settings
+//! read/write traits stay unimplemented on purpose — they describe a *cable*
+//! settings session, which this radio has no protocol for; its settings are read
+//! by the dedicated `read_id52_settings_from_card` command and written by the
+//! same export that writes the channels, exactly as the FT5D does.
+//!
+//! ⚠ Still unproven on hardware: nothing written by this driver has been loaded
+//! into a radio yet. And one class of value is known to be suspect — the enums
+//! were measured through RT Systems, which saves `#MapRev=1` files while the
+//! radio itself writes revision 3. Addresses have been identical across both all
+//! along; option lists that *grew* between revisions have not been checked.
 
 pub(crate) mod icf;
 pub(crate) mod memory;
@@ -78,6 +91,39 @@ pub(crate) const ID52_MAP_REV: u32 = 3;
 
 /// Decoded image length, 256,576 bytes. Measured from the same file.
 pub(crate) const ID52_IMAGE_LEN: usize = 0x3EA40;
+
+/// Refuse a settings file this driver's measured offsets do not describe.
+///
+/// Two ways it can be wrong, and the operator needs to be told which: a file
+/// from another Icom, or one written to an **earlier firmware's layout**. The
+/// radio can be told to do the latter (`SET > SD Card > Save Form`), and so does
+/// third-party programming software — which is exactly the switch that would
+/// move every address in [`memory`] and [`settings`].
+pub(crate) fn check_is_an_id52_file(icf: &icf::IcfFile) -> Result<(), String> {
+    if icf.model_id() != ID52_MODEL_ID {
+        return Err(format!(
+            "That settings file belongs to a different Icom (model {}, not the ID-52's {}). \
+             Use a file saved by this radio.",
+            icf.model_id(),
+            ID52_MODEL_ID
+        ));
+    }
+    match icf.map_rev() {
+        Some(rev) if rev == ID52_MAP_REV => Ok(()),
+        other => Err(format!(
+            "This settings file is layout revision {}, and this app only writes revision {} — \
+             the one the radio saves for itself.\n\n\
+             Save a fresh file on the radio with SET > SD Card > Save Setting and use that. \
+             Files written by third-party programming software declare an older revision even \
+             when their contents match, and the radio's own file is the only one whose layout \
+             has been verified.\n\n\
+             If the radio itself is writing an older revision, check SET > SD Card > Save Form \
+             — it should be set to \"Now Ver\".",
+            other.map_or_else(|| "unknown".to_string(), |r| r.to_string()),
+            ID52_MAP_REV
+        )),
+    }
+}
 
 pub(crate) struct IcomId52;
 

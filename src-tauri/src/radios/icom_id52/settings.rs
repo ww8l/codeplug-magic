@@ -325,6 +325,50 @@ mod tests {
         }
     }
 
+    /// The seeded schema and the decode table come out of the same generator
+    /// run, so a divergence means one of them was hand-edited: the form would
+    /// then show a field nothing writes, or write a field nothing shows.
+    #[test]
+    fn schema_and_table_cover_the_same_keys() {
+        let schema: Vec<Value> =
+            serde_json::from_str(crate::seed::ID52_SETTINGS_SCHEMA).expect("schema parses");
+        let mut in_schema: Vec<&str> = schema
+            .iter()
+            .filter(|f| f["type"] != "section")
+            .map(|f| f["key"].as_str().unwrap_or_default())
+            .collect();
+        let mut in_table: Vec<&str> = ID52_SETTINGS_FIELDS.iter().map(|f| f.key).collect();
+        in_schema.sort_unstable();
+        in_table.sort_unstable();
+        assert_eq!(in_schema, in_table);
+    }
+
+    /// A select whose stored value is not one of its options cannot be saved
+    /// back — `raw_for` would fall through to a decimal parse and skip the
+    /// field. The two halves of an enum must therefore agree label for label.
+    #[test]
+    fn schema_options_match_the_tables_enum_labels() {
+        let schema: Vec<Value> =
+            serde_json::from_str(crate::seed::ID52_SETTINGS_SCHEMA).expect("schema parses");
+        for f in ID52_SETTINGS_FIELDS {
+            let SK::Enum { labels, .. } = &f.kind else {
+                continue;
+            };
+            let entry = schema
+                .iter()
+                .find(|s| s["key"] == f.key)
+                .unwrap_or_else(|| panic!("{} is missing from the schema", f.key));
+            let options: Vec<&str> = entry["options"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{} is not a select in the schema", f.key))
+                .iter()
+                .map(|o| o.as_str().unwrap_or_default())
+                .collect();
+            let expected: Vec<&str> = labels.iter().map(|(_, l)| *l).collect();
+            assert_eq!(options, expected, "{}", f.key);
+        }
+    }
+
     fn blank_image() -> Vec<u8> {
         vec![0u8; super::super::ID52_IMAGE_LEN]
     }

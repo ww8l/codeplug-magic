@@ -793,10 +793,11 @@ export interface StandardImportSummary {
 // applied on import, not via the preview.)
 export type ChannelBackupPreview = ImportPreview;
 
-/// A mounted memory card already holding a valid radio backup, from
-/// `find_ft5d_memory_cards`. Offering these beats asking the operator to
-/// navigate to `FT5D/BACKUP/BACKUP.dat` themselves — picking the wrong file is
-/// how you patch something that never reaches the radio.
+/// A mounted memory card already holding a file the radio wrote for itself,
+/// from `find_memory_cards`. Offering these beats asking the operator to
+/// navigate to `FT5D/BACKUP/BACKUP.dat` or `ID-52/Setting/` themselves —
+/// picking the wrong file is how you patch something that never reaches the
+/// radio. A radio that names its own files can contribute several.
 export interface MemoryCard {
   path: string;
   volume: string;

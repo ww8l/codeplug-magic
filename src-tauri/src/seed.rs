@@ -154,6 +154,12 @@ pub async fn seed_radio_models(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 /// the settings module can assert the two halves still describe the same fields.
 pub const FT5D_SETTINGS_SCHEMA: &str = include_str!("ft5d_settings_schema.json");
 
+/// The ID-52 profile-settings schema, GENERATED alongside the Rust decode table
+/// by `scratchpad/id52/gen_id52_table.py` from the measurement sheet. Exposed
+/// for the same reason as the FT5D's: the settings module asserts the two halves
+/// still describe the same fields.
+pub const ID52_SETTINGS_SCHEMA: &str = include_str!("id52_settings_schema.json");
+
 /// The full official Brandmeister talkgroup list, embedded at compile time as a
 /// `{ "<tg_number>": "<name>" }` JSON map (from api.brandmeister.network,
 /// snapshot 2026-06-18). ~1,750 entries; refresh by re-downloading the file.
@@ -585,6 +591,70 @@ fn models() -> Vec<ModelSeed> {
             // so the form and the decoder cannot drift. Read out of and written
             // back into the microSD backup, not over a cable.
             non_channel_settings_schema: FT5D_SETTINGS_SCHEMA,
+        },
+        // --------------------------------------------------------
+        // 5. Icom ID-52 — D-STAR + analog FM dual-band HT, 1000
+        //    memories in 100 groups, 16-char names, 5 W.
+        //    Covers the ID-52A (US) and ID-52E (EU); the TX bands
+        //    below are the A's.
+        //    Programmed from its own microSD card (issue #38):
+        //    `icom_id52_icf` patches the `.icf` the radio writes with
+        //    SET > SD Card > Save Setting, and the radio reads that
+        //    same file back with Load Setting > ALL — which restores
+        //    memories AND every MENU setting in one operation, so the
+        //    codeplug and the radio profile travel together in one
+        //    file. Picking a `.csv` instead writes the Memory CH
+        //    export (memories only); see radios/icom_id52/.
+        //    NOTES: (a) the ID-52's "groups" are banks, not zones:
+        //    exactly one per memory, stored in the memory itself, so
+        //    a channel in two lists lands in the first. (b) tx_bands
+        //    carries the two ham bands; rx_bands is the whole
+        //    receiver, so air band, marine, NOAA, 220 and 900 are
+        //    programmed receive-only rather than dropped. The US
+        //    cellular block inside that span is not modelled — a
+        //    receive-only memory there is harmless. (c) covers_220 /
+        //    covers_900 stay false: they describe transmit.
+        // --------------------------------------------------------
+        ModelSeed {
+            manufacturer: "Icom",
+            model: "ID-52",
+            driver_key: Some("icom_id52"),
+            programming_ui: Some("generic"),
+            display_name: "Icom ID-52",
+            analog_capable: true,
+            dmr_capable: false,
+            dstar_capable: true,
+            ysf_capable: false,
+            nxdn_capable: false,
+            p25_capable: false,
+            m17_capable: false,
+            aprs_capable: true,
+            covers_hf: false,
+            covers_vhf: true,
+            covers_uhf: true,
+            covers_220: false,
+            covers_900: false,
+            freq_min: 144.0,
+            freq_max: 450.0,
+            tx_bands: Some("[[144.0,148.0],[430.0,450.0]]"),
+            rx_bands: Some("[[0.495,1310.995]]"),
+            memory_channels: 1000,
+            zones_supported: false,
+            max_zones: None,
+            channels_per_zone: None,
+            scan_lists_supported: false,
+            max_scan_lists: None,
+            banks_supported: true,
+            max_name_length: 16,
+            export_format: "icom_id52_icf",
+            connection_type: "microSD or USB (SD Card Mode)",
+            // 160 settings in 12 sections, GENERATED from the measurement sheet
+            // by scratchpad/id52/gen_id52_table.py — the same parse that emits
+            // the Rust decode table (radios/icom_id52/id52_settings_table.rs),
+            // so the form and the decoder cannot drift. Every offset in it was
+            // measured by diffing two real `.icf` saves; none is inferred from
+            // another radio's driver.
+            non_channel_settings_schema: ID52_SETTINGS_SCHEMA,
         },
     ]
 }
