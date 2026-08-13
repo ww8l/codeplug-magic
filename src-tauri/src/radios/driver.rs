@@ -244,7 +244,9 @@ pub struct CodeplugProgramReport {
     /// Flash regions rewritten, as hex addresses — driver-defined granularity.
     /// Empty on clone radios, which rewrite whole ranges.
     pub windows_written: Vec<String>,
-    /// A sample of the channels actually on the radio after writing, read back.
+    /// Every channel actually on the radio after writing, read back. Not a
+    /// sample: the dialog shows this list as the record of what was programmed,
+    /// so truncating it hides whole channel lists (#37).
     pub channels: Vec<DecodedChannelSample>,
     /// Channels that could not be programmed, and why.
     pub skipped: Vec<SkippedChannel>,
