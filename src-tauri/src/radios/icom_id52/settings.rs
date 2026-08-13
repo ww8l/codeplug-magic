@@ -84,6 +84,13 @@ pub(crate) enum SK {
         width: u8,
         labels: &'static [(u32, &'static str)],
     },
+    /// The same, for a value whose raw form is **signed**. Only the UTC offset
+    /// needs it: the operator picks a time (`-06:00`), the radio stores minutes
+    /// east of Greenwich, and half the range is negative.
+    IntEnum {
+        width: u8,
+        labels: &'static [(i64, &'static str)],
+    },
     /// Fixed-length ASCII, space-padded.
     Text { len: u32 },
 }
@@ -130,6 +137,13 @@ fn decode_field(image: &[u8], f: &SF) -> Value {
         SK::Bool => Value::Bool(image[at] != 0),
         SK::BoolBit { shift } => Value::Bool((image[at] >> shift) & 1 == 1),
         SK::Enum { width, labels } => label_for(labels, read_uint(image, at, *width)),
+        SK::IntEnum { width, labels } => {
+            let raw = read_int(image, at, *width);
+            match labels.iter().find(|(v, _)| *v == raw) {
+                Some((_, l)) => Value::String((*l).to_string()),
+                None => Value::String(raw.to_string()),
+            }
+        }
         SK::Text { len } => {
             let end = (at + *len as usize).min(image.len());
             let raw = &image[at..end];
@@ -164,7 +178,10 @@ pub(crate) fn decode_settings(image: &[u8]) -> Value {
 fn field_end(f: &SF) -> usize {
     let at = f.byte as usize;
     at + match &f.kind {
-        SK::Uint { width } | SK::Int { width } | SK::Enum { width, .. } => *width as usize,
+        SK::Uint { width }
+        | SK::Int { width }
+        | SK::Enum { width, .. }
+        | SK::IntEnum { width, .. } => *width as usize,
         SK::Bool | SK::BoolBit { .. } => 1,
         SK::Text { len } => *len as usize,
     }
@@ -231,6 +248,13 @@ pub(crate) fn apply_settings(image: &mut [u8], settings: &Map<String, Value>) ->
                 }
                 None => false,
             },
+            SK::IntEnum { width, labels } => match signed_raw_for(labels, v) {
+                Some(raw) => {
+                    write_int(image, at, *width, raw);
+                    true
+                }
+                None => false,
+            },
             SK::Text { len } => match v.as_str() {
                 Some(s) => {
                     write_text(image, at, *len as usize, s);
@@ -244,6 +268,19 @@ pub(crate) fn apply_settings(image: &mut [u8], settings: &Map<String, Value>) ->
         }
     }
     written
+}
+
+/// [`raw_for`] for a signed option list. Separate rather than generic because
+/// the passthrough form is a *signed* decimal, which `u32::parse` would reject
+/// on exactly the values that need it most.
+fn signed_raw_for(labels: &[(i64, &'static str)], v: &Value) -> Option<i64> {
+    if let Some(s) = v.as_str() {
+        if let Some((raw, _)) = labels.iter().find(|(_, l)| *l == s) {
+            return Some(*raw);
+        }
+        return s.parse().ok();
+    }
+    v.as_i64()
 }
 
 /// The stored number behind a form value: a label from the option list, or the
@@ -563,8 +600,10 @@ mod tests {
             ("usb-power-input", Value::Bool(false)),
             ("battery-pack-confirmation", Value::Bool(false)),
             ("gps-time-correct", Value::from("Off")),
-            // Signed, big-endian, and negative: UTC−09:30.
-            ("utc-offset-minutes", Value::from(-570)),
+            // Signed, big-endian, and negative. The STORED value is −570
+            // minutes east of Greenwich; the form shows the time the operator
+            // picked, which is what the radio's own menu shows too.
+            ("utc-offset-minutes", Value::from("-09:30")),
             // Remote Mic — a sparse enum across two four-byte arrays.
             ("remote-mic-rx-a", Value::from("Down")),
             ("remote-mic-rx-b", Value::from("Call")),
@@ -670,6 +709,10 @@ mod tests {
                     width: *width,
                     labels,
                 },
+                SK::IntEnum { width, labels } => SK::IntEnum {
+                    width: *width,
+                    labels,
+                },
                 SK::Text { len } => SK::Text { len: *len },
             },
         }];
@@ -713,6 +756,11 @@ mod tests {
                 SK::Enum { width, labels } => {
                     if let Some(raw) = raw_for(labels, v) {
                         write_uint(image, at, *width, raw)
+                    }
+                }
+                SK::IntEnum { width, labels } => {
+                    if let Some(raw) = signed_raw_for(labels, v) {
+                        write_int(image, at, *width, raw)
                     }
                 }
                 SK::Text { len } => {

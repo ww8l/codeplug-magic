@@ -10,6 +10,7 @@ import type {
   Codeplug,
   CodeplugInput,
   CodeplugSummary,
+  CodeplugWritten,
   DashboardStats,
   GeoPoint,
   ExportPreview,
@@ -311,7 +312,7 @@ export const api = {
   exportPreview: (codeplugId: number) =>
     invoke<ExportPreview>("export_preview", { codeplugId }),
   generateCodeplug: (codeplugId: number, path: string) =>
-    invoke<number>("generate_codeplug", { codeplugId, path }),
+    invoke<CodeplugWritten>("generate_codeplug", { codeplugId, path }),
 
   // ---- direct radio programming: registry-dispatched, all radios (3.6c) ----
   // `driverKey` is the radio's `radio_models.driver_key`; the port alone carries

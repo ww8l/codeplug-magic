@@ -103,7 +103,8 @@ const MEDIA_WRITES: Record<string, MediaWrite> = {
   // channels instead of needing a second trip.
   icom_id52_icf: {
     action: "Write to microSD…",
-    pickTitle: "Select a settings file from ID-52/Setting/ on the radio’s microSD card",
+    pickTitle:
+      "Select a settings file from ID-52/Setting/ on the radio’s microSD card — it will be rewritten in place",
     filterName: "ID-52 settings file",
     // The Memory CH CSV is the radio's other card file — memories only, and
     // imported separately. The exporter writes whichever one is picked.
@@ -116,7 +117,7 @@ const MEDIA_WRITES: Record<string, MediaWrite> = {
     found:
       "It already holds a settings file, so there is nothing to pick — just check it is current (the radio writes one with MENU → SET → SD Card → Save Setting).",
     preserves:
-      "Channel lists become memory groups, and everything else already in the file — the repeater list, your call signs, GPS and Bluetooth — is left untouched. The first write saves your untouched file beside it with .orig on the end; later writes never overwrite that pristine copy.",
+      "Channel lists become memory groups, and everything else in the file — the repeater list, your call signs, GPS and Bluetooth — is carried across untouched. Writing to the card creates a NEW settings file named the way the radio names its own, built from the newest one there, so nothing you saved is modified at all.",
   },
 };
 

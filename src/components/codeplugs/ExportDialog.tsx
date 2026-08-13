@@ -64,12 +64,15 @@ export function ExportDialog({
     }
     if (!path) return;
     setExporting(true);
-    const count = await withToast(api.generateCodeplug(codeplugId, path), {
+    const written = await withToast(api.generateCodeplug(codeplugId, path), {
       error: "Export failed",
     });
     setExporting(false);
-    if (count !== undefined) {
-      const fileName = path.split("/").pop() ?? "";
+    if (written !== undefined) {
+      // The file the exporter actually wrote, which is not always the one asked
+      // for — a card export may have created and named it.
+      const count = written.channels;
+      const fileName = written.path.split("/").pop() ?? "";
       const base = fileName.replace(/\.csv$/i, "");
       const plural = count === 1 ? "" : "s";
       toast.success(

@@ -487,6 +487,17 @@ pub(crate) trait CodeplugExporter {
 
     /// Write the codeplug file(s) rooted at `path`, returning channels written.
     fn export(&self, path: &str, req: &ExportRequest) -> Result<usize, String>;
+
+    /// The concrete file this export will write, given whatever target the UI
+    /// handed over. Identity for every exporter that writes exactly where it is
+    /// told — override it only when the exporter can CREATE a file the operator
+    /// did not name, so the app can tell them which file to look for afterwards.
+    ///
+    /// Called before [`export`](Self::export), and its result is what `export`
+    /// is then given, so the name is decided in exactly one place.
+    fn resolve_target(&self, path: &str) -> Result<String, String> {
+        Ok(path.to_string())
+    }
 }
 
 /// Optional low-level diagnostics used during protocol reverse-engineering

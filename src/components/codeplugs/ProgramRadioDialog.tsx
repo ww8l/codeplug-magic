@@ -176,6 +176,9 @@ export function ProgramRadioDialog({
         title: media.pickTitle,
         multiple: false,
         directory: false,
+        // Open ON the card when one was found, so picking a file by hand still
+        // does not mean navigating to it.
+        defaultPath: cards?.[0]?.path,
         filters: [{ name: media.filterName, extensions: media.extensions }],
       });
       if (typeof picked !== "string") return;
@@ -184,8 +187,11 @@ export function ProgramRadioDialog({
     const to = path;
     await run("media", async () => {
       setMediaWritten(null);
-      const count = await api.generateCodeplug(codeplugId, to);
-      setMediaWritten({ count, path: to });
+      // Report the path the exporter WROTE, not the one we asked it to write:
+      // handed a card folder it creates the file and names it, and that name is
+      // what the operator has to find on the radio's own Load screen.
+      const written = await api.generateCodeplug(codeplugId, to);
+      setMediaWritten({ count: written.channels, path: written.path });
     });
   };
 

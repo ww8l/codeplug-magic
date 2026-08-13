@@ -446,45 +446,41 @@ fn ft5d_cards() -> Vec<MemoryCard> {
     out
 }
 
-/// The ID-52 names its own settings files, so the directory is fixed but the
-/// file name is not: `SD Card > Save Setting` writes `SetYYYYMMDD_NN.icf` and
-/// the operator can hold several. Each one is parsed and checked, so a file
-/// from another Icom — or one saved to an older firmware layout, which this
-/// driver's measured offsets do not describe — is left out of the list rather
-/// than offered as a target the writer will refuse.
+/// The ID-52 keeps its settings files in one fixed folder but names them
+/// itself, so what gets offered is the **folder**, not a file: the write creates
+/// a new `SetYYYYMMDD_NN.icf` in it rather than overwriting anything the
+/// operator saved. One entry per card, so the "write straight to the card"
+/// action appears exactly as it does for the FT5D.
+///
+/// A folder is only offered if it holds at least one file this driver can
+/// actually use as a template — a file from another Icom, or one saved to an
+/// older firmware layout, is no more use here than no file at all.
 fn id52_cards() -> Vec<MemoryCard> {
     let mut out = Vec::new();
     for root in mounted_roots() {
         let dir = root.join("ID-52").join("Setting");
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        let mut paths: Vec<std::path::PathBuf> = entries
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| {
-                p.extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case("icf"))
+        let usable = std::fs::read_dir(&dir).is_ok_and(|entries| {
+            entries.flatten().any(|e| {
+                let p = e.path();
+                p.extension().is_some_and(|x| x.eq_ignore_ascii_case("icf"))
+                    && std::fs::read_to_string(&p).is_ok_and(|t| {
+                        crate::radios::icom_id52::icf::IcfFile::parse(&t)
+                            .is_ok_and(|f| {
+                                crate::radios::icom_id52::check_is_an_id52_file(&f).is_ok()
+                            })
+                    })
             })
-            .collect();
-        // Newest last on the card, and the radio's own names sort that way, so
-        // a stable order beats read_dir's arbitrary one.
-        paths.sort();
-        for path in paths {
-            let Ok(text) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            let ok = crate::radios::icom_id52::icf::IcfFile::parse(&text)
-                .is_ok_and(|icf| crate::radios::icom_id52::check_is_an_id52_file(&icf).is_ok());
-            if !ok {
-                continue;
-            }
-            out.push(MemoryCard {
-                has_original: path.with_extension("icf.orig").exists(),
-                volume: volume_name(&root),
-                path: path.to_string_lossy().into_owned(),
-            });
+        });
+        if !usable {
+            continue;
         }
+        out.push(MemoryCard {
+            // Nothing of the operator's is modified, so there is no pristine
+            // copy to keep and nothing for the UI to reassure them about.
+            has_original: false,
+            volume: volume_name(&root),
+            path: dir.to_string_lossy().into_owned(),
+        });
     }
     out
 }
