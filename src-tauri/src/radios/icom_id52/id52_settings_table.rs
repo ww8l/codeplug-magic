@@ -68,7 +68,7 @@ pub(crate) const ID52_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "gps-out-usb-port", byte: 0x03C9FD, kind: SK::Bool },  // GPS Out (USB Port)
     SF { key: "sbas", byte: 0x03C9FE, kind: SK::Bool },  // SBAS
     SF { key: "glonass", byte: 0x03C9FF, kind: SK::Bool },  // GLONASS
-    SF { key: "power-save-gps", byte: 0x03CA00, kind: SK::Enum { width: 1, labels: &[(0, "OFF"), (1, "1/2/4/8min"), (5, "/2/3/4 Auto")] } },  // Power Save (GPS)
+    SF { key: "power-save-gps", byte: 0x03CA00, kind: SK::Enum { width: 1, labels: &[(0, "OFF"), (1, "1 min"), (2, "2 min"), (3, "4 min"), (4, "8 min"), (5, "Auto")] } },  // Power Save (GPS)
     SF { key: "satellite-information-out", byte: 0x03CA01, kind: SK::Enum { width: 1, labels: &[(0, "GPS/QZSS/GLONASS"), (1, "GPS Only")] } },  // Satellite Information Out
     SF { key: "alarm-area-rx-mem", byte: 0x03CA02, kind: SK::Enum { width: 1, labels: &[(0, "Limited"), (1, "Extended"), (2, "Both")] } },  // Alarm Area (Rx/Mem)
     SF { key: "gps-pos-display-select", byte: 0x03CA03, kind: SK::Enum { width: 1, labels: &[(0, "Latest"), (1, "MAIN"), (2, "SUB")] } },  // GPS Pos Display Select
@@ -99,10 +99,10 @@ pub(crate) const ID52_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "rx-history-log", byte: 0x03CA31, kind: SK::Bool },  // RX History Log  // P
     SF { key: "csv-separator-qso", byte: 0x03CA32, kind: SK::Enum { width: 1, labels: &[(0, "Sep [,] Dec [.]"), (1, "Sep [;] Dec [.]"), (2, "Sep [;] Dec [,]")] } },  // CSV Separator (QSO)
     SF { key: "csv-date", byte: 0x03CA33, kind: SK::Enum { width: 1, labels: &[(0, "yyyy/mm/dd"), (1, "mm/dd/yyyy"), (2, "dd/mm/yyyy")] } },  // CSV Date
-    SF { key: "remote-mic-rx-a", byte: 0x03CA3D, kind: SK::Enum { width: 1, labels: &[(1, "Up"), (2, "Down"), (8, "Monitor (Hold)"), (9, "Call"), (25, "Dup"), (27, "MW"), (28, "Record")] } },  // Remote Mic Rx [A]
-    SF { key: "remote-mic-rx-b", byte: 0x03CA3E, kind: SK::Enum { width: 1, labels: &[(1, "Up"), (2, "Down"), (8, "Monitor (Hold)"), (9, "Call"), (25, "Dup"), (27, "MW"), (28, "Record")] } },  // Remote Mic Rx [B]
-    SF { key: "remote-mic-rx-up", byte: 0x03CA3F, kind: SK::Enum { width: 1, labels: &[(1, "Up"), (2, "Down"), (8, "Monitor (Hold)"), (9, "Call"), (25, "Dup"), (27, "MW"), (28, "Record")] } },  // Remote Mic Rx [UP]
-    SF { key: "remote-mic-rx-down", byte: 0x03CA40, kind: SK::Enum { width: 1, labels: &[(1, "Up"), (2, "Down"), (8, "Monitor (Hold)"), (9, "Call"), (25, "Dup"), (27, "MW"), (28, "Record")] } },  // Remote Mic Rx [DOWN]
+    SF { key: "remote-mic-rx-a", byte: 0x03CA3D, kind: SK::Enum { width: 1, labels: &[(1, "Up"), (2, "Down"), (8, "Monitor (Hold)"), (9, "Call"), (12, "VFO/MR"), (17, "Band"), (25, "Dup"), (27, "MW"), (28, "Record")] } },  // Remote Mic Rx [A]
+    SF { key: "remote-mic-rx-b", byte: 0x03CA3E, kind: SK::Enum { width: 1, labels: &[(1, "Up"), (2, "Down"), (8, "Monitor (Hold)"), (9, "Call"), (12, "VFO/MR"), (17, "Band"), (25, "Dup"), (27, "MW"), (28, "Record")] } },  // Remote Mic Rx [B]
+    SF { key: "remote-mic-rx-up", byte: 0x03CA3F, kind: SK::Enum { width: 1, labels: &[(1, "Up"), (2, "Down"), (8, "Monitor (Hold)"), (9, "Call"), (12, "VFO/MR"), (17, "Band"), (25, "Dup"), (27, "MW"), (28, "Record")] } },  // Remote Mic Rx [UP]
+    SF { key: "remote-mic-rx-down", byte: 0x03CA40, kind: SK::Enum { width: 1, labels: &[(1, "Up"), (2, "Down"), (8, "Monitor (Hold)"), (9, "Call"), (12, "VFO/MR"), (17, "Band"), (25, "Dup"), (27, "MW"), (28, "Record")] } },  // Remote Mic Rx [DOWN]
     SF { key: "remote-mic-tx-a", byte: 0x03CA44, kind: SK::Enum { width: 1, labels: &[(0, "-----"), (1, "Vol Up"), (2, "Vol Down"), (3, "Voice Tx"), (4, "T-Call")] } },  // Remote Mic Tx [A]
     SF { key: "remote-mic-tx-b", byte: 0x03CA45, kind: SK::Enum { width: 1, labels: &[(0, "-----"), (1, "Vol Up"), (2, "Vol Down"), (3, "Voice Tx"), (4, "T-Call")] } },  // Remote Mic Tx [B]
     SF { key: "remote-mic-tx-up", byte: 0x03CA46, kind: SK::Enum { width: 1, labels: &[(0, "-----"), (1, "Vol Up"), (2, "Vol Down"), (3, "Voice Tx"), (4, "T-Call")] } },  // Remote Mic Tx [UP]
@@ -113,7 +113,7 @@ pub(crate) const ID52_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "tx-delay-ptt", byte: 0x03CA50, kind: SK::Uint { width: 1 } },  // Tx Delay (PTT)
     SF { key: "display-type-rx-history", byte: 0x03CA52, kind: SK::Enum { width: 1, labels: &[(0, "Callsign"), (1, "Name")] } },  // Display Type (Rx History)
     SF { key: "temperature", byte: 0x03CA53, kind: SK::Enum { width: 1, labels: &[(0, "°C"), (1, "°F")] } },  // Temperature
-    SF { key: "barometric", byte: 0x03CA54, kind: SK::Enum { width: 1, labels: &[(0, "hPa")] } },  // Barometric
+    SF { key: "barometric", byte: 0x03CA54, kind: SK::Enum { width: 1, labels: &[(0, "hPa"), (1, "mb"), (2, "mmHg"), (3, "inHg")] } },  // Barometric
     SF { key: "rainfall", byte: 0x03CA55, kind: SK::Enum { width: 1, labels: &[(0, "mm"), (1, "inch")] } },  // Rainfall
     SF { key: "wind-speed", byte: 0x03CA56, kind: SK::Enum { width: 1, labels: &[(0, "km/h"), (1, "mph"), (2, "knots")] } },  // Wind Speed
     SF { key: "csv-separator", byte: 0x03CA58, kind: SK::Enum { width: 1, labels: &[(0, "Sep [,] Dec [.]"), (1, "Sep [;] Dec [.]"), (2, "Sep [;] Dec [,]")] } },  // CSV Separator

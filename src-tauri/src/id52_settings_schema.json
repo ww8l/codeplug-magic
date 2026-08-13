@@ -951,8 +951,11 @@
     "type": "select",
     "options": [
       "OFF",
-      "1/2/4/8min",
-      "/2/3/4 Auto"
+      "1 min",
+      "2 min",
+      "4 min",
+      "8 min",
+      "Auto"
     ]
   },
   {
@@ -1107,7 +1110,10 @@
     "label": "Barometric",
     "type": "select",
     "options": [
-      "hPa"
+      "hPa",
+      "mb",
+      "mmHg",
+      "inHg"
     ]
   },
   {
@@ -1318,6 +1324,8 @@
       "Down",
       "Monitor (Hold)",
       "Call",
+      "VFO/MR",
+      "Band",
       "Dup",
       "MW",
       "Record"
@@ -1332,6 +1340,8 @@
       "Down",
       "Monitor (Hold)",
       "Call",
+      "VFO/MR",
+      "Band",
       "Dup",
       "MW",
       "Record"
@@ -1346,6 +1356,8 @@
       "Down",
       "Monitor (Hold)",
       "Call",
+      "VFO/MR",
+      "Band",
       "Dup",
       "MW",
       "Record"
@@ -1360,6 +1372,8 @@
       "Down",
       "Monitor (Hold)",
       "Call",
+      "VFO/MR",
+      "Band",
       "Dup",
       "MW",
       "Record"
