@@ -69,6 +69,8 @@
 //! radio itself writes revision 3. Addresses have been identical across both all
 //! along; option lists that *grew* between revisions have not been checked.
 
+#[cfg(test)]
+mod dump_card;
 pub(crate) mod icf;
 pub(crate) mod memory;
 pub(crate) mod memory_csv;
