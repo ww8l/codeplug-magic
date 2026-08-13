@@ -608,12 +608,21 @@ fn models() -> Vec<ModelSeed> {
         //    NOTES: (a) the ID-52's "groups" are banks, not zones:
         //    exactly one per memory, stored in the memory itself, so
         //    a channel in two lists lands in the first. (b) tx_bands
-        //    carries the two ham bands; rx_bands is the whole
-        //    receiver, so air band, marine, NOAA, 220 and 900 are
-        //    programmed receive-only rather than dropped. The US
-        //    cellular block inside that span is not modelled — a
-        //    receive-only memory there is harmless. (c) covers_220 /
-        //    covers_900 stay false: they describe transmit.
+        //    carries the two ham bands; rx_bands is the A band's real
+        //    coverage from Icom's own specification — 108–174 and
+        //    225–479 MHz — so air band, marine, NOAA and GMRS are
+        //    programmed receive-only, and anything outside is
+        //    excluded. ⚠ THE GAPS ARE NOT COSMETIC. This started as
+        //    one span, 0.495–1310.995, on the reasoning that an
+        //    unusable receive-only memory was harmless. It is not:
+        //    Tim's radio was programmed with three 220 MHz repeaters
+        //    and showed those three memories as EMPTY SLOTS, having
+        //    silently refused frequencies it cannot tune, while the
+        //    app reported them as written. A frequency this radio
+        //    does not cover has to be excluded here, where the
+        //    operator is told why. (c) covers_220 / covers_900 stay
+        //    false, and now they are true of the receiver too: the
+        //    ID-52A has no 220 and no 800–1300 coverage at all.
         // --------------------------------------------------------
         ModelSeed {
             manufacturer: "Icom",
@@ -637,7 +646,7 @@ fn models() -> Vec<ModelSeed> {
             freq_min: 144.0,
             freq_max: 450.0,
             tx_bands: Some("[[144.0,148.0],[430.0,450.0]]"),
-            rx_bands: Some("[[0.495,1310.995]]"),
+            rx_bands: Some("[[108.0,174.0],[225.0,479.0]]"),
             memory_channels: 1000,
             zones_supported: false,
             max_zones: None,
@@ -710,6 +719,46 @@ mod tests {
                 m.model,
                 m.export_format
             );
+        }
+    }
+
+    /// A gap in a seeded receiver is not a detail — it decides whether a channel
+    /// is programmed or refused, and the radio does NOT refuse it politely.
+    ///
+    /// Tim's ID-52 was programmed with three 220 MHz repeaters inside a group of
+    /// 31. The app reported 31 channels written; the radio showed positions 4, 7
+    /// and 21 as EMPTY, having silently dropped the frequencies it cannot tune.
+    /// That is the worst possible failure — the operator is told the channel is
+    /// on the radio and it is not — and it happened because `rx_bands` was
+    /// written as one span from 0.495 to 1310.995 MHz on the assumption that an
+    /// unusable receive-only memory would be harmless.
+    ///
+    /// So: every seeded receiver must exclude what its radio genuinely cannot
+    /// hear. The ID-52A's coverage is Icom's published A band, 108–174 and
+    /// 225–479 MHz.
+    #[test]
+    fn a_seeded_receiver_excludes_what_the_radio_cannot_tune() {
+        let id52 = models()
+            .into_iter()
+            .find(|m| m.model == "ID-52")
+            .expect("the ID-52 is seeded");
+        let rx: Vec<Vec<f64>> =
+            serde_json::from_str(id52.rx_bands.expect("ID-52 has rx_bands")).unwrap();
+        let hears = |f: f64| rx.iter().any(|b| f >= b[0] && f <= b[1]);
+
+        // The three frequencies the radio itself rejected.
+        for f in [224.320, 224.520, 224.600] {
+            assert!(!hears(f), "{f} MHz: the radio showed this as an empty memory");
+        }
+        // ...and the rest of the 220 band with them, plus the regions this
+        // radio has no receiver for at all.
+        for f in [222.0, 225.0_f64 - 0.001, 0.5, 76.0, 107.9, 800.0, 900.0, 1296.0] {
+            assert!(!hears(f), "{f} MHz is outside the ID-52A's coverage");
+        }
+        // What it genuinely does hear has to survive: air band, 2 m, marine,
+        // NOAA, GMRS and 70 cm.
+        for f in [118.4, 146.94, 156.8, 162.55, 462.5625, 467.7125, 446.8125] {
+            assert!(hears(f), "{f} MHz is inside the ID-52A's coverage");
         }
     }
 
