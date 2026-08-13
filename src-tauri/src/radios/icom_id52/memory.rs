@@ -66,17 +66,12 @@
 //! [`only_the_memory_pool_changes`](tests::only_the_memory_pool_changes) proves
 //! it against a real radio's file.
 
-// Not yet reachable from the UI: the Program dialog still needs its FT5D-shaped
-// card discovery generalised to a second card radio, and no capability flag is
-// claimed on `IcomId52` until this has been written to Tim's radio and read back
-// off its screen. Proven-before-wired is deliberate — the FT5D shipped four
-// failed hardware writes and a factory reset by doing it the other way round.
-#![allow(dead_code)]
-
 use crate::commands::export::{expanded_names, CodeplugGroup, ExpandedChannel};
 use crate::models::RadioModel;
+use crate::radios::driver::{CodeplugExporter, ExportRequest};
 
 use super::icf::IcfFile;
+use super::IcomId52;
 use super::memory_csv::{
     assign_groups, call_signs, dtcs_polarity, duplex_and_offset, mode_of, tone_columns, truncate,
     tune_step, MAX_MEMORIES, MAX_NAME,
@@ -122,6 +117,10 @@ const NO_SLOT: u16 = 0xFFFF;
 /// The three tables sit back to back with no padding. If a future capture moves
 /// one of them, or an entry size turns out to be wrong, this stops compiling
 /// rather than quietly writing over the next table.
+///
+/// Nothing reads it, and nothing should: it is evaluated at compile time, and
+/// the failure it guards against is a build error, not a runtime one.
+#[allow(dead_code)]
 const TABLES_ARE_CONTIGUOUS: () = {
     assert!(GROUP_TABLE + GROUPS * GROUP_ENTRY_LEN == NEXT_TABLE);
     assert!(NEXT_TABLE + SLOTS * 2 == POSMAP);
@@ -183,31 +182,7 @@ pub(crate) fn write_codeplug(
     groups: &[CodeplugGroup],
     model: &RadioModel,
 ) -> Result<usize, String> {
-    if icf.model_id() != super::ID52_MODEL_ID {
-        return Err(format!(
-            "That settings file belongs to a different Icom (model {}, not the ID-52's {}). \
-             Use a file saved by this radio.",
-            icf.model_id(),
-            super::ID52_MODEL_ID
-        ));
-    }
-    match icf.map_rev() {
-        Some(rev) if rev == super::ID52_MAP_REV => {}
-        other => {
-            return Err(format!(
-                "This settings file is layout revision {}, and this app only writes revision {} — \
-                 the one the radio saves for itself.\n\n\
-                 Save a fresh file on the radio with SET > SD Card > Save Setting and use that. \
-                 Files written by third-party programming software declare an older revision even \
-                 when their contents match, and the radio's own file is the only one whose layout \
-                 has been verified.\n\n\
-                 If the radio itself is writing an older revision, check SET > SD Card > Save Form \
-                 — it should be set to \"Now Ver\".",
-                other.map_or_else(|| "unknown".to_string(), |r| r.to_string()),
-                super::ID52_MAP_REV
-            ));
-        }
-    }
+    super::check_is_an_id52_file(icf)?;
     write_memories(icf.image_mut(), channels, groups, model)
 }
 
@@ -307,6 +282,69 @@ pub(crate) fn write_memories(
     }
 
     Ok(used)
+}
+
+impl CodeplugExporter for IcomId52 {
+    fn export_format(&self) -> &'static str {
+        "icom_id52_icf"
+    }
+
+    /// Two card files, one exporter, chosen by the extension of the file the
+    /// operator picked.
+    ///
+    /// The `.icf` is the programming path: `SD Card > Load Setting > ALL`
+    /// restores memories *and* every MENU setting in one operation, so a single
+    /// patched file carries the whole codeplug and the radio profile together.
+    /// A `.csv` writes the Memory CH export instead — memories only, imported
+    /// separately, and useful as a cross-check that both writers describe the
+    /// same radio.
+    ///
+    /// A driver may claim only one export format, and this radio genuinely has
+    /// two card files; the extension is the operator's own statement of which
+    /// one they are pointing at.
+    fn export(&self, path: &str, req: &ExportRequest) -> Result<usize, String> {
+        if path.to_ascii_lowercase().ends_with(".csv") {
+            return super::memory_csv::write_csv(path, req);
+        }
+        patch_icf(path, req)
+    }
+}
+
+/// Patch the operator's own `.icf` in place — memories, groups, and the radio
+/// profile's settings — and keep their untouched original beside it.
+///
+/// In place, because the radio reads a file it wrote itself and everything this
+/// codeplug does not describe (the repeater list, DV call signs, Bluetooth
+/// pairings) has to survive the round trip. `.orig` is written once and never
+/// overwritten, so a second export cannot clobber the only pristine copy.
+fn patch_icf(path: &str, req: &ExportRequest) -> Result<usize, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        format!(
+            "Could not read {path}: {e}. Pick a settings file the radio saved for \
+             itself with SET > SD Card > Save Setting — they live in ID-52/Setting/."
+        )
+    })?;
+    let mut icf = IcfFile::parse(&text)?;
+    let written = write_codeplug(&mut icf, req.channels, req.groups, req.model)?;
+
+    // Settings ride in the same file as the memories, so a codeplug export is
+    // also a settings write. Nothing happens if the profile has none — an empty
+    // profile leaves the radio's own settings exactly as they were.
+    if let Some(json) = req.profile_settings {
+        let parsed: serde_json::Value = serde_json::from_str(json)
+            .map_err(|e| format!("This profile's settings are not valid JSON: {e}"))?;
+        if let Some(map) = parsed.as_object() {
+            super::settings::apply_settings(icf.image_mut(), map);
+        }
+    }
+
+    let orig = format!("{path}.orig");
+    if !std::path::Path::new(&orig).exists() {
+        std::fs::write(&orig, &text)
+            .map_err(|e| format!("Could not save the original as {orig}: {e}"))?;
+    }
+    std::fs::write(path, icf.render()).map_err(|e| format!("Could not write {path}: {e}"))?;
+    Ok(written)
 }
 
 /// Encode one memory. Field offsets are the measured ones; see FINDINGS.md.
@@ -502,6 +540,7 @@ fn clear_bit(bitmap: &mut [u8], bit: usize) {
 mod tests {
     use super::*;
     use crate::models::Channel;
+    use crate::radios::icom_id52::DRIVER;
 
     fn model() -> RadioModel {
         RadioModel {
@@ -538,6 +577,252 @@ mod tests {
     /// a test can tell "this writer put a zero here" from "nobody touched this".
     fn blank() -> Vec<u8> {
         vec![0x5A; super::super::ID52_IMAGE_LEN]
+    }
+
+    /// The image inside a fixture `.icf`: the marker byte everywhere except the
+    /// settings block, which is zeroed.
+    ///
+    /// The marker would decode as a *live* setting — `0x5A` reads as a checkbox
+    /// that is already on, and `apply_settings` deliberately leaves a field that
+    /// already holds the wanted value alone — so a fixture full of it cannot
+    /// show a settings write happening. A real file holds real values here.
+    fn card_image() -> Vec<u8> {
+        let mut img = blank();
+        img[0x03C9AC..0x03CCB6].fill(0);
+        img
+    }
+
+    /// A whole `.icf` the way the radio writes one: right model id, right map
+    /// revision, a full-length image, and a checksum that matches its contents.
+    /// The bytes inside are a marker rather than a capture — what these tests
+    /// check is which of them the exporter changes, and a real radio's file is
+    /// not something to commit.
+    fn synth_icf(image: &[u8]) -> String {
+        let mut text = format!(
+            "{}\r\n#Comment=\r\n#MapRev={}\r\n#EtcData=000000\r\n",
+            super::super::ID52_MODEL_ID,
+            super::super::ID52_MAP_REV
+        );
+        for (i, chunk) in image.chunks(64).enumerate() {
+            text.push_str(&format!("{:08X}{:02X}", i * 64, chunk.len()));
+            for b in chunk {
+                text.push_str(&format!("{b:02X}"));
+            }
+            text.push_str("\r\n");
+        }
+        IcfFile::parse(&text)
+            .expect("synthetic file parses")
+            .with_digest()
+            .render()
+    }
+
+    /// A scratch directory of this test's own, cleaned up when it drops. The
+    /// exporter writes files beside the one it is given, so each test needs a
+    /// directory rather than a path — and no test may see another's leftovers.
+    struct Scratch(std::path::PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("id52_{}_{name}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("scratch dir");
+            Self(dir)
+        }
+
+        fn join(&self, name: &str) -> String {
+            self.0.join(name).to_string_lossy().into_owned()
+        }
+
+        /// A `.icf` on disk for the exporter to patch in place.
+        fn card_file(&self, name: &str, image: &[u8]) -> String {
+            let path = self.join(name);
+            std::fs::write(&path, synth_icf(image)).expect("write fixture");
+            path
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn request<'a>(
+        channels: &'a [&'a ExpandedChannel],
+        model: &'a RadioModel,
+        settings: Option<&'a str>,
+    ) -> ExportRequest<'a> {
+        ExportRequest {
+            channels,
+            groups: &[],
+            model,
+            profile_settings: settings,
+        }
+    }
+
+    /// The whole point of the `.icf` path: one file carries both halves of a
+    /// codeplug. Memories land in the pool, the profile's settings land in the
+    /// settings block, everything else survives, and the operator's original is
+    /// kept beside it.
+    #[test]
+    fn an_icf_export_patches_memories_and_settings_together() {
+        let scratch = Scratch::new("patch");
+        let path = scratch.card_file("Set20260813_01.icf", &card_image());
+        let ec = expand(chan(1, "PROBE ICF", 146.520));
+        let model = model();
+        // Two settings the form could produce: a select label and a checkbox.
+        let settings = r#"{"squelch-a":"5","busy-led":true}"#;
+
+        let n = DRIVER
+            .export(&path, &request(&[&ec], &model, Some(settings)))
+            .expect("export");
+        assert_eq!(n, 1);
+
+        let patched = std::fs::read_to_string(&path).unwrap();
+        let icf = IcfFile::parse(&patched).expect("the patched file is still a valid ICF");
+        let img = icf.image();
+        assert_eq!(&img[POOL + 0x0C..POOL + 0x0C + 9], b"PROBE ICF");
+        assert_eq!(img[0x03CA99], 6, "Squelch A: level 5 stores as 6");
+        assert_eq!(img[0x03C9E2], 1, "Busy LED on");
+        // A byte in neither region is the operator's and must be untouched:
+        // 0x03C900 sits between the memory pool's tables and the settings
+        // block, in the run this driver has never had a reason to name.
+        assert_eq!(img[0x03C900], 0x5A);
+    }
+
+    /// The untouched original is written once and never again: a second export
+    /// must not overwrite the only pristine copy with an already-patched one.
+    #[test]
+    fn the_first_export_keeps_the_original_and_later_ones_leave_it_alone() {
+        let scratch = Scratch::new("orig");
+        let path = scratch.card_file("Set20260813_02.icf", &card_image());
+        let before = std::fs::read_to_string(&path).unwrap();
+        let ec = expand(chan(1, "FIRST", 146.520));
+        let model = model();
+
+        DRIVER
+            .export(&path, &request(&[&ec], &model, None))
+            .expect("first export");
+        let orig = format!("{path}.orig");
+        assert_eq!(std::fs::read_to_string(&orig).unwrap(), before);
+
+        let ec2 = expand(chan(2, "SECOND", 147.000));
+        DRIVER
+            .export(&path, &request(&[&ec2], &model, None))
+            .expect("second export");
+        assert_eq!(
+            std::fs::read_to_string(&orig).unwrap(),
+            before,
+            "the pristine copy was overwritten by a patched one"
+        );
+    }
+
+    /// A file saved to an older firmware's layout describes different
+    /// addresses, so it is refused by name — and refused *before* anything is
+    /// written, leaving the operator's file exactly as it was.
+    #[test]
+    fn an_older_layout_revision_is_refused_without_touching_the_file() {
+        let scratch = Scratch::new("maprev");
+        let path = scratch.card_file("Set20260813_03.icf", &card_image());
+        let stale = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("#MapRev=3", "#MapRev=2");
+        std::fs::write(&path, &stale).unwrap();
+
+        let ec = expand(chan(1, "PROBE", 146.520));
+        let model = model();
+        let err = DRIVER
+            .export(&path, &request(&[&ec], &model, None))
+            .unwrap_err();
+
+        assert!(err.contains("revision 2"), "{err}");
+        assert!(err.contains("Save Setting"), "{err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), stale);
+        assert!(!std::path::Path::new(&format!("{path}.orig")).exists());
+    }
+
+    /// The radio's other card file. One driver may claim one export format, and
+    /// the extension of the file the operator picked is what says which of the
+    /// two they meant.
+    #[test]
+    fn a_csv_path_writes_the_memory_ch_export_instead() {
+        let scratch = Scratch::new("csv");
+        let path = scratch.join("ID52.csv");
+        let ec = expand(chan(1, "PROBE CSV", 146.520));
+        let model = model();
+
+        DRIVER
+            .export(&path, &request(&[&ec], &model, None))
+            .expect("export");
+
+        let csv = std::fs::read_to_string(&path).unwrap();
+        assert!(csv.starts_with("Group No,Group Name,CH No,Name,"), "{csv}");
+        assert!(csv.contains("PROBE CSV"), "{csv}");
+    }
+
+    /// The whole export path, run over a file the radio actually wrote: patch a
+    /// real capture with a codeplug and the settings decoded out of that same
+    /// file, and everything outside the memory pool's own tables must come back
+    /// byte for byte — the operator's repeater list, call signs and every
+    /// setting, including the ones this driver has never named.
+    ///
+    /// The synthetic fixtures above cannot show this: they only prove the
+    /// exporter leaves alone the bytes it was never given, and the risk here is
+    /// the bytes it *was* given.
+    ///
+    ///     cargo test --lib icom_id52 -- --ignored --nocapture
+    #[test]
+    #[ignore = "needs a real .icf under scratchpad/id52/"]
+    fn patching_a_real_capture_disturbs_nothing_but_the_memories() {
+        // A capture the RADIO wrote, not RT Systems: only the radio's own
+        // files carry `#MapRev=3`, and revision 3 is the only layout this
+        // driver writes. RTS saves revision 1, which the exporter refuses.
+        let capture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../scratchpad/id52/id52_01_base.icf"
+        );
+        let Ok(text) = std::fs::read_to_string(capture) else {
+            eprintln!("skipped: no capture at {capture}");
+            return;
+        };
+        let before = IcfFile::parse(&text).expect("a real ID-52 file parses");
+        let settings = crate::radios::icom_id52::settings::decode_settings(before.image());
+        let before = before.image().to_vec();
+
+        let scratch = Scratch::new("realcapture");
+        let path = scratch.join("id52_01_base.icf");
+        std::fs::write(&path, &text).expect("copy the capture");
+
+        let ec = expand(chan(1, "PROBE REAL", 146.520));
+        let model = model();
+        DRIVER
+            .export(
+                &path,
+                &request(&[&ec], &model, Some(&settings.to_string())),
+            )
+            .expect("export");
+
+        let patched = std::fs::read_to_string(&path).unwrap();
+        let after = IcfFile::parse(&patched).expect("the patched capture is still a valid ICF");
+        let after = after.image();
+
+        // The regions the memory writer owns, from the module table above.
+        let owned = |i: usize| {
+            (POOL..POOL + SLOTS * REC_LEN).contains(&i)
+                || (SKIP_BITMAP..UNKNOWN_BITMAP + BITMAP_LEN).contains(&i)
+                || (GROUP_TABLE..POSMAP + GROUPS * POSMAP_LEN).contains(&i)
+        };
+        let moved: Vec<usize> = (0..before.len())
+            .filter(|&i| before[i] != after[i] && !owned(i))
+            .collect();
+        assert!(
+            moved.is_empty(),
+            "{} bytes changed outside the memory tables, first at {:06X}",
+            moved.len(),
+            moved.first().copied().unwrap_or(0)
+        );
+        assert_eq!(&after[POOL + 0x0C..POOL + 0x0C + 10], b"PROBE REAL");
+        eprintln!("ok: a real capture patched with only its memory tables moving");
     }
 
     fn write(channels: &[&ExpandedChannel], groups: &[CodeplugGroup]) -> Vec<u8> {

@@ -251,6 +251,17 @@ impl IcfFile {
             .and_then(|v| v.trim().parse().ok())
     }
 
+    /// Claim a `#CD=` line the source text did not carry, so [`render`] emits
+    /// one. Only a test needs this: it is how a fixture gets a *correct* digest
+    /// without duplicating the algorithm to compute one by hand.
+    ///
+    /// [`render`]: Self::render
+    #[cfg(test)]
+    pub(crate) fn with_digest(mut self) -> Self {
+        self.has_digest = true;
+        self
+    }
+
     /// Render the file back to text, recomputing the checksum over the current
     /// image. Byte-identical to the input when nothing has been patched.
     pub(crate) fn render(&self) -> String {

@@ -117,7 +117,10 @@ export function ProgramRadioDialog({
     setCards(null);
     refreshPorts();
     if (media) {
-      api.findFt5dMemoryCards().then(setCards).catch(() => setCards([]));
+      api
+        .findMemoryCards(model?.export_format ?? "")
+        .then(setCards)
+        .catch(() => setCards([]));
     }
     if (isSupported) {
       api.exportPreview(codeplugId).then(setPreview).catch(() => setPreview(null));
@@ -260,19 +263,12 @@ export function ProgramRadioDialog({
                       <strong>
                         Found the radio’s card mounted as “{cards[0].volume}”.
                       </strong>{" "}
-                      It already holds a backup, so there is nothing to pick —
-                      just check it is current (the radio writes it with SD CARD
-                      menu → Backup → Memory → SD card).{" "}
+                      {media.found}{" "}
                     </>
                   ) : (
                     <strong>{media.before} </strong>
                   )}
-                  Channel lists become banks, and
-                  everything else already on the radio — APRS, GPS, WIRES-X — is
-                  left untouched. The first write saves your untouched file
-                  beside it as{" "}
-                  <span className="font-mono">BACKUP.dat.orig</span>; later
-                  writes never overwrite that pristine copy.
+                  {media.preserves}
                 </span>
               </div>
             )}

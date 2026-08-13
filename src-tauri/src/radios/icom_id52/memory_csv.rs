@@ -53,9 +53,7 @@ use std::collections::HashMap;
 
 use crate::commands::export::{expanded_names, CodeplugGroup, ExpandedChannel};
 use crate::models::RadioModel;
-use crate::radios::driver::{CodeplugExporter, ExportRequest};
-
-use super::IcomId52;
+use crate::radios::driver::ExportRequest;
 
 /// Memory capacity, and how it is divided up (Advanced Manual p. 9-2).
 pub(super) const MAX_MEMORIES: usize = 1000;
@@ -444,21 +442,21 @@ pub(super) fn truncate(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
 
-impl CodeplugExporter for IcomId52 {
-    fn export_format(&self) -> &'static str {
-        "icom_id52_csv"
-    }
-
-    /// `path` is a **new** file, unlike the FT5D's in-place patch: the Memory CH
-    /// CSV holds nothing but memories, so there is no operator content to
-    /// preserve. It belongs in `ID-52/Csv/MemoryCh/` on the card, under a name
-    /// of 23 characters or less — longer names are invisible to the radio's own
-    /// file picker (Advanced Manual p. 2-7).
-    fn export(&self, path: &str, req: &ExportRequest) -> Result<usize, String> {
-        let csv = render_csv(req.channels, req.groups, req.model)?;
-        std::fs::write(path, csv).map_err(|e| format!("Could not write {path}: {e}"))?;
-        Ok(req.channels.len())
-    }
+/// Write the Memory CH CSV out.
+///
+/// `path` is a **new** file, unlike the `.icf`'s in-place patch: this file holds
+/// nothing but memories, so there is no operator content to preserve. It belongs
+/// in `ID-52/Csv/MemoryCh/` on the card, under a name of 23 characters or less —
+/// longer names are invisible to the radio's own file picker (Advanced Manual
+/// p. 2-7).
+///
+/// Reached from [`super::memory`]'s exporter, which picks this or the `.icf`
+/// patch by the extension of the file the operator chose. One driver can claim
+/// only one export format, and this radio genuinely has two card files.
+pub(super) fn write_csv(path: &str, req: &ExportRequest) -> Result<usize, String> {
+    let csv = render_csv(req.channels, req.groups, req.model)?;
+    std::fs::write(path, csv).map_err(|e| format!("Could not write {path}: {e}"))?;
+    Ok(req.channels.len())
 }
 
 #[cfg(test)]

@@ -128,18 +128,14 @@ export function ExportDialog({
               )}
               {media && (
                 <Badge className="bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300">
-                  microSD · patches BACKUP.dat in place
+                  microSD · patches the radio’s own file in place
                 </Badge>
               )}
             </div>
 
             {media && (
               <div className="border-b border-slate-200 bg-amber-50 px-5 py-2.5 text-[11px] leading-relaxed text-amber-900 dark:border-slate-700 dark:bg-amber-950/40 dark:text-amber-200">
-                <span className="font-semibold">{media.before}</span> Channel lists become banks, and
-                everything else on the radio — APRS, GPS, WIRES-X — is left untouched. The first
-                write saves your untouched file beside it as{" "}
-                <span className="font-mono">BACKUP.dat.orig</span>; later writes never overwrite
-                that pristine copy.
+                <span className="font-semibold">{media.before}</span> {media.preserves}
               </div>
             )}
 

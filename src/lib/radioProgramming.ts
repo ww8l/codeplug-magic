@@ -67,6 +67,12 @@ export interface MediaWrite {
   /// only edits a file the radio itself wrote and will read back.
   before: string;
   after: string;
+  /// Shown once the card has been found for them, in place of `before`.
+  found: string;
+  /// What survives the patch, and what the untouched copy is called. Every
+  /// media radio is patched in place, and every one of them keeps settings this
+  /// app has never heard of, so saying which is per-radio and not optional.
+  preserves: string;
 }
 
 /// The `export_format` → media-write map. Keyed on the format rather than the
@@ -86,6 +92,31 @@ const MEDIA_WRITES: Record<string, MediaWrite> = {
       "On the radio, save its memory to the card: SD CARD menu → Backup → Memory → SD card. Then eject the card, put it in this computer, and pick FT5D/BACKUP/BACKUP.dat below.",
     after:
       "Put the card back in the radio and load it: SD CARD menu → Backup → SD card → Memory.",
+    found:
+      "It already holds a backup, so there is nothing to pick — just check it is current (the radio writes it with SD CARD menu → Backup → Memory → SD card).",
+    preserves:
+      "Channel lists become banks, and everything else already on the radio — APRS, GPS, WIRES-X — is left untouched. The first write saves your untouched file beside it as BACKUP.dat.orig; later writes never overwrite that pristine copy.",
+  },
+  // The ID-52 is the second card radio, and the first whose ONE file carries
+  // both halves of a codeplug: Load Setting → ALL restores the memories and
+  // every MENU setting together, so the profile's settings ride along with the
+  // channels instead of needing a second trip.
+  icom_id52_icf: {
+    action: "Write to microSD…",
+    pickTitle: "Select a settings file from ID-52/Setting/ on the radio’s microSD card",
+    filterName: "ID-52 settings file",
+    // The Memory CH CSV is the radio's other card file — memories only, and
+    // imported separately. The exporter writes whichever one is picked.
+    extensions: ["icf", "csv"],
+    // Menu paths are the Advanced Manual's, cross-checked against Tim's radio.
+    before:
+      "On the radio, save its settings to the card: MENU → SET → SD Card → Save Setting. Then put the card in this computer — or connect the radio with SET → Function → USB Connect → SD Card Mode — and pick that file from ID-52/Setting/ below.",
+    after:
+      "Put the card back in the radio and load it: MENU → SET → SD Card → Load Setting → pick the file → ALL. That restores the memories and the settings together.",
+    found:
+      "It already holds a settings file, so there is nothing to pick — just check it is current (the radio writes one with MENU → SET → SD Card → Save Setting).",
+    preserves:
+      "Channel lists become memory groups, and everything else already in the file — the repeater list, your call signs, GPS and Bluetooth — is left untouched. The first write saves your untouched file beside it with .orig on the end; later writes never overwrite that pristine copy.",
   },
 };
 
