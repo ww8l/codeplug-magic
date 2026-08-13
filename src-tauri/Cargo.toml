@@ -36,3 +36,7 @@ csv = "1"
 thiserror = "2"
 serialport = "4"
 reqwest = { version = "0.12", features = ["json"] }
+# Icom `.icf` files carry an MD5 over their own contents (`#CD=`); the radio
+# rejects a file whose digest does not match. Already in the tree as a
+# transitive dependency, so naming it here adds no new code to the build.
+md-5 = "0.10"

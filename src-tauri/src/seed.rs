@@ -154,6 +154,12 @@ pub async fn seed_radio_models(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 /// the settings module can assert the two halves still describe the same fields.
 pub const FT5D_SETTINGS_SCHEMA: &str = include_str!("ft5d_settings_schema.json");
 
+/// The ID-52 profile-settings schema, GENERATED alongside the Rust decode table
+/// by `scratchpad/id52/gen_id52_table.py` from the measurement sheet. Exposed
+/// for the same reason as the FT5D's: the settings module asserts the two halves
+/// still describe the same fields.
+pub const ID52_SETTINGS_SCHEMA: &str = include_str!("id52_settings_schema.json");
+
 /// The full official Brandmeister talkgroup list, embedded at compile time as a
 /// `{ "<tg_number>": "<name>" }` JSON map (from api.brandmeister.network,
 /// snapshot 2026-06-18). ~1,750 entries; refresh by re-downloading the file.
@@ -586,6 +592,79 @@ fn models() -> Vec<ModelSeed> {
             // back into the microSD backup, not over a cable.
             non_channel_settings_schema: FT5D_SETTINGS_SCHEMA,
         },
+        // --------------------------------------------------------
+        // 5. Icom ID-52 — D-STAR + analog FM dual-band HT, 1000
+        //    memories in 100 groups, 16-char names, 5 W.
+        //    Covers the ID-52A (US) and ID-52E (EU); the TX bands
+        //    below are the A's.
+        //    Programmed from its own microSD card (issue #38):
+        //    `icom_id52_icf` patches the `.icf` the radio writes with
+        //    SET > SD Card > Save Setting, and the radio reads that
+        //    same file back with Load Setting > ALL — which restores
+        //    memories AND every MENU setting in one operation, so the
+        //    codeplug and the radio profile travel together in one
+        //    file. Picking a `.csv` instead writes the Memory CH
+        //    export (memories only); see radios/icom_id52/.
+        //    NOTES: (a) the ID-52's "groups" are banks, not zones:
+        //    exactly one per memory, stored in the memory itself, so
+        //    a channel in two lists lands in the first. (b) tx_bands
+        //    carries the two ham bands; rx_bands is the A band's real
+        //    coverage from Icom's own specification — 108–174 and
+        //    225–479 MHz — so air band, marine, NOAA and GMRS are
+        //    programmed receive-only, and anything outside is
+        //    excluded. ⚠ THE GAPS ARE NOT COSMETIC. This started as
+        //    one span, 0.495–1310.995, on the reasoning that an
+        //    unusable receive-only memory was harmless. It is not:
+        //    Tim's radio was programmed with three 220 MHz repeaters
+        //    and showed those three memories as EMPTY SLOTS, having
+        //    silently refused frequencies it cannot tune, while the
+        //    app reported them as written. A frequency this radio
+        //    does not cover has to be excluded here, where the
+        //    operator is told why. (c) covers_220 / covers_900 stay
+        //    false, and now they are true of the receiver too: the
+        //    ID-52A has no 220 and no 800–1300 coverage at all.
+        // --------------------------------------------------------
+        ModelSeed {
+            manufacturer: "Icom",
+            model: "ID-52",
+            driver_key: Some("icom_id52"),
+            programming_ui: Some("generic"),
+            display_name: "Icom ID-52",
+            analog_capable: true,
+            dmr_capable: false,
+            dstar_capable: true,
+            ysf_capable: false,
+            nxdn_capable: false,
+            p25_capable: false,
+            m17_capable: false,
+            aprs_capable: true,
+            covers_hf: false,
+            covers_vhf: true,
+            covers_uhf: true,
+            covers_220: false,
+            covers_900: false,
+            freq_min: 144.0,
+            freq_max: 450.0,
+            tx_bands: Some("[[144.0,148.0],[430.0,450.0]]"),
+            rx_bands: Some("[[108.0,174.0],[225.0,479.0]]"),
+            memory_channels: 1000,
+            zones_supported: false,
+            max_zones: None,
+            channels_per_zone: None,
+            scan_lists_supported: false,
+            max_scan_lists: None,
+            banks_supported: true,
+            max_name_length: 16,
+            export_format: "icom_id52_icf",
+            connection_type: "microSD or USB (SD Card Mode)",
+            // 160 settings in 12 sections, GENERATED from the measurement sheet
+            // by scratchpad/id52/gen_id52_table.py — the same parse that emits
+            // the Rust decode table (radios/icom_id52/id52_settings_table.rs),
+            // so the form and the decoder cannot drift. Every offset in it was
+            // measured by diffing two real `.icf` saves; none is inferred from
+            // another radio's driver.
+            non_channel_settings_schema: ID52_SETTINGS_SCHEMA,
+        },
     ]
 }
 
@@ -640,6 +719,46 @@ mod tests {
                 m.model,
                 m.export_format
             );
+        }
+    }
+
+    /// A gap in a seeded receiver is not a detail — it decides whether a channel
+    /// is programmed or refused, and the radio does NOT refuse it politely.
+    ///
+    /// Tim's ID-52 was programmed with three 220 MHz repeaters inside a group of
+    /// 31. The app reported 31 channels written; the radio showed positions 4, 7
+    /// and 21 as EMPTY, having silently dropped the frequencies it cannot tune.
+    /// That is the worst possible failure — the operator is told the channel is
+    /// on the radio and it is not — and it happened because `rx_bands` was
+    /// written as one span from 0.495 to 1310.995 MHz on the assumption that an
+    /// unusable receive-only memory would be harmless.
+    ///
+    /// So: every seeded receiver must exclude what its radio genuinely cannot
+    /// hear. The ID-52A's coverage is Icom's published A band, 108–174 and
+    /// 225–479 MHz.
+    #[test]
+    fn a_seeded_receiver_excludes_what_the_radio_cannot_tune() {
+        let id52 = models()
+            .into_iter()
+            .find(|m| m.model == "ID-52")
+            .expect("the ID-52 is seeded");
+        let rx: Vec<Vec<f64>> =
+            serde_json::from_str(id52.rx_bands.expect("ID-52 has rx_bands")).unwrap();
+        let hears = |f: f64| rx.iter().any(|b| f >= b[0] && f <= b[1]);
+
+        // The three frequencies the radio itself rejected.
+        for f in [224.320, 224.520, 224.600] {
+            assert!(!hears(f), "{f} MHz: the radio showed this as an empty memory");
+        }
+        // ...and the rest of the 220 band with them, plus the regions this
+        // radio has no receiver for at all.
+        for f in [222.0, 225.0_f64 - 0.001, 0.5, 76.0, 107.9, 800.0, 900.0, 1296.0] {
+            assert!(!hears(f), "{f} MHz is outside the ID-52A's coverage");
+        }
+        // What it genuinely does hear has to survive: air band, 2 m, marine,
+        // NOAA, GMRS and 70 cm.
+        for f in [118.4, 146.94, 156.8, 162.55, 462.5625, 467.7125, 446.8125] {
+            assert!(hears(f), "{f} MHz is inside the ID-52A's coverage");
         }
     }
 

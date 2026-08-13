@@ -1,0 +1,1587 @@
+[
+  {
+    "key": "section-function",
+    "label": "Function",
+    "type": "section"
+  },
+  {
+    "key": "auto-power-off",
+    "label": "Auto Power Off",
+    "type": "select",
+    "options": [
+      "Off",
+      "30",
+      "60",
+      "90",
+      "120"
+    ]
+  },
+  {
+    "key": "auto-repeater",
+    "label": "Auto Repeater",
+    "type": "select",
+    "options": [
+      "Off",
+      "Dup",
+      "Dup+Tone"
+    ]
+  },
+  {
+    "key": "ptt-lock",
+    "label": "PTT Lock",
+    "type": "boolean"
+  },
+  {
+    "key": "busy-channel-lockout",
+    "label": "Busy Channel Lockout",
+    "type": "boolean"
+  },
+  {
+    "key": "time-out-timer",
+    "label": "Time-Out Timer",
+    "type": "select",
+    "options": [
+      "Off",
+      "1",
+      "3",
+      "5",
+      "10",
+      "15",
+      "30"
+    ]
+  },
+  {
+    "key": "active-band",
+    "label": "Active Band",
+    "type": "select",
+    "options": [
+      "Single",
+      "All",
+      "Ham"
+    ]
+  },
+  {
+    "key": "power-save",
+    "label": "Power Save",
+    "type": "select",
+    "options": [
+      "Off",
+      "Short",
+      "Middle",
+      "Long"
+    ]
+  },
+  {
+    "key": "monitor",
+    "label": "Monitor",
+    "type": "select",
+    "options": [
+      "Push",
+      "Hold"
+    ]
+  },
+  {
+    "key": "dial-speedup",
+    "label": "Dial Speedup",
+    "type": "boolean"
+  },
+  {
+    "key": "key-lock",
+    "label": "Key Lock",
+    "type": "select",
+    "options": [
+      "Normal",
+      "No SQL",
+      "No VOL",
+      "All"
+    ]
+  },
+  {
+    "key": "tone-burst",
+    "label": "Tone Burst",
+    "type": "boolean"
+  },
+  {
+    "key": "mic-gain-internal",
+    "label": "Mic Gain Internal",
+    "type": "select",
+    "options": [
+      "1",
+      "2",
+      "3",
+      "4"
+    ]
+  },
+  {
+    "key": "mic-gain-external",
+    "label": "Mic Gain External",
+    "type": "select",
+    "options": [
+      "1",
+      "2",
+      "3",
+      "4"
+    ]
+  },
+  {
+    "key": "sub-band-mute",
+    "label": "Sub Band Mute",
+    "type": "select",
+    "options": [
+      "Off",
+      "Mute",
+      "Beep",
+      "Mute&Beep"
+    ]
+  },
+  {
+    "key": "volume-select",
+    "label": "Volume Select",
+    "type": "select",
+    "options": [
+      "All",
+      "BC Radio Separate",
+      "Separate"
+    ]
+  },
+  {
+    "key": "heterodyne",
+    "label": "Heterodyne",
+    "type": "select",
+    "options": [
+      "Normal",
+      "Reverse"
+    ]
+  },
+  {
+    "key": "charging-power-on",
+    "label": "Charging (Power ON)",
+    "type": "boolean"
+  },
+  {
+    "key": "usb-power-input",
+    "label": "USB Power Input",
+    "type": "boolean"
+  },
+  {
+    "key": "tx-delay-ptt",
+    "label": "Tx Delay, PTT (sec, 0 = OFF)",
+    "type": "integer",
+    "min": 0,
+    "max": 10
+  },
+  {
+    "key": "screen-capture-power-key",
+    "label": "Screen Capture [POWER] Key",
+    "type": "boolean"
+  },
+  {
+    "key": "screen-capture-filetype",
+    "label": "Screen Capture FileType",
+    "type": "select",
+    "options": [
+      "PNG",
+      "BMP"
+    ]
+  },
+  {
+    "key": "lo-call-key",
+    "label": "LO/Call Key",
+    "type": "select",
+    "options": [
+      "Standard",
+      "ID-51"
+    ]
+  },
+  {
+    "key": "battery-pack-confirmation",
+    "label": "Battery Pack Confirmation",
+    "type": "boolean"
+  },
+  {
+    "key": "vhf-tx-power",
+    "label": "VHF Tx Power",
+    "type": "select",
+    "options": [
+      "High"
+    ]
+  },
+  {
+    "key": "uhf-tx-power",
+    "label": "UHF Tx Power",
+    "type": "select",
+    "options": [
+      "LO1",
+      "High"
+    ]
+  },
+  {
+    "key": "squelch-a",
+    "label": "Squelch A",
+    "type": "select",
+    "options": [
+      "Open",
+      "Auto",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9"
+    ]
+  },
+  {
+    "key": "squelch-b",
+    "label": "Squelch B",
+    "type": "select",
+    "options": [
+      "Open",
+      "Auto",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9"
+    ]
+  },
+  {
+    "key": "att-band-a",
+    "label": "ATT (Band A)",
+    "type": "boolean"
+  },
+  {
+    "key": "att-fm-radio",
+    "label": "ATT (FM Radio)",
+    "type": "boolean"
+  },
+  {
+    "key": "section-vox",
+    "label": "VOX",
+    "type": "section"
+  },
+  {
+    "key": "vox-enable",
+    "label": "VOX Enable",
+    "type": "boolean"
+  },
+  {
+    "key": "vox-level",
+    "label": "VOX Level (0 = OFF)",
+    "type": "integer",
+    "min": 0,
+    "max": 10
+  },
+  {
+    "key": "vox-delay",
+    "label": "VOX Delay (0.5 s steps)",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "vox-time-out-timer",
+    "label": "VOX Time Out Timer",
+    "type": "select",
+    "options": [
+      "Off",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "10",
+      "15 min"
+    ]
+  },
+  {
+    "key": "vox-head-set",
+    "label": "VOX Head Set",
+    "type": "select",
+    "options": [
+      "HS-95",
+      "Other"
+    ]
+  },
+  {
+    "key": "section-display",
+    "label": "Display",
+    "type": "section"
+  },
+  {
+    "key": "busy-led",
+    "label": "Busy LED",
+    "type": "boolean"
+  },
+  {
+    "key": "backlight",
+    "label": "Backlight",
+    "type": "select",
+    "options": [
+      "Off",
+      "On",
+      "Auto",
+      "Auto(DC IN)"
+    ]
+  },
+  {
+    "key": "voltage-indication",
+    "label": "Voltage Indication",
+    "type": "boolean"
+  },
+  {
+    "key": "brightness",
+    "label": "Brightness",
+    "type": "select",
+    "options": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8"
+    ]
+  },
+  {
+    "key": "rx-call-sign",
+    "label": "RX Call Sign",
+    "type": "select",
+    "options": [
+      "OFF",
+      "Normal",
+      "RX Hold",
+      "Hold"
+    ]
+  },
+  {
+    "key": "tx-callsign-display",
+    "label": "TX Callsign Display",
+    "type": "select",
+    "options": [
+      "Off",
+      "Your",
+      "My"
+    ]
+  },
+  {
+    "key": "rx-position-display",
+    "label": "Rx Position Display",
+    "type": "select",
+    "options": [
+      "Off",
+      "On(Main/Sub)",
+      "On(Main Only)"
+    ]
+  },
+  {
+    "key": "rx-position-timer",
+    "label": "Rx Position Timer",
+    "type": "select",
+    "options": [
+      "5s",
+      "10s",
+      "15s",
+      "30s",
+      "Hold"
+    ]
+  },
+  {
+    "key": "scroll-speed",
+    "label": "Scroll Speed",
+    "type": "select",
+    "options": [
+      "Slow",
+      "Fast"
+    ]
+  },
+  {
+    "key": "opening-message",
+    "label": "Opening Message",
+    "type": "boolean"
+  },
+  {
+    "key": "language-display",
+    "label": "Language (Display)",
+    "type": "select",
+    "options": [
+      "English",
+      "Japanese"
+    ]
+  },
+  {
+    "key": "language-system",
+    "label": "Language (System)",
+    "type": "select",
+    "options": [
+      "English",
+      "Japanese"
+    ]
+  },
+  {
+    "key": "single-band-display",
+    "label": "Single Band Display",
+    "type": "select",
+    "options": [
+      "Date",
+      "GPS Information"
+    ]
+  },
+  {
+    "key": "background-color",
+    "label": "Background Color",
+    "type": "select",
+    "options": [
+      "White"
+    ]
+  },
+  {
+    "key": "scope-af-output",
+    "label": "Scope AF Output",
+    "type": "boolean"
+  },
+  {
+    "key": "display-type",
+    "label": "Display Type",
+    "type": "select",
+    "options": [
+      "Freq(Large Name)"
+    ]
+  },
+  {
+    "key": "display-type-rx-history",
+    "label": "Display Type (Rx History)",
+    "type": "select",
+    "options": [
+      "Callsign",
+      "Name"
+    ]
+  },
+  {
+    "key": "dim-screen",
+    "label": "Dim Screen",
+    "type": "boolean"
+  },
+  {
+    "key": "dim-timer",
+    "label": "Dim Timer",
+    "type": "select",
+    "options": [
+      "1",
+      "2",
+      "5",
+      "10 min",
+      "Hold"
+    ]
+  },
+  {
+    "key": "brightness-dim",
+    "label": "Brightness (Dim)",
+    "type": "select",
+    "options": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8"
+    ]
+  },
+  {
+    "key": "contrast",
+    "label": "Contrast",
+    "type": "select",
+    "options": [
+      "Light",
+      "Standard",
+      "Dark"
+    ]
+  },
+  {
+    "key": "scope-waterfall-function",
+    "label": "Scope Waterfall Function",
+    "type": "boolean"
+  },
+  {
+    "key": "scope-waterfall-speed",
+    "label": "Scope Waterfall Speed",
+    "type": "select",
+    "options": [
+      "Slow",
+      "Fast"
+    ]
+  },
+  {
+    "key": "scope-displayed-steps",
+    "label": "Scope Displayed Steps",
+    "type": "select",
+    "options": [
+      "\u00b115",
+      "\u00b120"
+    ]
+  },
+  {
+    "key": "section-sounds-and-speech",
+    "label": "Sounds and Speech",
+    "type": "section"
+  },
+  {
+    "key": "standby-beep",
+    "label": "Standby Beep",
+    "type": "select",
+    "options": [
+      "Off",
+      "On",
+      "On(to me:High Tone)",
+      "On(to me:Alarm)"
+    ]
+  },
+  {
+    "key": "emr-af-level",
+    "label": "EMR AF Level",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "rx-bass",
+    "label": "RX Bass",
+    "type": "select",
+    "options": [
+      "Cut",
+      "Normal",
+      "Boost"
+    ]
+  },
+  {
+    "key": "rx-treble",
+    "label": "RX Treble",
+    "type": "select",
+    "options": [
+      "Cut",
+      "Normal",
+      "Boost"
+    ]
+  },
+  {
+    "key": "rx-bass-boost",
+    "label": "RX Bass Boost",
+    "type": "boolean"
+  },
+  {
+    "key": "tx-bass",
+    "label": "TX Bass",
+    "type": "select",
+    "options": [
+      "Cut",
+      "Normal",
+      "Boost"
+    ]
+  },
+  {
+    "key": "tx-treble",
+    "label": "TX Treble",
+    "type": "select",
+    "options": [
+      "Cut",
+      "Normal",
+      "Boost"
+    ]
+  },
+  {
+    "key": "rx-call-sign-speech",
+    "label": "RX Call Sign SPEECH",
+    "type": "select",
+    "options": [
+      "OFF",
+      "ON(Kerchunk)",
+      "ON(All)"
+    ]
+  },
+  {
+    "key": "rx-to-cs-speech",
+    "label": "RX>CS SPEECH",
+    "type": "boolean"
+  },
+  {
+    "key": "dial-speech",
+    "label": "DIAL SPEECH",
+    "type": "boolean"
+  },
+  {
+    "key": "mode-speech",
+    "label": "MODE SPEECH",
+    "type": "boolean"
+  },
+  {
+    "key": "speech-language",
+    "label": "SPEECH Language",
+    "type": "select",
+    "options": [
+      "English",
+      "Japanese"
+    ]
+  },
+  {
+    "key": "alphabet",
+    "label": "Alphabet",
+    "type": "select",
+    "options": [
+      "Normal",
+      "Phonetic Code"
+    ]
+  },
+  {
+    "key": "speech-speed",
+    "label": "SPEECH Speed",
+    "type": "select",
+    "options": [
+      "Slow",
+      "Fast"
+    ]
+  },
+  {
+    "key": "speech-level",
+    "label": "SPEECH Level (0 = OFF)",
+    "type": "integer",
+    "min": 0,
+    "max": 9
+  },
+  {
+    "key": "section-scan",
+    "label": "Scan",
+    "type": "section"
+  },
+  {
+    "key": "scan-pause-timer-a",
+    "label": "Scan Band A Pause Timer",
+    "type": "select",
+    "options": [
+      "2 sec",
+      "4 sec",
+      "6 sec",
+      "8 sec",
+      "10 sec",
+      "12 sec",
+      "14 sec",
+      "16 sec",
+      "18 sec",
+      "20 sec",
+      "Hold"
+    ]
+  },
+  {
+    "key": "scan-pause-timer-b",
+    "label": "Scan Band B Pause Timer",
+    "type": "select",
+    "options": [
+      "2 sec",
+      "4 sec",
+      "6 sec",
+      "8 sec",
+      "10 sec",
+      "12 sec",
+      "14 sec",
+      "16 sec",
+      "18 sec",
+      "20 sec",
+      "Hold"
+    ]
+  },
+  {
+    "key": "scan-resume-timer-a",
+    "label": "Scan Band A Resume Timer",
+    "type": "select",
+    "options": [
+      "0 sec",
+      "1 sec",
+      "2 sec",
+      "3 sec",
+      "4 sec",
+      "5 sec",
+      "Hold"
+    ]
+  },
+  {
+    "key": "scan-resume-timer-b",
+    "label": "Scan Band B Resume Timer",
+    "type": "select",
+    "options": [
+      "0 sec",
+      "1 sec",
+      "2 sec",
+      "3 sec",
+      "4 sec",
+      "5 sec",
+      "Hold"
+    ]
+  },
+  {
+    "key": "wx-alert-band-a",
+    "label": "Wx Alert Band A",
+    "type": "boolean"
+  },
+  {
+    "key": "wx-alert-band-b",
+    "label": "Wx Alert Band B",
+    "type": "boolean"
+  },
+  {
+    "key": "scan-band-a-program-skip",
+    "label": "Scan Band A Program Skip",
+    "type": "boolean"
+  },
+  {
+    "key": "scan-band-b-program-skip",
+    "label": "Scan Band B Program Skip",
+    "type": "boolean"
+  },
+  {
+    "key": "dup-check-mr-scan",
+    "label": "DUP check MR Scan",
+    "type": "boolean"
+  },
+  {
+    "key": "select-group-range",
+    "label": "Select Group Range",
+    "type": "select",
+    "options": [
+      "Current Group",
+      "All Groups"
+    ]
+  },
+  {
+    "key": "scan-band-a-temporary-timer",
+    "label": "Scan Band A Temporary Timer",
+    "type": "select",
+    "options": [
+      "5 minutes",
+      "While Powered"
+    ]
+  },
+  {
+    "key": "section-dv-d-star",
+    "label": "DV (D-STAR)",
+    "type": "section"
+  },
+  {
+    "key": "auto-reply",
+    "label": "Auto Reply",
+    "type": "select",
+    "options": [
+      "Off",
+      "On",
+      "Voice",
+      "Position"
+    ]
+  },
+  {
+    "key": "dv-data-tx",
+    "label": "DV Data Tx",
+    "type": "select",
+    "options": [
+      "PTT",
+      "Auto"
+    ]
+  },
+  {
+    "key": "digital-monitor",
+    "label": "Digital Monitor",
+    "type": "select",
+    "options": [
+      "Auto",
+      "Digital",
+      "Analog"
+    ]
+  },
+  {
+    "key": "digital-repeater-set",
+    "label": "Digital Repeater Set",
+    "type": "boolean"
+  },
+  {
+    "key": "dv-auto-detect",
+    "label": "DV Auto Detect",
+    "type": "boolean"
+  },
+  {
+    "key": "rx-record-rpt",
+    "label": "Rx Record (RPT)",
+    "type": "select",
+    "options": [
+      "All",
+      "Latest Only"
+    ]
+  },
+  {
+    "key": "qso-log",
+    "label": "QSO Log",
+    "type": "boolean"
+  },
+  {
+    "key": "rx-history-log",
+    "label": "RX History Log",
+    "type": "boolean"
+  },
+  {
+    "key": "csv-separator-qso",
+    "label": "CSV Separator (QSO)",
+    "type": "select",
+    "options": [
+      "Sep [,] Dec [.]",
+      "Sep [;] Dec [.]",
+      "Sep [;] Dec [,]"
+    ]
+  },
+  {
+    "key": "csv-date",
+    "label": "CSV Date",
+    "type": "select",
+    "options": [
+      "yyyy/mm/dd",
+      "mm/dd/yyyy",
+      "dd/mm/yyyy"
+    ]
+  },
+  {
+    "key": "csv-separator",
+    "label": "CSV Separator",
+    "type": "select",
+    "options": [
+      "Sep [,] Dec [.]",
+      "Sep [;] Dec [.]",
+      "Sep [;] Dec [,]"
+    ]
+  },
+  {
+    "key": "csv-date-format",
+    "label": "CSV Date Format",
+    "type": "select",
+    "options": [
+      "yyyy/mm/dd",
+      "mm/dd/yyyy",
+      "dd/mm/yyyy"
+    ]
+  },
+  {
+    "key": "rx-to-cs-key",
+    "label": "RX>CS Key",
+    "type": "select",
+    "options": [
+      "Callsign Capture",
+      "RX>CS List"
+    ]
+  },
+  {
+    "key": "section-gps",
+    "label": "GPS",
+    "type": "section"
+  },
+  {
+    "key": "gps-tx-mode",
+    "label": "GPS TX Mode",
+    "type": "select",
+    "options": [
+      "OFF",
+      "D-PRS",
+      "NMEA"
+    ]
+  },
+  {
+    "key": "gps-sentence-gga",
+    "label": "GPS Sentence GGA",
+    "type": "boolean"
+  },
+  {
+    "key": "gps-sentence-gll",
+    "label": "GPS Sentence GLL",
+    "type": "boolean"
+  },
+  {
+    "key": "gps-auto-tx-timer",
+    "label": "GPS Auto TX Timer",
+    "type": "select",
+    "options": [
+      "OFF",
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "3m",
+      "5m",
+      "10m",
+      "30m"
+    ]
+  },
+  {
+    "key": "latitude-longitude",
+    "label": "Latitude/Longitude",
+    "type": "select",
+    "options": [
+      "ddd\u00b0mm.mm",
+      "ddd\u00b0mm'ss",
+      "ddd.dddd\u00b0"
+    ]
+  },
+  {
+    "key": "altitude-distance",
+    "label": "Altitude/Distance",
+    "type": "select",
+    "options": [
+      "m",
+      "ft/mi"
+    ]
+  },
+  {
+    "key": "gps-out-usb-port",
+    "label": "GPS Out (USB Port)",
+    "type": "boolean"
+  },
+  {
+    "key": "sbas",
+    "label": "SBAS",
+    "type": "boolean"
+  },
+  {
+    "key": "glonass",
+    "label": "GLONASS",
+    "type": "boolean"
+  },
+  {
+    "key": "power-save-gps",
+    "label": "Power Save (GPS)",
+    "type": "select",
+    "options": [
+      "OFF",
+      "1 min",
+      "2 min",
+      "4 min",
+      "8 min",
+      "Auto"
+    ]
+  },
+  {
+    "key": "satellite-information-out",
+    "label": "Satellite Information Out",
+    "type": "select",
+    "options": [
+      "GPS/QZSS/GLONASS",
+      "GPS Only"
+    ]
+  },
+  {
+    "key": "alarm-area-rx-mem",
+    "label": "Alarm Area (Rx/Mem)",
+    "type": "select",
+    "options": [
+      "Limited",
+      "Extended",
+      "Both"
+    ]
+  },
+  {
+    "key": "gps-pos-display-select",
+    "label": "GPS Pos Display Select",
+    "type": "select",
+    "options": [
+      "Latest",
+      "MAIN",
+      "SUB"
+    ]
+  },
+  {
+    "key": "compass-direction",
+    "label": "Compass Direction",
+    "type": "select",
+    "options": [
+      "Heading Up",
+      "North Up",
+      "South Up"
+    ]
+  },
+  {
+    "key": "gps-select",
+    "label": "GPS Select",
+    "type": "select",
+    "options": [
+      "OFF",
+      "ON",
+      "<legacy>",
+      "Manual"
+    ]
+  },
+  {
+    "key": "gps-time-correct",
+    "label": "GPS Time Correct",
+    "type": "select",
+    "options": [
+      "Off",
+      "Auto"
+    ]
+  },
+  {
+    "key": "speed",
+    "label": "Speed",
+    "type": "select",
+    "options": [
+      "km/h",
+      "mph",
+      "knots"
+    ]
+  },
+  {
+    "key": "gps-logger",
+    "label": "GPS Logger",
+    "type": "boolean"
+  },
+  {
+    "key": "record-interval",
+    "label": "Record Interval",
+    "type": "select",
+    "options": [
+      "1s",
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "10m"
+    ]
+  },
+  {
+    "key": "record-sentence-gga",
+    "label": "Record Sentence GGA",
+    "type": "boolean"
+  },
+  {
+    "key": "record-sentence-gsa",
+    "label": "Record Sentence GSA",
+    "type": "boolean"
+  },
+  {
+    "key": "record-sentence-rmc",
+    "label": "Record Sentence RMC",
+    "type": "boolean"
+  },
+  {
+    "key": "record-sentence-vtg",
+    "label": "Record Sentence VTG",
+    "type": "boolean"
+  },
+  {
+    "key": "alarm-select",
+    "label": "Alarm Select",
+    "type": "select",
+    "options": [
+      "OFF",
+      "RX",
+      "Group",
+      "Memory"
+    ]
+  },
+  {
+    "key": "alarm-area-group",
+    "label": "Alarm Area, Group (0.001 minute)",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "utc-offset-minutes",
+    "label": "UTC Offset",
+    "type": "select",
+    "options": [
+      "-14:00",
+      "-13:45",
+      "-13:30",
+      "-13:15",
+      "-13:00",
+      "-12:45",
+      "-12:30",
+      "-12:15",
+      "-12:00",
+      "-11:45",
+      "-11:30",
+      "-11:15",
+      "-11:00",
+      "-10:45",
+      "-10:30",
+      "-10:15",
+      "-10:00",
+      "-09:45",
+      "-09:30",
+      "-09:15",
+      "-09:00",
+      "-08:45",
+      "-08:30",
+      "-08:15",
+      "-08:00",
+      "-07:45",
+      "-07:30",
+      "-07:15",
+      "-07:00",
+      "-06:45",
+      "-06:30",
+      "-06:15",
+      "-06:00",
+      "-05:45",
+      "-05:30",
+      "-05:15",
+      "-05:00",
+      "-04:45",
+      "-04:30",
+      "-04:15",
+      "-04:00",
+      "-03:45",
+      "-03:30",
+      "-03:15",
+      "-03:00",
+      "-02:45",
+      "-02:30",
+      "-02:15",
+      "-02:00",
+      "-01:45",
+      "-01:30",
+      "-01:15",
+      "-01:00",
+      "-00:45",
+      "-00:30",
+      "-00:15",
+      "+00:00",
+      "+00:15",
+      "+00:30",
+      "+00:45",
+      "+01:00",
+      "+01:15",
+      "+01:30",
+      "+01:45",
+      "+02:00",
+      "+02:15",
+      "+02:30",
+      "+02:45",
+      "+03:00",
+      "+03:15",
+      "+03:30",
+      "+03:45",
+      "+04:00",
+      "+04:15",
+      "+04:30",
+      "+04:45",
+      "+05:00",
+      "+05:15",
+      "+05:30",
+      "+05:45",
+      "+06:00",
+      "+06:15",
+      "+06:30",
+      "+06:45",
+      "+07:00",
+      "+07:15",
+      "+07:30",
+      "+07:45",
+      "+08:00",
+      "+08:15",
+      "+08:30",
+      "+08:45",
+      "+09:00",
+      "+09:15",
+      "+09:30",
+      "+09:45",
+      "+10:00",
+      "+10:15",
+      "+10:30",
+      "+10:45",
+      "+11:00",
+      "+11:15",
+      "+11:30",
+      "+11:45",
+      "+12:00",
+      "+12:15",
+      "+12:30",
+      "+12:45",
+      "+13:00",
+      "+13:15",
+      "+13:30",
+      "+13:45",
+      "+14:00"
+    ]
+  },
+  {
+    "key": "section-weather-and-units",
+    "label": "Weather and Units",
+    "type": "section"
+  },
+  {
+    "key": "temperature",
+    "label": "Temperature",
+    "type": "select",
+    "options": [
+      "\u00b0C",
+      "\u00b0F"
+    ]
+  },
+  {
+    "key": "barometric",
+    "label": "Barometric",
+    "type": "select",
+    "options": [
+      "hPa",
+      "mb",
+      "mmHg",
+      "inHg"
+    ]
+  },
+  {
+    "key": "rainfall",
+    "label": "Rainfall",
+    "type": "select",
+    "options": [
+      "mm",
+      "inch"
+    ]
+  },
+  {
+    "key": "wind-speed",
+    "label": "Wind Speed",
+    "type": "select",
+    "options": [
+      "km/h",
+      "mph",
+      "knots"
+    ]
+  },
+  {
+    "key": "wx-channel-a",
+    "label": "Wx Channel (Band A)",
+    "type": "integer",
+    "min": 0,
+    "max": 9
+  },
+  {
+    "key": "wx-channel-b",
+    "label": "Wx Channel (Band B)",
+    "type": "integer",
+    "min": 0,
+    "max": 9
+  },
+  {
+    "key": "section-bluetooth-and-headset",
+    "label": "Bluetooth and Headset",
+    "type": "section"
+  },
+  {
+    "key": "bluetooth-on",
+    "label": "Bluetooth ON",
+    "type": "boolean"
+  },
+  {
+    "key": "bluetooth-auto-connect",
+    "label": "Bluetooth Auto Connect",
+    "type": "boolean"
+  },
+  {
+    "key": "headset-af-output",
+    "label": "Headset AF Output",
+    "type": "select",
+    "options": [
+      "Headset Only",
+      "Headset & Speaker"
+    ]
+  },
+  {
+    "key": "icom-headset-power-save",
+    "label": "Icom Headset Power Save",
+    "type": "boolean"
+  },
+  {
+    "key": "icom-headset-one-touch-ptt",
+    "label": "Icom Headset One-Touch PTT",
+    "type": "boolean"
+  },
+  {
+    "key": "icom-headset-ptt-beep",
+    "label": "Icom Headset PTT Beep",
+    "type": "boolean"
+  },
+  {
+    "key": "icom-headset-custom-key-beep",
+    "label": "Icom Headset Custom Key Beep",
+    "type": "boolean"
+  },
+  {
+    "key": "headset-function-select",
+    "label": "Headset Function Select",
+    "type": "select",
+    "options": [
+      "Normal",
+      "PTT"
+    ]
+  },
+  {
+    "key": "headset-rx-priority",
+    "label": "Headset RX Priority",
+    "type": "select",
+    "options": [
+      "DV Fast Data",
+      "Main Band"
+    ]
+  },
+  {
+    "key": "headset-auto-disconnect",
+    "label": "Headset Auto Disconnect",
+    "type": "select",
+    "options": [
+      "Off",
+      "5 seconds"
+    ]
+  },
+  {
+    "key": "headset-vox",
+    "label": "Headset VOX",
+    "type": "boolean"
+  },
+  {
+    "key": "headset-vox-level",
+    "label": "Headset VOX Level",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "headset-vox-delay",
+    "label": "Headset VOX Delay (0.5 s steps)",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "headset-vox-time-out-timer",
+    "label": "Headset VOX Time Out",
+    "type": "select",
+    "options": [
+      "Off",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "10",
+      "15 min"
+    ]
+  },
+  {
+    "key": "bluetooth-serialport-function",
+    "label": "Bluetooth Serialport Function",
+    "type": "select",
+    "options": [
+      "CI-V Echo Off",
+      "DV Data"
+    ]
+  },
+  {
+    "key": "section-connectors-and-ci-v",
+    "label": "Connectors and CI-V",
+    "type": "section"
+  },
+  {
+    "key": "ci-v-address",
+    "label": "CI-V Address (decimal)",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "ci-v-baudrate",
+    "label": "CI-V Baudrate",
+    "type": "select",
+    "options": [
+      "300",
+      "1200",
+      "4800",
+      "9600",
+      "19200",
+      "Auto"
+    ]
+  },
+  {
+    "key": "ci-v-transceive",
+    "label": "CI-V Transceive",
+    "type": "boolean"
+  },
+  {
+    "key": "ci-v-transceive-address",
+    "label": "CI-V Transceive Address (decimal)",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "usb-serialport",
+    "label": "USB Serialport",
+    "type": "select",
+    "options": [
+      "CI-V Echo Off",
+      "Echo On",
+      "DV Data"
+    ]
+  },
+  {
+    "key": "section-remote-microphone-keys",
+    "label": "Remote Microphone Keys",
+    "type": "section"
+  },
+  {
+    "key": "remote-mic-rx-a",
+    "label": "Remote Mic Rx [A]",
+    "type": "select",
+    "options": [
+      "Up",
+      "Down",
+      "Monitor (Hold)",
+      "Call",
+      "VFO/MR",
+      "Band",
+      "Dup",
+      "MW",
+      "Record"
+    ]
+  },
+  {
+    "key": "remote-mic-rx-b",
+    "label": "Remote Mic Rx [B]",
+    "type": "select",
+    "options": [
+      "Up",
+      "Down",
+      "Monitor (Hold)",
+      "Call",
+      "VFO/MR",
+      "Band",
+      "Dup",
+      "MW",
+      "Record"
+    ]
+  },
+  {
+    "key": "remote-mic-rx-up",
+    "label": "Remote Mic Rx [UP]",
+    "type": "select",
+    "options": [
+      "Up",
+      "Down",
+      "Monitor (Hold)",
+      "Call",
+      "VFO/MR",
+      "Band",
+      "Dup",
+      "MW",
+      "Record"
+    ]
+  },
+  {
+    "key": "remote-mic-rx-down",
+    "label": "Remote Mic Rx [DOWN]",
+    "type": "select",
+    "options": [
+      "Up",
+      "Down",
+      "Monitor (Hold)",
+      "Call",
+      "VFO/MR",
+      "Band",
+      "Dup",
+      "MW",
+      "Record"
+    ]
+  },
+  {
+    "key": "remote-mic-tx-a",
+    "label": "Remote Mic Tx [A]",
+    "type": "select",
+    "options": [
+      "-----",
+      "Vol Up",
+      "Vol Down",
+      "Voice Tx",
+      "T-Call"
+    ]
+  },
+  {
+    "key": "remote-mic-tx-b",
+    "label": "Remote Mic Tx [B]",
+    "type": "select",
+    "options": [
+      "-----",
+      "Vol Up",
+      "Vol Down",
+      "Voice Tx",
+      "T-Call"
+    ]
+  },
+  {
+    "key": "remote-mic-tx-up",
+    "label": "Remote Mic Tx [UP]",
+    "type": "select",
+    "options": [
+      "-----",
+      "Vol Up",
+      "Vol Down",
+      "Voice Tx",
+      "T-Call"
+    ]
+  },
+  {
+    "key": "remote-mic-tx-down",
+    "label": "Remote Mic Tx [DOWN]",
+    "type": "select",
+    "options": [
+      "-----",
+      "Vol Up",
+      "Vol Down",
+      "Voice Tx",
+      "T-Call"
+    ]
+  },
+  {
+    "key": "section-fix-frequencies",
+    "label": "FIX Frequencies",
+    "type": "section"
+  },
+  {
+    "key": "fix-air",
+    "label": "FIX Air (Hz)",
+    "type": "integer",
+    "min": 500000,
+    "max": 1300000000
+  },
+  {
+    "key": "fix-vhf",
+    "label": "FIX VHF (Hz)",
+    "type": "integer",
+    "min": 500000,
+    "max": 1300000000
+  },
+  {
+    "key": "fix-vhf2",
+    "label": "FIX VHF2 (Hz)",
+    "type": "integer",
+    "min": 500000,
+    "max": 1300000000
+  },
+  {
+    "key": "fix-uhf",
+    "label": "FIX UHF (Hz)",
+    "type": "integer",
+    "min": 500000,
+    "max": 1300000000
+  }
+]

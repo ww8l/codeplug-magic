@@ -37,7 +37,7 @@ pub fn derive_duplex(rx_freq: f64, tx_freq: Option<f64>) -> (String, f64) {
 /// Canonical whole-kHz repeater offsets (MHz) recognized for the band that
 /// `rx` (an RX/output frequency in MHz) falls in. Used to undo RepeaterBook's
 /// 3-decimal truncation of the input/TX frequency (see [`repair_truncated_tx`]).
-fn standard_offsets(rx: f64) -> &'static [f64] {
+pub(crate) fn standard_offsets(rx: f64) -> &'static [f64] {
     match rx {
         f if f < 30.0 => &[0.1],          // 10m
         f if f < 54.0 => &[0.5, 1.0],     // 6m
