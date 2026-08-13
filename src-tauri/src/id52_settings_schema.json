@@ -351,6 +351,17 @@
     ]
   },
   {
+    "key": "rx-call-sign",
+    "label": "RX Call Sign",
+    "type": "select",
+    "options": [
+      "OFF",
+      "Normal",
+      "RX Hold",
+      "Hold"
+    ]
+  },
+  {
     "key": "tx-callsign-display",
     "label": "TX Callsign Display",
     "type": "select",
