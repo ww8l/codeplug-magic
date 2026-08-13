@@ -149,6 +149,15 @@ function CardSettingsBar({
   onLoaded: (settings: SettingsValues) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  // Where the radio's own files live, if a card is mounted. Finding the card is
+  // the app's job, not the operator's.
+  const [card, setCard] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    api
+      .findMemoryCards(format)
+      .then((cards) => setCard(cards[0]?.path))
+      .catch(() => setCard(undefined));
+  }, [format]);
   // Same descriptor the Program and Export dialogs use, so the file picker and
   // the front-panel menu steps are written down in exactly one place.
   const media = mediaWriteForFormat(format);
@@ -158,6 +167,7 @@ function CardSettingsBar({
       title: media?.pickTitle,
       multiple: false,
       directory: false,
+      defaultPath: card,
       filters: media
         ? [{ name: media.filterName, extensions: media.extensions }]
         : undefined,

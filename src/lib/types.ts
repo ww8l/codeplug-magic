@@ -793,6 +793,15 @@ export interface StandardImportSummary {
 // applied on import, not via the preview.)
 export type ChannelBackupPreview = ImportPreview;
 
+/// What an export produced. `path` is not always the path the UI asked for: a
+/// card exporter handed a FOLDER creates a file in it and names it the way the
+/// radio names its own, and the operator then picks that file by name on the
+/// radio — so the name has to come back for the UI to say it out loud.
+export interface CodeplugWritten {
+  channels: number;
+  path: string;
+}
+
 /// A mounted memory card already holding a file the radio wrote for itself,
 /// from `find_memory_cards`. Offering these beats asking the operator to
 /// navigate to `FT5D/BACKUP/BACKUP.dat` or `ID-52/Setting/` themselves —

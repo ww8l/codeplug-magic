@@ -292,6 +292,12 @@ impl CodeplugExporter for IcomId52 {
     /// Two card files, one exporter, chosen by the extension of the file the
     /// operator picked.
     ///
+    /// A target that already exists is patched in place, with the untouched
+    /// original kept beside it as `.orig`. A **folder** means "write me a new
+    /// file", which is the safer default and the one the card actions use: the
+    /// operator's own saves are never modified at all, and the radio holds many
+    /// settings files quite happily.
+    ///
     /// The `.icf` is the programming path: `SD Card > Load Setting > ALL`
     /// restores memories *and* every MENU setting in one operation, so a single
     /// patched file carries the whole codeplug and the radio profile together.
@@ -306,8 +312,84 @@ impl CodeplugExporter for IcomId52 {
         if path.to_ascii_lowercase().ends_with(".csv") {
             return super::memory_csv::write_csv(path, req);
         }
-        patch_icf(path, req)
+        // A target that does not exist yet is a NEW file on the card, and the
+        // template is the newest settings file sitting beside it. A target that
+        // does exist is the operator pointing at one file and meaning it.
+        let template = if std::path::Path::new(path).is_file() {
+            path.to_string()
+        } else {
+            let dir = std::path::Path::new(path)
+                .parent()
+                .ok_or("There is no folder to write into.")?;
+            newest_settings_file(dir)?
+        };
+        patch_icf(&template, path, req)
     }
+
+    /// A folder means "make me a new file in here", named the way the radio
+    /// names its own so it sorts into place on the Load Setting screen.
+    fn resolve_target(&self, path: &str) -> Result<String, String> {
+        if !std::path::Path::new(path).is_dir() {
+            return Ok(path.to_string());
+        }
+        // Prove there is something to patch before naming the output: a folder
+        // with no readable settings file cannot produce one, and finding that
+        // out now beats reporting a file name and then failing.
+        newest_settings_file(std::path::Path::new(path))?;
+        Ok(next_settings_file(std::path::Path::new(path))
+            .to_string_lossy()
+            .into_owned())
+    }
+}
+
+/// Every `.icf` in a folder that this driver can actually patch, oldest first.
+/// The radio's own names sort chronologically, which is what makes "newest"
+/// mean anything.
+fn settings_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension().is_some_and(|e| e.eq_ignore_ascii_case("icf"))
+                && std::fs::read_to_string(p).is_ok_and(|t| {
+                    IcfFile::parse(&t).is_ok_and(|f| super::check_is_an_id52_file(&f).is_ok())
+                })
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// The template a new file is built from: the most recent settings file the
+/// radio wrote to this card. Everything the codeplug does not describe is
+/// inherited from it, so the newest is the one that reflects the radio best.
+fn newest_settings_file(dir: &std::path::Path) -> Result<String, String> {
+    settings_files(dir)
+        .last()
+        .map(|p| p.to_string_lossy().into_owned())
+        .ok_or_else(|| {
+            format!(
+                "No ID-52 settings file to work from in {}. On the radio, save one with                  SET > SD Card > Save Setting, then try again.",
+                dir.display()
+            )
+        })
+}
+
+/// The radio's own naming scheme, `SetYYYYMMDD_NN.icf`, with today's date and
+/// the first free number. Names longer than 23 characters are invisible to the
+/// radio's file picker (Advanced Manual p. 2-7); this one is 18.
+fn next_settings_file(dir: &std::path::Path) -> std::path::PathBuf {
+    let today = chrono::Local::now().format("%Y%m%d").to_string();
+    for n in 1..=99 {
+        let candidate = dir.join(format!("Set{today}_{n:02}.icf"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    dir.join(format!("Set{today}_99.icf"))
 }
 
 /// Patch the operator's own `.icf` in place — memories, groups, and the radio
@@ -317,8 +399,8 @@ impl CodeplugExporter for IcomId52 {
 /// codeplug does not describe (the repeater list, DV call signs, Bluetooth
 /// pairings) has to survive the round trip. `.orig` is written once and never
 /// overwritten, so a second export cannot clobber the only pristine copy.
-fn patch_icf(path: &str, req: &ExportRequest) -> Result<usize, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| {
+fn patch_icf(template: &str, path: &str, req: &ExportRequest) -> Result<usize, String> {
+    let text = std::fs::read_to_string(template).map_err(|e| {
         format!(
             "Could not read {path}: {e}. Pick a settings file the radio saved for \
              itself with SET > SD Card > Save Setting — they live in ID-52/Setting/."
@@ -338,10 +420,15 @@ fn patch_icf(path: &str, req: &ExportRequest) -> Result<usize, String> {
         }
     }
 
-    let orig = format!("{path}.orig");
-    if !std::path::Path::new(&orig).exists() {
-        std::fs::write(&orig, &text)
-            .map_err(|e| format!("Could not save the original as {orig}: {e}"))?;
+    // Only when we are overwriting the operator's file. Writing a NEW one leaves
+    // theirs untouched by construction, so a `.orig` would be a copy of a file
+    // nothing has modified.
+    if template == path {
+        let orig = format!("{path}.orig");
+        if !std::path::Path::new(&orig).exists() {
+            std::fs::write(&orig, &text)
+                .map_err(|e| format!("Could not save the original as {orig}: {e}"))?;
+        }
     }
     std::fs::write(path, icf.render()).map_err(|e| format!("Could not write {path}: {e}"))?;
     Ok(written)
@@ -688,6 +775,82 @@ mod tests {
         // 0x03C900 sits between the memory pool's tables and the settings
         // block, in the run this driver has never had a reason to name.
         assert_eq!(img[0x03C900], 0x5A);
+    }
+
+    /// The card action's whole point: pointed at the folder, the exporter names
+    /// a new file the way the radio does and leaves every existing file exactly
+    /// as it was. Nothing to overwrite means nothing to keep a `.orig` of.
+    #[test]
+    fn a_folder_target_writes_a_new_file_and_touches_no_existing_one() {
+        let scratch = Scratch::new("newfile");
+        let template = scratch.card_file("Set20260101_01.icf", &card_image());
+        let before = std::fs::read_to_string(&template).unwrap();
+        let ec = expand(chan(1, "PROBE NEW", 146.520));
+        let model = model();
+
+        let dir = scratch.join("");
+        let target = DRIVER.resolve_target(&dir).expect("names a file");
+        let n = DRIVER
+            .export(&target, &request(&[&ec], &model, None))
+            .expect("export");
+
+        assert_eq!(n, 1);
+        let name = std::path::Path::new(&target)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        // The radio's own scheme, and short enough for its file picker.
+        assert!(name.starts_with("Set"), "{name}");
+        assert!(name.ends_with("_01.icf"), "{name}");
+        assert!(name.len() <= 23, "{name} is too long for the radio's picker");
+
+        // The operator's file is untouched, and no .orig was left beside it.
+        assert_eq!(std::fs::read_to_string(&template).unwrap(), before);
+        assert!(!std::path::Path::new(&format!("{template}.orig")).exists());
+
+        // ...and the new one really is the codeplug, built from that template.
+        let written = std::fs::read_to_string(&target).unwrap();
+        let img = IcfFile::parse(&written).expect("a valid ICF").image().to_vec();
+        assert_eq!(&img[POOL + 0x0C..POOL + 0x0C + 9], b"PROBE NEW");
+    }
+
+    /// A second write to the same card does not collide with the first: the
+    /// name carries a counter, which is how the radio avoids it too.
+    #[test]
+    fn a_second_new_file_gets_the_next_number() {
+        let scratch = Scratch::new("nextnumber");
+        scratch.card_file("Set20260101_01.icf", &card_image());
+        let ec = expand(chan(1, "PROBE", 146.520));
+        let model = model();
+        let dir = scratch.join("");
+
+        let first = DRIVER.resolve_target(&dir).unwrap();
+        DRIVER
+            .export(&first, &request(&[&ec], &model, None))
+            .unwrap();
+        let second = DRIVER.resolve_target(&dir).unwrap();
+        DRIVER
+            .export(&second, &request(&[&ec], &model, None))
+            .unwrap();
+
+        assert_ne!(first, second);
+        assert!(std::path::Path::new(&first).exists());
+        assert!(std::path::Path::new(&second).exists());
+    }
+
+    /// A folder with nothing to patch cannot produce a file, and says so BEFORE
+    /// naming one — a file name in a success message that does not exist would
+    /// send the operator looking for it on the radio.
+    #[test]
+    fn a_folder_with_no_usable_template_is_refused_by_name() {
+        let scratch = Scratch::new("notemplate");
+        // A revision the driver does not write: present, parseable, unusable.
+        let stale = synth_icf(&card_image()).replace("#MapRev=3", "#MapRev=2");
+        std::fs::write(scratch.join("Set20260101_01.icf"), stale).unwrap();
+
+        let err = DRIVER.resolve_target(&scratch.join("")).unwrap_err();
+        assert!(err.contains("Save Setting"), "{err}");
     }
 
     /// The untouched original is written once and never again: a second export

@@ -671,12 +671,22 @@ pub async fn export_preview(
     })
 }
 
+/// What an export actually produced. The path is not always the one the UI sent:
+/// a card exporter may be handed a folder and asked to CREATE a file, and the
+/// operator then has to pick that file by name on the radio, so the name has to
+/// come back.
+#[derive(serde::Serialize)]
+pub struct CodeplugWritten {
+    pub channels: usize,
+    pub path: String,
+}
+
 #[tauri::command]
 pub async fn generate_codeplug(
     state: State<'_, AppState>,
     codeplug_id: i64,
     path: String,
-) -> Result<usize, String> {
+) -> Result<CodeplugWritten, String> {
     let model = codeplug_model(&state.pool, codeplug_id).await?;
     let channels = codeplug_channels(&state.pool, codeplug_id).await?;
     let expanded = expand_for_export(&state.pool, channels).await?;
@@ -707,25 +717,30 @@ pub async fn generate_codeplug(
     // `export_format`, never by name and never by driver — an export-only model
     // has no driver but still names a format. Unclaimed formats (and NULL) get
     // the shared CHIRP-compatible analog CSV.
-    match model
+    // The exporter names the file before it writes it, so the report below can
+    // say which one to load on the radio.
+    let path = match model
         .export_format
         .as_deref()
         .and_then(crate::radios::registry::exporter_for_format)
     {
         Some(exporter) => {
+            let target = exporter.resolve_target(&path)?;
             let req = crate::radios::driver::ExportRequest {
                 channels: &included,
                 groups: &groups,
                 model: &model,
                 profile_settings: profile_settings.as_deref(),
             };
-            exporter.export(&path, &req)?;
+            exporter.export(&target, &req)?;
+            target
         }
         None => {
             let csv = render_chirp_csv(&included, &model)?;
             std::fs::write(&path, csv).map_err(|e| format!("Could not write file: {e}"))?;
+            path
         }
-    }
+    };
 
     sqlx::query(
         "UPDATE codeplugs SET last_exported = CURRENT_TIMESTAMP, last_export_kind = 'file' WHERE id = ?1",
@@ -735,7 +750,10 @@ pub async fn generate_codeplug(
     .await
     .estr()?;
 
-    Ok(included.len())
+    Ok(CodeplugWritten {
+        channels: included.len(),
+        path,
+    })
 }
 
 /// Build the channel name per the radio's name-length limit, appending the
