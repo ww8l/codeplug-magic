@@ -41,15 +41,30 @@ export function fieldDefault(field: SettingField): SettingsValue {
   }
 }
 
-/** Seed a values object for a schema, preferring saved values over defaults. */
+/**
+ * Seed a values object for a schema, preferring saved values over defaults.
+ *
+ * `defaults: false` leaves a field the profile has never held **blank** instead
+ * of inventing a value for it. That matters for the radios whose settings are
+ * patched into a file the radio itself wrote: a schema default is this app's
+ * guess, not the radio's setting, and saving a profile full of guesses would
+ * push all of them onto the radio the next time a codeplug is written. A blank
+ * is inert — the writers skip a value they cannot read — so the operator's own
+ * settings survive until they load them in and change one deliberately.
+ */
 export function seedValues(
   fields: SettingField[],
   saved: SettingsValues,
+  defaults = true,
 ): SettingsValues {
   const out: SettingsValues = {};
   for (const f of fields) {
     if (f.type === "section") continue; // headings hold no value
-    out[f.key] = f.key in saved ? saved[f.key] : fieldDefault(f);
+    if (f.key in saved) {
+      out[f.key] = saved[f.key];
+    } else if (defaults) {
+      out[f.key] = fieldDefault(f);
+    }
   }
   return out;
 }

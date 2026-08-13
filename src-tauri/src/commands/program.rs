@@ -385,47 +385,104 @@ pub struct MemoryCard {
     pub has_original: bool,
 }
 
-/// Find mounted cards holding an FT5D backup. Never errors: a card that cannot
-/// be read is simply not offered, and an empty list means "use the picker".
+/// Mounted removable media, wherever this OS puts it. macOS mounts under
+/// /Volumes; Windows gives each card a drive letter. Both are cheap to
+/// enumerate and neither needs any permission the app does not already have.
+fn mounted_roots() -> Vec<std::path::PathBuf> {
+    if cfg!(target_os = "windows") {
+        ('D'..='Z')
+            .map(|d| std::path::PathBuf::from(format!("{d}:\\")))
+            .collect()
+    } else {
+        std::fs::read_dir("/Volumes")
+            .map(|rd| rd.flatten().map(|e| e.path()).collect())
+            .unwrap_or_default()
+    }
+}
+
+fn volume_name(root: &std::path::Path) -> String {
+    root.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| root.to_string_lossy().into_owned())
+}
+
+/// Find mounted cards holding a file this codeplug format can be written into.
+///
+/// Keyed on `export_format` rather than on a model or a driver, the same way
+/// [`crate::commands::export::generate_codeplug`] picks its exporter — a format
+/// with no card path simply finds nothing. Never errors: a card that cannot be
+/// read is not offered, and an empty list means "use the picker".
 #[tauri::command]
-pub async fn find_ft5d_memory_cards() -> Vec<MemoryCard> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let mut out = Vec::new();
-        // macOS mounts removable media under /Volumes; Windows gives each card
-        // a drive letter. Both are cheap to enumerate and neither needs any
-        // permission the app does not already have.
-        let roots: Vec<std::path::PathBuf> = if cfg!(target_os = "windows") {
-            ('D'..='Z')
-                .map(|d| std::path::PathBuf::from(format!("{d}:\\")))
-                .collect()
-        } else {
-            std::fs::read_dir("/Volumes")
-                .map(|rd| rd.flatten().map(|e| e.path()).collect())
-                .unwrap_or_default()
-        };
-        for root in roots {
-            let path = root.join("FT5D").join("BACKUP").join("BACKUP.dat");
-            let Ok(image) = std::fs::read(&path) else {
-                continue;
-            };
-            // Validate rather than trust the name — a stale file from another
-            // model would otherwise be offered as a safe target.
-            if crate::radios::yaesu_ft5d::sd_image::validate_backup(&image).is_err() {
-                continue;
-            }
-            out.push(MemoryCard {
-                has_original: path.with_extension("dat.orig").exists(),
-                volume: root
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| root.to_string_lossy().into_owned()),
-                path: path.to_string_lossy().into_owned(),
-            });
-        }
-        out
+pub async fn find_memory_cards(format: String) -> Vec<MemoryCard> {
+    tauri::async_runtime::spawn_blocking(move || match format.as_str() {
+        "yaesu_ft5d_sd" => ft5d_cards(),
+        "icom_id52_icf" => id52_cards(),
+        _ => Vec::new(),
     })
     .await
     .unwrap_or_default()
+}
+
+/// The FT5D writes to one fixed path, so there is nothing for the operator to
+/// navigate to.
+fn ft5d_cards() -> Vec<MemoryCard> {
+    let mut out = Vec::new();
+    for root in mounted_roots() {
+        let path = root.join("FT5D").join("BACKUP").join("BACKUP.dat");
+        let Ok(image) = std::fs::read(&path) else {
+            continue;
+        };
+        // Validate rather than trust the name — a stale file from another
+        // model would otherwise be offered as a safe target.
+        if crate::radios::yaesu_ft5d::sd_image::validate_backup(&image).is_err() {
+            continue;
+        }
+        out.push(MemoryCard {
+            has_original: path.with_extension("dat.orig").exists(),
+            volume: volume_name(&root),
+            path: path.to_string_lossy().into_owned(),
+        });
+    }
+    out
+}
+
+/// The ID-52 keeps its settings files in one fixed folder but names them
+/// itself, so what gets offered is the **folder**, not a file: the write creates
+/// a new `SetYYYYMMDD_NN.icf` in it rather than overwriting anything the
+/// operator saved. One entry per card, so the "write straight to the card"
+/// action appears exactly as it does for the FT5D.
+///
+/// A folder is only offered if it holds at least one file this driver can
+/// actually use as a template — a file from another Icom, or one saved to an
+/// older firmware layout, is no more use here than no file at all.
+fn id52_cards() -> Vec<MemoryCard> {
+    let mut out = Vec::new();
+    for root in mounted_roots() {
+        let dir = root.join("ID-52").join("Setting");
+        let usable = std::fs::read_dir(&dir).is_ok_and(|entries| {
+            entries.flatten().any(|e| {
+                let p = e.path();
+                p.extension().is_some_and(|x| x.eq_ignore_ascii_case("icf"))
+                    && std::fs::read_to_string(&p).is_ok_and(|t| {
+                        crate::radios::icom_id52::icf::IcfFile::parse(&t)
+                            .is_ok_and(|f| {
+                                crate::radios::icom_id52::check_is_an_id52_file(&f).is_ok()
+                            })
+                    })
+            })
+        });
+        if !usable {
+            continue;
+        }
+        out.push(MemoryCard {
+            // Nothing of the operator's is modified, so there is no pristine
+            // copy to keep and nothing for the UI to reassure them about.
+            has_original: false,
+            volume: volume_name(&root),
+            path: dir.to_string_lossy().into_owned(),
+        });
+    }
+    out
 }
 
 /// The file-based sibling of [`read_radio_settings`]. The FT5D has no proven
@@ -447,6 +504,37 @@ pub async fn read_ft5d_settings_from_backup(path: String) -> Result<RadioSetting
         })?;
         crate::radios::yaesu_ft5d::sd_image::validate_backup(&image)?;
         let settings = crate::radios::yaesu_ft5d::settings::decode_settings(&image);
+        let count = settings.as_object().map(|o| o.len()).unwrap_or(0);
+        Ok(RadioSettingsRead {
+            settings,
+            count,
+            backup_path: path,
+        })
+    })
+    .await
+    .estr()?
+}
+
+/// The ID-52's version of [`read_ft5d_settings_from_backup`], reading the `.icf`
+/// the radio writes with `SET > SD Card > Save Setting`.
+///
+/// Nothing is written here. The values land in the profile form, and they go
+/// back out into an `.icf` when the codeplug is written to the card — one file
+/// carries the memories and the settings together, because `Load Setting > ALL`
+/// restores both in one operation.
+#[tauri::command]
+pub async fn read_id52_settings_from_card(path: String) -> Result<RadioSettingsRead, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let text = std::fs::read_to_string(&path).map_err(|e| {
+            format!(
+                "Could not read {path}: {e}. Pick a settings file from ID-52/Setting/ on \
+                 the radio's microSD card — save one with SET > SD Card > Save Setting if \
+                 it is not there."
+            )
+        })?;
+        let icf = crate::radios::icom_id52::icf::IcfFile::parse(&text)?;
+        crate::radios::icom_id52::check_is_an_id52_file(&icf)?;
+        let settings = crate::radios::icom_id52::settings::decode_settings(icf.image());
         let count = settings.as_object().map(|o| o.len()).unwrap_or(0);
         Ok(RadioSettingsRead {
             settings,

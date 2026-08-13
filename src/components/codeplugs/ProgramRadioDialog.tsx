@@ -117,7 +117,10 @@ export function ProgramRadioDialog({
     setCards(null);
     refreshPorts();
     if (media) {
-      api.findFt5dMemoryCards().then(setCards).catch(() => setCards([]));
+      api
+        .findMemoryCards(model?.export_format ?? "")
+        .then(setCards)
+        .catch(() => setCards([]));
     }
     if (isSupported) {
       api.exportPreview(codeplugId).then(setPreview).catch(() => setPreview(null));
@@ -173,6 +176,9 @@ export function ProgramRadioDialog({
         title: media.pickTitle,
         multiple: false,
         directory: false,
+        // Open ON the card when one was found, so picking a file by hand still
+        // does not mean navigating to it.
+        defaultPath: cards?.[0]?.path,
         filters: [{ name: media.filterName, extensions: media.extensions }],
       });
       if (typeof picked !== "string") return;
@@ -181,8 +187,11 @@ export function ProgramRadioDialog({
     const to = path;
     await run("media", async () => {
       setMediaWritten(null);
-      const count = await api.generateCodeplug(codeplugId, to);
-      setMediaWritten({ count, path: to });
+      // Report the path the exporter WROTE, not the one we asked it to write:
+      // handed a card folder it creates the file and names it, and that name is
+      // what the operator has to find on the radio's own Load screen.
+      const written = await api.generateCodeplug(codeplugId, to);
+      setMediaWritten({ count: written.channels, path: written.path });
     });
   };
 
@@ -260,19 +269,12 @@ export function ProgramRadioDialog({
                       <strong>
                         Found the radio’s card mounted as “{cards[0].volume}”.
                       </strong>{" "}
-                      It already holds a backup, so there is nothing to pick —
-                      just check it is current (the radio writes it with SD CARD
-                      menu → Backup → Memory → SD card).{" "}
+                      {media.found}{" "}
                     </>
                   ) : (
                     <strong>{media.before} </strong>
                   )}
-                  Channel lists become banks, and
-                  everything else already on the radio — APRS, GPS, WIRES-X — is
-                  left untouched. The first write saves your untouched file
-                  beside it as{" "}
-                  <span className="font-mono">BACKUP.dat.orig</span>; later
-                  writes never overwrite that pristine copy.
+                  {media.preserves}
                 </span>
               </div>
             )}

@@ -10,6 +10,7 @@ import type {
   Codeplug,
   CodeplugInput,
   CodeplugSummary,
+  CodeplugWritten,
   DashboardStats,
   GeoPoint,
   ExportPreview,
@@ -311,7 +312,7 @@ export const api = {
   exportPreview: (codeplugId: number) =>
     invoke<ExportPreview>("export_preview", { codeplugId }),
   generateCodeplug: (codeplugId: number, path: string) =>
-    invoke<number>("generate_codeplug", { codeplugId, path }),
+    invoke<CodeplugWritten>("generate_codeplug", { codeplugId, path }),
 
   // ---- direct radio programming: registry-dispatched, all radios (3.6c) ----
   // `driverKey` is the radio's `radio_models.driver_key`; the port alone carries
@@ -320,9 +321,11 @@ export const api = {
   // Static per driver — `useDriverCapabilities` caches it (3.7).
   driverCapabilities: (driverKey: string) =>
     invoke<DriverCapabilities>("driver_capabilities", { driverKey }),
-  // Mounted cards already holding a valid FT5D backup. Empty list = fall back
-  // to the manual file picker.
-  findFt5dMemoryCards: () => invoke<MemoryCard[]>("find_ft5d_memory_cards"),
+  // Mounted cards already holding a file this export format can be written
+  // into. Keyed on the format, like the exporter itself, so a card radio needs
+  // no new command. Empty list = fall back to the manual file picker.
+  findMemoryCards: (format: string) =>
+    invoke<MemoryCard[]>("find_memory_cards", { format }),
   identifyRadio: (driverKey: string, port: string) =>
     invoke<RadioIdent>("identify_radio", { driverKey, port }),
   downloadImage: (driverKey: string, port: string) =>
@@ -336,6 +339,10 @@ export const api = {
   // decoded shape, different source. See radios/yaesu_ft5d/settings.rs.
   readFt5dSettingsFromBackup: (path: string) =>
     invoke<RadioSettingsRead>("read_ft5d_settings_from_backup", { path }),
+  // The ID-52's settings live in the `.icf` it saves to its own card. Same
+  // decoded shape again. See radios/icom_id52/settings.rs.
+  readId52SettingsFromCard: (path: string) =>
+    invoke<RadioSettingsRead>("read_id52_settings_from_card", { path }),
   writeRadioSettings: (port: string, profileId: number) =>
     invoke<SettingsWriteReport>("write_radio_settings", { port, profileId }),
   // One program command for every radio (3.6e). Dispatches on capability:
