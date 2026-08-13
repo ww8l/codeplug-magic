@@ -59,6 +59,7 @@
 pub(crate) mod icf;
 pub(crate) mod memory;
 pub(crate) mod memory_csv;
+pub(crate) mod settings;
 
 use crate::radios::driver::{RadioDriver, RadioIdentity};
 
