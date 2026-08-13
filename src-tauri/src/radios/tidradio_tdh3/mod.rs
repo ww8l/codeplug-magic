@@ -253,7 +253,7 @@ impl ImageProgrammer for TidradioTdh3 {
             verified: Some(verified),
             note,
             backup_path: backup_path.to_string_lossy().to_string(),
-            channels: channels.into_iter().take(20).map(decoded_to_sample).collect(),
+            channels: channels.into_iter().map(decoded_to_sample).collect(),
             zones_written: 0,
             zones_cleared: 0,
             scan_lists_written: 0,
