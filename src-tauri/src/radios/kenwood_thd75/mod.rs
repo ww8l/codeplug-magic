@@ -35,19 +35,22 @@
 //! visit the radio's menus either way. A capability claimed before it works is a
 //! button that fails on the radio.
 //!
-//! ## ⚠ Nothing here has been loaded into a radio yet
+//! ## Verified on the radio (Phase 4)
 //!
-//! Two things are guesses until Phase 4 of `scratchpad/thd75/PLAN.md` runs:
+//! Both of the things this driver was guessing about have been measured, by
+//! loading files into Tim's TH-D75 — see `scratchpad/thd75/FINDINGS.md` §11:
 //!
-//! 1. **The checksum.** None is apparent and two saves 2½ minutes apart are
-//!    byte-identical, which rules out anything seeded by time — but "no checksum
-//!    apparent" is exactly what was believed about the FT5D.
+//! 1. **There is no checksum.** A file whose body differed by 14 bytes, with
+//!    nothing recomputed, loaded and showed the change. "No checksum apparent"
+//!    was inherited from the D74 notes and is now measured — which matters,
+//!    because it is exactly what was believed about the FT5D right up until an
+//!    undocumented 32-bit checksum caused a factory reset.
 //!    [[verify-hardware-claims-not-reports]]
-//! 2. **The band code**, `memory::used_flag`. Airband writes `7` where CHIRP's
-//!    rule says `0`, and the two airband memories in the sample are also its only
-//!    AM ones, so band and mode are confounded. The failure mode is the ID-52's:
-//!    a memory the app reports written that the radio silently leaves empty.
-//!    [[radio-tx-vs-rx-bands]]
+//! 2. **The band code is about the band**, not the mode, so `memory::used_flag`
+//!    is right. Every `7` in the sample was on a memory that was also AM, so the
+//!    two were confounded; a probe memory at **52.525 MHz in FM** — Band-B-only
+//!    and not AM — was accepted, along with all three 224 MHz repeaters the
+//!    ID-52 silently threw away. [[radio-tx-vs-rx-bands]]
 //!
 //! Working notes: `scratchpad/thd75/FINDINGS.md` (gitignored — it references
 //! dumps of a personal radio).
@@ -55,6 +58,8 @@
 pub(crate) mod d75;
 #[cfg(test)]
 mod dev_export;
+#[cfg(test)]
+mod hw_phase4;
 pub(crate) mod memory;
 
 use crate::radios::driver::{RadioDriver, RadioIdentity};
