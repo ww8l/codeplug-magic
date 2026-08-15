@@ -587,28 +587,37 @@ impl CodeplugExporter for KenwoodThd75 {
     /// Patch a config file the radio saved, and write the result as a **new**
     /// file beside it.
     ///
-    /// The operator's own saves are never modified: a `.d75` carries their whole
-    /// radio, the radio holds many of them quite happily, and overwriting the
-    /// one file that reflects the radio is the mistake there is no undo for. The
-    /// template is whichever save is newest, so everything the codeplug does not
-    /// describe is inherited from the most recent picture of the radio.
+    /// The template is whichever save in that folder is newest, so everything
+    /// the codeplug does not describe — APRS, the call-sign history, the
+    /// repeater list, every MENU setting — is inherited from the most recent
+    /// picture of the radio.
     fn export(&self, path: &str, req: &ExportRequest) -> Result<usize, String> {
-        let dir = std::path::Path::new(path);
-        let template = if dir.is_file() {
-            path.to_string()
-        } else {
-            newest_config_file(dir.parent().ok_or("There is no folder to write into.")?)?
-        };
+        let dir = std::path::Path::new(path)
+            .parent()
+            .ok_or("There is no folder to write into.")?;
+        let template = newest_config_file(dir)?;
         patch_d75(&template, path, req)
     }
 
-    /// A folder means "make me a new file in here", named the way the radio
-    /// names its own so it sorts into place on the Load Setting screen.
+    /// Name the file this write will create: the radio's own
+    /// `MMDDYYYY_HHMMSS.d75`, so it sorts into place on the Load Setting screen.
+    ///
+    /// **A picked file names its folder, it is not a file to overwrite.** The
+    /// card action hands over the DATA folder, but the manual picker can only
+    /// hand over a file, and patching that file in place is the one mistake
+    /// there is no undo for: a `.d75` is a complete picture of someone's radio,
+    /// the radio keeps as many of them as the card holds, and this driver has
+    /// no pristine-copy convention to fall back on the way the FT5D's `.orig`
+    /// does. So both paths do the same thing — read the newest save in the
+    /// folder, write a new one — which is also the only behaviour worth
+    /// explaining to the operator once.
     fn resolve_target(&self, path: &str) -> Result<String, String> {
-        let dir = std::path::Path::new(path);
-        if !dir.is_dir() {
-            return Ok(path.to_string());
-        }
+        let p = std::path::Path::new(path);
+        let dir = if p.is_dir() {
+            p
+        } else {
+            p.parent().ok_or("There is no folder to write into.")?
+        };
         // Prove there is something to patch before naming the output: a folder
         // with no readable config file cannot produce one, and finding that out
         // now beats reporting a file name and then failing.
@@ -699,6 +708,7 @@ fn patch_d75(template: &str, path: &str, req: &ExportRequest) -> Result<usize, S
 mod tests {
     use super::*;
     use crate::models::Channel;
+    use crate::radios::kenwood_thd75::DRIVER;
 
     /// A real radio save, for the tests that need one. `#[ignore]`d along with
     /// them: the file is a dump of a personal radio and lives under
@@ -933,6 +943,143 @@ mod tests {
             < sort_key(std::path::Path::new("01012026_000000.d75")));
         assert!(sort_key(std::path::Path::new("template.d75"))
             < sort_key(std::path::Path::new("01012026_000000.d75")));
+    }
+
+    /// A scratch directory standing in for `KENWOOD/TH-D75/SETTINGS/DATA` —
+    /// removed on drop, so a failed run does not poison the next one.
+    struct Scratch(std::path::PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("thd75_{}_{name}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("scratch dir");
+            Self(dir)
+        }
+
+        fn join(&self, name: &str) -> String {
+            self.0.join(name).to_string_lossy().into_owned()
+        }
+
+        /// A radio-shaped `.d75` on the card for the exporter to build from.
+        fn save(&self, name: &str) -> String {
+            use super::super::d75::{tests::synth, MODEL, RADIO_BODY_LEN, RADIO_WRITER};
+            let path = self.join(name);
+            std::fs::write(&path, synth(RADIO_WRITER, MODEL, RADIO_BODY_LEN)).expect("fixture");
+            path
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn request<'a>(
+        channels: &'a [&'a ExpandedChannel],
+        model: &'a RadioModel,
+    ) -> ExportRequest<'a> {
+        ExportRequest {
+            channels,
+            groups: &[],
+            model,
+            profile_settings: None,
+        }
+    }
+
+    /// The card action's whole point, and the reason `find_memory_cards` offers
+    /// the DATA **folder** rather than a file: pointed at the folder, the
+    /// exporter names a new save the way the radio does, builds it from the
+    /// newest one there, and leaves every existing file exactly as it was. A
+    /// `.d75` is a complete picture of someone's radio and there is no undo for
+    /// overwriting one.
+    #[test]
+    fn a_folder_target_writes_a_new_save_and_touches_no_existing_one() {
+        let scratch = Scratch::new("newfile");
+        let template = scratch.save("01012026_120000.d75");
+        let before = std::fs::read(&template).unwrap();
+        let ec = expanded(channel("PROBE NEW", 146.520));
+        let model = model();
+
+        let dir = scratch.join("");
+        let target = DRIVER.resolve_target(&dir).expect("names a file");
+        let n = DRIVER
+            .export(&target, &request(&[&ec], &model))
+            .expect("export");
+        assert_eq!(n, 1);
+
+        // The radio's own MMDDYYYY_HHMMSS scheme, so the new file sorts into
+        // place on the Load Setting screen instead of looking like an intruder.
+        let name = std::path::Path::new(&target)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert_ne!(name, "01012026_120000.d75");
+        assert_eq!(sort_key(std::path::Path::new(&name)).len(), 15, "{name}");
+        assert!(name.ends_with(".d75"), "{name}");
+
+        // The operator's save is byte-for-byte what it was, and nothing was
+        // left beside it either.
+        assert_eq!(std::fs::read(&template).unwrap(), before);
+        assert_eq!(config_files(&scratch.0).len(), 2);
+
+        // ...and the new file really is the codeplug, in a container the driver
+        // will take back.
+        let written = std::fs::read(&target).unwrap();
+        let body = D75File::parse(&written).expect("a valid .d75").body().to_vec();
+        assert_eq!(&body[NAMES..NAMES + 9], b"PROBE NEW");
+        assert_eq!(body[FLAGS], BAND_A_VHF);
+    }
+
+    /// The manual picker can only hand over a FILE, and that file is the one
+    /// thing that must not be written to: it is a complete picture of the
+    /// operator's radio and this driver keeps no `.orig` beside it. Picking a
+    /// save means "this card", not "overwrite this" — the same new-file write
+    /// the card action does.
+    #[test]
+    fn picking_a_file_writes_beside_it_instead_of_over_it() {
+        let scratch = Scratch::new("pickedfile");
+        let picked = scratch.save("01012026_120000.d75");
+        let before = std::fs::read(&picked).unwrap();
+        let model = model();
+        let ec = expanded(channel("PROBE", 146.520));
+
+        let target = DRIVER.resolve_target(&picked).expect("names a file");
+        assert_ne!(target, picked, "the operator's own save was named as the target");
+        DRIVER
+            .export(&target, &request(&[&ec], &model))
+            .expect("export");
+
+        assert_eq!(std::fs::read(&picked).unwrap(), before, "the picked save changed");
+        assert_eq!(
+            std::path::Path::new(&target).parent(),
+            std::path::Path::new(&picked).parent(),
+            "the new file did not land beside the one that was picked"
+        );
+    }
+
+    /// Only a file this driver can actually patch counts as a template. Kenwood's
+    /// MCP-D75 writes the full clone image into the same folder with the same
+    /// extension, and a partial save declares the same header as a good one — so
+    /// a folder holding nothing but those is a folder with no template, and the
+    /// operator is told to save one on the radio rather than handed a file name
+    /// that then fails.
+    #[test]
+    fn a_folder_with_no_usable_save_is_refused_by_name() {
+        use super::super::d75::{tests::synth, MCP_WRITER, MODEL, RADIO_BODY_LEN, RADIO_WRITER};
+        let scratch = Scratch::new("notemplate");
+        std::fs::write(scratch.join("02022026_120000.d75"), synth(MCP_WRITER, MODEL, 0x7A300))
+            .unwrap();
+        std::fs::write(
+            scratch.join("02022026_130000.d75"),
+            synth(RADIO_WRITER, MODEL, RADIO_BODY_LEN - 0x2C00),
+        )
+        .unwrap();
+
+        let err = DRIVER.resolve_target(&scratch.join("")).unwrap_err();
+        assert!(err.contains("Save Setting"), "{err}");
     }
 
     /// Rebuild the channel the driver would have been handed for a record the

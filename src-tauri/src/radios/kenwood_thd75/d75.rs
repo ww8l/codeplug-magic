@@ -179,8 +179,11 @@ fn field(bytes: &[u8], at: usize, len: usize) -> String {
         .collect()
 }
 
+// `pub(crate)`, not private: [`synth`] is the fixture the memory encoder's own
+// tests build their card files from, so the shape of a `.d75` is described in
+// exactly one place.
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// A minimal radio-shaped file: the header fields this module reads, and a

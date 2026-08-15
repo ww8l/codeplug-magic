@@ -53,6 +53,8 @@
 //! dumps of a personal radio).
 
 pub(crate) mod d75;
+#[cfg(test)]
+mod dev_export;
 pub(crate) mod memory;
 
 use crate::radios::driver::{RadioDriver, RadioIdentity};
