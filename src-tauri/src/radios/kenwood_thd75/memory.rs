@@ -49,7 +49,7 @@
 use crate::commands::export::{expanded_names, tx_frequency, CodeplugGroup, ExpandedChannel};
 use crate::models::RadioModel;
 use crate::radios::driver::{CodeplugExporter, ExportRequest};
-use crate::util::truncate;
+use crate::util::{pack_dstar_call, truncate};
 
 use super::d75::D75File;
 use super::KenwoodThd75;
@@ -435,16 +435,53 @@ fn tone_fields(c: &crate::models::Channel) -> (u8, u8, u8, u8) {
 /// The three D-STAR call sign fields.
 ///
 /// Kenwood packs a call sign into 8 characters with the **port letter last** —
-/// `WW8L   B` — the port being the repeater's band, and the gateway the same
-/// call with `G`. Measured off Tim's own hotspot memories. An analog memory is
-/// not blank: it carries the radio's defaults.
+/// `WW8L   B` — the port being the repeater's module, and the gateway the same
+/// call with `G`. Measured off Tim's own memories, where the radio wrote
+/// `W0QEY  B`, `KC0DS  C` and `WW8L   B`. An analog memory is not blank: it
+/// carries the radio's defaults.
+///
+/// **The channel's own values win** (issue #41). What they replace is a
+/// derivation from `callsign` plus a band-to-module rule, which matches every
+/// one of those five memories but can only ever produce one answer per
+/// frequency — it cannot say `REF030CL` in `Your Callsign`, and it cannot know
+/// that a hotspot's RPT1 is its owner's call. The derivation stays as the
+/// fallback because the channel library holds hundreds of D-STAR repeaters
+/// imported from RepeaterBook, which carries a call sign and no module letter.
 fn call_signs(ec: &ExpandedChannel, mode: u8) -> (String, String, String) {
-    if mode != MODE_DR {
-        return (
+    let stored = |f: &Option<String>| {
+        f.as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(pack_dstar_call)
+    };
+    let c = &ec.channel;
+    let (ur, rpt1, rpt2) = (
+        stored(&c.dstar_ur_call),
+        stored(&c.dstar_rpt1),
+        stored(&c.dstar_rpt2),
+    );
+
+    // Each field falls back on its own: an operator who sets only `Your
+    // Callsign` to link a reflector still wants the repeater derived for them.
+    let (d_ur, d_rpt1, d_rpt2) = derived_call_signs(ec, mode);
+    (
+        ur.unwrap_or(d_ur),
+        rpt1.unwrap_or(d_rpt1),
+        rpt2.unwrap_or(d_rpt2),
+    )
+}
+
+/// What the driver writes for a channel that names no call signs of its own.
+fn derived_call_signs(ec: &ExpandedChannel, mode: u8) -> (String, String, String) {
+    let defaults = || {
+        (
             UR_DEFAULT.to_string(),
             RPT_DEFAULT.to_string(),
             RPT_DEFAULT.to_string(),
-        );
+        )
+    };
+    if mode != MODE_DR {
+        return defaults();
     }
     let Some(call) = ec
         .channel
@@ -454,11 +491,7 @@ fn call_signs(ec: &ExpandedChannel, mode: u8) -> (String, String, String) {
         .filter(|s| !s.is_empty())
     else {
         // A repeater memory with no call sign has nothing to route through.
-        return (
-            UR_DEFAULT.to_string(),
-            RPT_DEFAULT.to_string(),
-            RPT_DEFAULT.to_string(),
-        );
+        return defaults();
     };
     let port = match ec.channel.rx_freq {
         f if f >= 1200.0 => 'A',
@@ -918,6 +951,39 @@ mod tests {
         assert_eq!(&r[23..29], b"DIRECT");
     }
 
+    /// Issue #41: what the channel says beats what the driver would guess, and
+    /// each of the three fields falls back on its own.
+    ///
+    /// The cases that made the fields necessary: a reflector command in `Your
+    /// Callsign`, which no rule can derive; and a module the band convention
+    /// does not predict — this repeater is on 70 cm, where the derivation writes
+    /// `B`, and it is being told `A`.
+    #[test]
+    fn a_channels_own_call_signs_beat_the_derivation() {
+        let mut c = channel("REFLECTOR", 446.8125);
+        c.mode = Some("DSTAR".into());
+        c.callsign = Some("W0QEY".into());
+        c.duplex = Some("-".into());
+        c.offset = Some(5.0);
+        c.dstar_ur_call = Some("REF030CL".into());
+        c.dstar_rpt1 = Some("w0qey a".into());
+        let r = encode_record(&expanded(c));
+        assert_eq!(&r[15..23], b"REF030CL");
+        assert_eq!(&r[23..31], b"W0QEY  A", "the stored module lost to the band rule");
+        // RPT2 was not given, so it still derives — and it derives from the
+        // channel's callsign, not from the overridden RPT1.
+        assert_eq!(&r[31..39], b"W0QEY  G");
+
+        // An analog memory the operator has annotated is still analog, and its
+        // stored values still win over the radio's DIRECT defaults.
+        let mut c = channel("ANALOG", 146.940);
+        c.dstar_rpt1 = Some("W0UPS B".into());
+        let r = encode_record(&expanded(c));
+        assert_eq!(&r[15..21], b"CQCQCQ");
+        assert_eq!(&r[23..31], b"W0UPS  B");
+        assert_eq!(&r[31..37], b"DIRECT");
+    }
+
     /// Overflowing the radio is an error, not a silent truncation: a codeplug
     /// that does not fit is the operator's to fix, and quietly dropping the tail
     /// hands back a radio that looks programmed and is missing channels.
@@ -1108,9 +1174,16 @@ mod tests {
             f if f & CROSS_ON != 0 => "Cross",
             _ => "off",
         };
-        let rpt1 = String::from_utf8_lossy(&m[23..31])
-            .trim_end_matches('\0')
-            .to_string();
+        // The radio's own three call signs, carried across as themselves
+        // (issue #41) so the re-encode compares against what it wrote rather
+        // than against a rule that happens to agree with it.
+        let call_at = |r: std::ops::Range<usize>| {
+            let s = String::from_utf8_lossy(&m[r])
+                .trim_end_matches('\0')
+                .trim_end()
+                .to_string();
+            (!s.is_empty()).then_some(s)
+        };
         Channel {
             id: 1,
             name_short: Some(name.to_string()),
@@ -1132,11 +1205,9 @@ mod tests {
             ctcss_downlink: Some(tone(m[12] & 0x3F)),
             dcs_code: Some(format!("{:03}", DTCS_CODES[(m[13] & 0x7F) as usize])),
             cross_mode: "Tone->Tone".into(),
-            callsign: if mode == MODE_DR {
-                Some(rpt1.chars().take(7).collect::<String>().trim_end().into())
-            } else {
-                None
-            },
+            dstar_ur_call: call_at(15..23),
+            dstar_rpt1: call_at(23..31),
+            dstar_rpt2: call_at(31..39),
             ..Channel::default()
         }
     }

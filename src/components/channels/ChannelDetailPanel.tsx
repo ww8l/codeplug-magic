@@ -57,6 +57,9 @@ function blankInput(): ChannelInput {
     dmr_timeslot: null,
     dmr_talkgroup: null,
     dstar_capable: false,
+    dstar_ur_call: null,
+    dstar_rpt1: null,
+    dstar_rpt2: null,
     ysf_capable: false,
     nxdn_capable: false,
     p25_capable: false,
@@ -75,6 +78,26 @@ function blankInput(): ChannelInput {
     notes: null,
     source: "manual",
   };
+}
+
+/// The RPT-1 / RPT-2 a radio's driver will derive when the field is left blank,
+/// shown as the placeholder so "blank" is never a mystery.
+///
+/// ⚠ This mirrors `derived_call_signs` in the Rust drivers and has to keep
+/// mirroring it — a placeholder that promises something the export does not
+/// write is worse than no placeholder. Both halves: the module letter comes
+/// from the band, the gateway is always `G`, and a channel with no repeater to
+/// work through gets neither (the radio's own default goes in instead, `DIRECT`
+/// on a TH-D75 and blank on an ID-52, which is why this says nothing about it).
+function derivedRpt(form: ChannelInput, which: "module" | "gateway"): string {
+  const call = form.callsign?.trim().toUpperCase();
+  const worksThroughARepeater =
+    form.duplex === "+" || form.duplex === "-" || form.duplex === "split";
+  if (!call || !worksThroughARepeater) return "";
+  const rx = form.rx_freq;
+  const port =
+    which === "gateway" ? "G" : rx >= 1200 ? "A" : rx >= 400 ? "B" : "C";
+  return `${call.slice(0, 7)} ${port}`;
 }
 
 function toInput(c: Channel): ChannelInput {
@@ -99,6 +122,9 @@ function toInput(c: Channel): ChannelInput {
     dmr_timeslot: c.dmr_timeslot,
     dmr_talkgroup: c.dmr_talkgroup,
     dstar_capable: c.dstar_capable,
+    dstar_ur_call: c.dstar_ur_call,
+    dstar_rpt1: c.dstar_rpt1,
+    dstar_rpt2: c.dstar_rpt2,
     ysf_capable: c.ysf_capable,
     nxdn_capable: c.nxdn_capable,
     p25_capable: c.p25_capable,
@@ -911,6 +937,45 @@ export function ChannelDetailPanel({
                 onChange={(e) => set("m17_can", num(e.target.value))}
               />
             </Field>
+          )}
+          {form.mode === "DSTAR" && (
+            <>
+              {/* Leave these blank and the radio's driver derives them from the
+                  callsign and the band, which is what every repeater imported
+                  from RepeaterBook needs. Fill one in when the guess cannot be
+                  right: a reflector command, or a module that departs from the
+                  usual A/B/C-by-band. Placeholders show the derivation. */}
+              <Field label="Your Callsign">
+                <TextInput
+                  value={form.dstar_ur_call ?? ""}
+                  placeholder="CQCQCQ"
+                  onChange={(e) => set("dstar_ur_call", e.target.value || null)}
+                />
+              </Field>
+              <Field label="RPT-1 Callsign">
+                <TextInput
+                  value={form.dstar_rpt1 ?? ""}
+                  placeholder={derivedRpt(form, "module")}
+                  onChange={(e) => set("dstar_rpt1", e.target.value || null)}
+                />
+              </Field>
+              <Field label="RPT-2 Callsign">
+                <TextInput
+                  value={form.dstar_rpt2 ?? ""}
+                  placeholder={derivedRpt(form, "gateway")}
+                  onChange={(e) => set("dstar_rpt2", e.target.value || null)}
+                />
+              </Field>
+              <p className="col-span-full text-[11px] leading-snug text-slate-400">
+                Leave these blank to have them worked out from the callsign and
+                the band — the module letter is <code>C</code> on 2 m,{" "}
+                <code>B</code> on 70 cm and <code>A</code> on 23 cm, and the
+                gateway is the same call with <code>G</code>. Fill one in when
+                that would be wrong: a reflector command such as{" "}
+                <code>REF030CL</code> in Your Callsign, a repeater on an unusual
+                module, or a hotspot that answers to your own call.
+              </p>
+            </>
           )}
         </Section>
 
