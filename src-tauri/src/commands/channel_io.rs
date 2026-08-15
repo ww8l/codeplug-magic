@@ -298,7 +298,8 @@ async fn insert_backup(
                 rb_ctcss_uplink, rb_ctcss_downlink, rb_operational_status,
                 rb_notes, ctcss_uplink_overridden, ctcss_downlink_overridden,
                 operational_status_overridden, notes_overridden, has_overrides,
-                last_rb_update, last_user_edit
+                last_rb_update, last_user_edit,
+                dstar_ur_call, dstar_rpt1, dstar_rpt2
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6,
                 ?7, ?8, ?9, ?10, ?11, ?12,
@@ -312,7 +313,8 @@ async fn insert_backup(
                 ?50, ?51, ?52,
                 ?53, ?54, ?55,
                 ?56, ?57, ?58,
-                ?59, ?60
+                ?59, ?60,
+                ?61, ?62, ?63
             )
             "#,
         )
@@ -376,6 +378,9 @@ async fn insert_backup(
         .bind(c.has_overrides)
         .bind(&c.last_rb_update)
         .bind(&c.last_user_edit)
+        .bind(&c.dstar_ur_call)
+        .bind(&c.dstar_rpt1)
+        .bind(&c.dstar_rpt2)
         .execute(&mut *tx)
         .await
         .estr()?

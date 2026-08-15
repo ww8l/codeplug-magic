@@ -29,6 +29,14 @@ pub struct Channel {
     pub dmr_timeslot: Option<i64>,
     pub dmr_talkgroup: Option<i64>,
     pub dstar_capable: bool,
+    /// The three D-STAR call signs (issue #41), or None to let the driver
+    /// derive them. `dstar_ur_call` is the destination — CQCQCQ, a reflector
+    /// command, or a routed call sign; `dstar_rpt1` is the repeater's module
+    /// and `dstar_rpt2` its gateway. Stored as the operator types them and
+    /// packed to each radio's own width by its driver.
+    pub dstar_ur_call: Option<String>,
+    pub dstar_rpt1: Option<String>,
+    pub dstar_rpt2: Option<String>,
     pub ysf_capable: bool,
     pub nxdn_capable: bool,
     pub p25_capable: bool,
@@ -104,6 +112,15 @@ pub struct ChannelInput {
     pub dmr_talkgroup: Option<i64>,
     #[serde(default)]
     pub dstar_capable: bool,
+    /// See [`Channel`]. Absent or blank means "derive it", which is what every
+    /// channel imported from RepeaterBook needs — it carries a call sign but
+    /// never a module letter.
+    #[serde(default)]
+    pub dstar_ur_call: Option<String>,
+    #[serde(default)]
+    pub dstar_rpt1: Option<String>,
+    #[serde(default)]
+    pub dstar_rpt2: Option<String>,
     #[serde(default)]
     pub ysf_capable: bool,
     #[serde(default)]

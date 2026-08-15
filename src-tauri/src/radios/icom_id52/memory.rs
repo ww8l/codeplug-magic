@@ -1634,8 +1634,18 @@ mod tests {
         c.ctcss_downlink = hz("TSQL Frequency");
         let dtcs = get("DTCS Code");
         c.dcs_code = (!dtcs.is_empty()).then_some(dtcs);
-        let rpt1 = get("RPT1 Call Sign");
-        c.callsign = (!rpt1.is_empty()).then(|| rpt1.trim_end().trim_end_matches(['A', 'B', 'C']).trim_end().to_string());
+        // The radio's own three call signs, carried across as themselves
+        // (issue #41). This used to strip the module letter off RPT1 to
+        // reconstruct `callsign` and let the exporter derive it back, which was
+        // only ever exact because the radio follows the band convention — a
+        // memory that did not would have compared equal to a guess.
+        c.dstar_ur_call = Some(get("Your Call Sign")).filter(|s| !s.is_empty());
+        c.dstar_rpt1 = Some(get("RPT1 Call Sign")).filter(|s| !s.is_empty());
+        c.dstar_rpt2 = Some(get("RPT2 Call Sign")).filter(|s| !s.is_empty());
+        c.callsign = c
+            .dstar_rpt1
+            .as_deref()
+            .map(|r| r.trim_end().trim_end_matches(['A', 'B', 'C']).trim_end().to_string());
         c
     }
 

@@ -107,3 +107,86 @@ pub fn gen_name_long(callsign: &str, city: &str) -> String {
 pub fn gen_name_short(callsign: &str) -> String {
     truncate(callsign, 7)
 }
+
+/// Tidy a D-STAR call sign the way it will be stored: trimmed, upper case, and
+/// blank collapsed to None. Kept out of the drivers so the channel library holds
+/// one canonical spelling and every radio packs the same text.
+pub fn normalize_dstar_call(text: Option<&str>) -> Option<String> {
+    let t = text?.trim().to_uppercase();
+    (!t.is_empty()).then_some(t)
+}
+
+/// Lay a D-STAR call sign out the way the radios store it: the module letter in
+/// the **eighth** character, `W0QEY  B`.
+///
+/// This is the JARL convention, not one vendor's — Icom and Kenwood write the
+/// same eight bytes — so it lives here rather than in either driver, and the
+/// channel library stores what the operator typed ("W0QEY B") rather than a
+/// padded string nobody wants to read in a grid.
+///
+/// A single trailing letter after a space is the module (or, in `Your
+/// Callsign`, a reflector command: `REF030 C` and `REF030CL` are both real
+/// things people type). Anything else is taken literally, which is what makes
+/// `CQCQCQ`, `DIRECT`, `REF030CL` and `/W0QEYB` all come out right.
+///
+/// ⚠ **It pads to position 8, it does not pad to length 8.** A call with a
+/// module needs the interior spaces or the module lands in the wrong byte; a
+/// bare `CQCQCQ` needs nothing after it, because the radios fill the rest of
+/// the field with NUL and a space-padded `CQCQCQ  ` is a shape a TH-D75 never
+/// writes. Trailing padding belongs to whichever driver owns the field. Caught
+/// by the ground-truth re-encode against a real radio save, which is exactly
+/// the class of thing it exists for.
+pub fn pack_dstar_call(text: &str) -> String {
+    let t: String = text.trim().to_uppercase().chars().take(8).collect();
+    let mut parts = t.split_whitespace();
+    let (Some(call), Some(module)) = (parts.next(), parts.next_back()) else {
+        return t;
+    };
+    // Two words where the second is not a lone letter is not the call+module
+    // shape; hand it over as typed and let the radio judge it.
+    if module.chars().count() != 1 || parts.next().is_some() {
+        return t;
+    }
+    format!("{:<7.7}{}", call, module)
+}
+
+#[cfg(test)]
+mod dstar_tests {
+    use super::*;
+
+    /// The five D-STAR memories a real TH-D75 wrote, and the two ways an
+    /// operator would type each of them. Both have to reach the same bytes:
+    /// the radio's own file is the only thing that decides what is correct.
+    #[test]
+    fn packs_a_call_sign_the_way_the_radio_writes_it() {
+        for typed in ["W0QEY B", "w0qey b", "W0QEY  B"] {
+            assert_eq!(pack_dstar_call(typed), "W0QEY  B", "{typed}");
+        }
+        assert_eq!(pack_dstar_call("KC0DS C"), "KC0DS  C");
+        assert_eq!(pack_dstar_call("WW8L B"), "WW8L   B");
+        assert_eq!(pack_dstar_call("W0QEY G"), "W0QEY  G");
+        // ⚠ NOT padded. A TH-D75 writes `CQCQCQ` followed by NUL, so returning
+        // `CQCQCQ  ` here put spaces into 91 of the radio's own memories and
+        // the ground-truth re-encode failed on every one of them.
+        assert_eq!(pack_dstar_call("CQCQCQ"), "CQCQCQ");
+        assert_eq!(pack_dstar_call("DIRECT"), "DIRECT");
+        // Reflector commands and call-sign routing are the reason `Your
+        // Callsign` had to become a stored field at all.
+        assert_eq!(pack_dstar_call("REF030CL"), "REF030CL");
+        assert_eq!(pack_dstar_call("REF030 C"), "REF030 C");
+        assert_eq!(pack_dstar_call("/W0QEYB"), "/W0QEYB");
+        // A module always lands in the eighth character, and nothing ever
+        // overruns the field.
+        for s in ["W0QEY B", "CQCQCQ", "REF030CL", "A VERY LONG THING", ""] {
+            assert!(pack_dstar_call(s).len() <= 8, "{s}");
+        }
+        assert_eq!(pack_dstar_call("W0QEY B").len(), 8);
+    }
+
+    #[test]
+    fn normalizing_drops_blanks_and_upper_cases() {
+        assert_eq!(normalize_dstar_call(Some("  w0qey b ")).as_deref(), Some("W0QEY B"));
+        assert_eq!(normalize_dstar_call(Some("   ")), None);
+        assert_eq!(normalize_dstar_call(None), None);
+    }
+}
