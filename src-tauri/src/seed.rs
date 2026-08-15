@@ -665,6 +665,81 @@ fn models() -> Vec<ModelSeed> {
             // another radio's driver.
             non_channel_settings_schema: ID52_SETTINGS_SCHEMA,
         },
+        // --------------------------------------------------------
+        // 6. Kenwood TH-D75 — D-STAR + analog FM TRI-band HT, 1000
+        //    memories in 30 groups, 16-char names, 5 W. The A model
+        //    (US); the E's TX bands differ.
+        //    Programmed from its own microSD card (issue #40):
+        //    `kenwood_thd75_sd` patches the `.d75` the radio writes
+        //    with Menu > Configuration > SD Card > Save Setting, and
+        //    the radio reads it back with Load Setting. The card
+        //    mounts over USB-C, so it never has to come out. See
+        //    radios/kenwood_thd75/.
+        //    NOTES: (a) covers_220 is TRUE, a first for this app —
+        //    the 224 MHz repeaters that came back as EMPTY SLOTS on
+        //    the ID-52 are a band this radio genuinely TRANSMITS on,
+        //    and tx_bands carries all three. (b) rx_bands is Band B's
+        //    continuous 0.1-524 MHz from Kenwood's own TH-D75A
+        //    specification, so HF, FM broadcast, air, marine, NOAA
+        //    and GMRS are all programmed receive-only. Band A is
+        //    narrower (136-174 / 216-260 / 410-470), but that
+        //    asymmetry is carried in the memory itself: the driver
+        //    writes the band code the radio uses to file a memory as
+        //    Band-A-or-Band-B, so an out-of-Band-A frequency is a
+        //    memory the radio tunes on B rather than one it silently
+        //    drops. ⚠ That mechanism is measured off the radio's own
+        //    saves but NOT yet confirmed by loading a file into a
+        //    radio — Phase 4 of scratchpad/thd75/PLAN.md programs a
+        //    boundary channel deliberately, and if the radio drops
+        //    it, rx_bands narrows to Band A's ranges.
+        //    (c) the D75's "groups" are banks, not zones: exactly one
+        //    per memory, stored in the memory itself, so a channel in
+        //    two lists lands in the first. It has program-scan L/U
+        //    limit pairs rather than named scan lists.
+        // --------------------------------------------------------
+        ModelSeed {
+            manufacturer: "Kenwood",
+            model: "TH-D75",
+            driver_key: Some("kenwood_thd75"),
+            programming_ui: Some("generic"),
+            display_name: "Kenwood TH-D75",
+            analog_capable: true,
+            dmr_capable: false,
+            dstar_capable: true,
+            ysf_capable: false,
+            nxdn_capable: false,
+            p25_capable: false,
+            m17_capable: false,
+            aprs_capable: true,
+            covers_hf: false,
+            covers_vhf: true,
+            covers_uhf: true,
+            covers_220: true,
+            covers_900: false,
+            freq_min: 144.0,
+            freq_max: 450.0,
+            tx_bands: Some("[[144.0,148.0],[222.0,225.0],[430.0,450.0]]"),
+            rx_bands: Some("[[0.1,524.0]]"),
+            memory_channels: 1000,
+            zones_supported: false,
+            max_zones: None,
+            channels_per_zone: None,
+            scan_lists_supported: false,
+            max_scan_lists: None,
+            banks_supported: true,
+            max_name_length: 16,
+            export_format: "kenwood_thd75_sd",
+            connection_type: "microSD or USB-C (SD card mode)",
+            // ⚠ EMPTY UNTIL PHASE 3, and the model is not finished until it is
+            // filled — a radio ships with its profile settings, not without
+            // them ([[new-radio-includes-profile-settings]]). The MENU offsets
+            // are the one genuinely unpublished part of this format (CHIRP's
+            // D74 driver has no settings support at all), so they are measured
+            // through the RT Systems bridge in Phase 3 and generated into
+            // `thd75_settings_schema.json` alongside the Rust decode table, the
+            // way the FT5D's and the ID-52's are.
+            non_channel_settings_schema: "[]",
+        },
     ]
 }
 
@@ -759,6 +834,43 @@ mod tests {
         // NOAA, GMRS and 70 cm.
         for f in [118.4, 146.94, 156.8, 162.55, 462.5625, 467.7125, 446.8125] {
             assert!(hears(f), "{f} MHz is inside the ID-52A's coverage");
+        }
+    }
+
+    /// The TH-D75 is the other half of that lesson: the same 220 MHz repeaters
+    /// the ID-52 threw away are a band this radio TRANSMITS on, so seeding it
+    /// too conservatively would drop channels the operator can legally work.
+    ///
+    /// The numbers are Kenwood's own TH-D75A specification — TX 144–148 /
+    /// 222–225 / 430–450, Band-B RX 0.1–524 — not CHIRP's and not RT Systems'.
+    #[test]
+    fn the_thd75_transmits_on_220_and_hears_the_whole_of_band_b() {
+        let d75 = models()
+            .into_iter()
+            .find(|m| m.model == "TH-D75")
+            .expect("the TH-D75 is seeded");
+        let bands = |json: &str| -> Vec<Vec<f64>> { serde_json::from_str(json).unwrap() };
+        let tx = bands(d75.tx_bands.expect("TH-D75 has tx_bands"));
+        let rx = bands(d75.rx_bands.expect("TH-D75 has rx_bands"));
+        let within = |bs: &[Vec<f64>], f: f64| bs.iter().any(|b| f >= b[0] && f <= b[1]);
+
+        assert!(d75.covers_220, "the TH-D75 is a tri-band radio");
+        // The three the ID-52 showed as empty slots — transmit-capable here.
+        for f in [224.320, 224.520, 224.600] {
+            assert!(within(&tx, f), "{f} MHz: the TH-D75 transmits on 220");
+        }
+        for f in [146.94, 446.8125] {
+            assert!(within(&tx, f), "{f} MHz is a TH-D75 transmit band");
+        }
+        // Receive-only, all inside Band B: HF, FM broadcast, air, marine, NOAA,
+        // GMRS. Each is a memory the radio tunes rather than one it drops.
+        for f in [3.573, 14.074, 88.5, 118.4, 156.8, 162.55, 462.5625] {
+            assert!(within(&rx, f), "{f} MHz is inside Band B");
+            assert!(!within(&tx, f), "{f} MHz is receive-only on a TH-D75");
+        }
+        // Band B stops at 524 MHz; there is no 800/900 or 23 cm receiver.
+        for f in [524.001, 800.0, 900.0, 1296.0] {
+            assert!(!within(&rx, f), "{f} MHz is outside the TH-D75's coverage");
         }
     }
 
