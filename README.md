@@ -37,6 +37,44 @@ Channels the radio can hear but not transmit on (GMRS, marine, NOAA, air band, 2
 programmed **receive-only** rather than dropped, and frequencies outside the receiver's real
 coverage are excluded with a reason rather than silently written to an empty slot.
 
+## Future development
+
+Every radio below has an open issue tracking its support. They are added one at a time using the
+same process each radio in the table above went through: research the published format first,
+measure anything unpublished against real hardware, build channels **and** the radio's menu
+settings together, then verify on the actual radio before shipping.
+
+**In progress**
+
+| Radio | Modes | Issue |
+|-------|-------|-------|
+| **Kenwood TH-D75** | D-STAR + APRS + Analog | [#40](https://github.com/ww8l/codeplug-magic/issues/40) |
+
+**Planned**
+
+| Radio | Modes | Issue |
+|-------|-------|-------|
+| **AnyTone AT-D578UV** | DMR + Analog mobile | [#47](https://github.com/ww8l/codeplug-magic/issues/47) |
+| **AnyTone AT-D868UV** | DMR + Analog handheld | [#51](https://github.com/ww8l/codeplug-magic/issues/51) |
+| **BTECH / Btrianium BT-9000** | Analog mobile | [#43](https://github.com/ww8l/codeplug-magic/issues/43) |
+| **Icom ID-51** | D-STAR + Analog handheld | [#50](https://github.com/ww8l/codeplug-magic/issues/50) |
+| **Icom ID-5100** | D-STAR + Analog mobile | [#49](https://github.com/ww8l/codeplug-magic/issues/49) |
+| **Icom IC-9100** | HF / VHF / UHF base | [#45](https://github.com/ww8l/codeplug-magic/issues/45) |
+| **Icom IC-7610** | HF / 6 m SDR base | [#46](https://github.com/ww8l/codeplug-magic/issues/46) |
+| **Quansheng UV-K5** | Analog handheld | [#44](https://github.com/ww8l/codeplug-magic/issues/44) |
+| **TYT MD-380** | DMR + Analog handheld | [#42](https://github.com/ww8l/codeplug-magic/issues/42) |
+| **Yaesu FT-891** | HF / 6 m mobile | [#53](https://github.com/ww8l/codeplug-magic/issues/53) |
+| **Yaesu FTM-300** | C4FM + Analog mobile | [#48](https://github.com/ww8l/codeplug-magic/issues/48) |
+| **Yaesu FTM-400** | C4FM + Analog mobile | [#52](https://github.com/ww8l/codeplug-magic/issues/52) |
+
+Beyond new radios, [#41](https://github.com/ww8l/codeplug-magic/issues/41) adds per-channel D-STAR
+call signs (URCALL / RPT1 / RPT2) so D-STAR repeater channels carry their own routing instead of
+deriving it.
+
+Adding a radio takes hardware to verify against, so the order these land in follows what's on the
+bench. If you own one of these and want to help measure or test it, say so on its issue — see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Features
 
 - **Master channel database** — one library of repeaters/channels reused across every codeplug.
