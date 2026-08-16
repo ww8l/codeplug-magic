@@ -30,7 +30,10 @@ src-tauri/gen/
 # Local development scratch & internal notes (not contributor-facing)
 # RE scratch: raw radio binary dumps, golden fixtures, findings notes
 scratchpad/
-# local Claude Code settings — reference real machine paths/username
-.claude/
+# local Claude Code settings — reference real machine paths/username.
+# Only the settings files are local; .claude/skills/ is committed on purpose,
+# because a process that lives on one machine is a process nobody else follows.
+.claude/settings.local.json
+.claude/settings.json
 # internal cross-session dev journal, stays local
 PROJECT_STATE.md
