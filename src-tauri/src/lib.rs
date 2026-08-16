@@ -137,6 +137,7 @@ pub fn run() {
             commands::program::read_radio_settings,
             commands::program::read_ft5d_settings_from_backup,
             commands::program::read_id52_settings_from_card,
+            commands::program::read_thd75_settings_from_card,
             commands::program::find_memory_cards,
             commands::program::write_radio_settings,
             commands::program::write_callsign_db,

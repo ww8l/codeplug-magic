@@ -160,6 +160,12 @@ pub const FT5D_SETTINGS_SCHEMA: &str = include_str!("ft5d_settings_schema.json")
 /// still describe the same fields.
 pub const ID52_SETTINGS_SCHEMA: &str = include_str!("id52_settings_schema.json");
 
+/// The TH-D75 profile-settings schema, GENERATED alongside the Rust decode
+/// table by `scratchpad/thd75/gen_thd75_table.py` from `rts/MEASURED.md`.
+/// Exposed for the same reason as the other two: the settings module asserts
+/// the two halves still describe the same fields.
+pub const THD75_SETTINGS_SCHEMA: &str = include_str!("thd75_settings_schema.json");
+
 /// The full official Brandmeister talkgroup list, embedded at compile time as a
 /// `{ "<tg_number>": "<name>" }` JSON map (from api.brandmeister.network,
 /// snapshot 2026-06-18). ~1,750 entries; refresh by re-downloading the file.
@@ -730,15 +736,13 @@ fn models() -> Vec<ModelSeed> {
             max_name_length: 16,
             export_format: "kenwood_thd75_sd",
             connection_type: "microSD or USB-C (SD card mode)",
-            // ⚠ EMPTY UNTIL PHASE 3, and the model is not finished until it is
-            // filled — a radio ships with its profile settings, not without
-            // them ([[new-radio-includes-profile-settings]]). The MENU offsets
-            // are the one genuinely unpublished part of this format (CHIRP's
-            // D74 driver has no settings support at all), so they are measured
-            // through the RT Systems bridge in Phase 3 and generated into
-            // `thd75_settings_schema.json` alongside the Rust decode table, the
-            // way the FT5D's and the ID-52's are.
-            non_channel_settings_schema: "[]",
+            // Filled in Phase 3. The MENU offsets are the one genuinely
+            // unpublished part of this format (CHIRP's D74 driver has no
+            // settings support at all), so all 185 were measured through the
+            // RT Systems bridge and generated into `thd75_settings_schema.json`
+            // alongside the Rust decode table, the way the FT5D's and the
+            // ID-52's are.
+            non_channel_settings_schema: THD75_SETTINGS_SCHEMA,
         },
     ]
 }

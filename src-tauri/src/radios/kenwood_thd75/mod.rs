@@ -61,6 +61,7 @@ mod dev_export;
 #[cfg(test)]
 mod hw_phase4;
 pub(crate) mod memory;
+pub(crate) mod settings;
 
 use crate::radios::driver::{RadioDriver, RadioIdentity};
 
