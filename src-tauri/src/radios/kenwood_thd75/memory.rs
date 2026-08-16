@@ -733,6 +733,19 @@ fn patch_d75(template: &str, path: &str, req: &ExportRequest) -> Result<usize, S
     })?;
     let mut file = D75File::parse(&raw)?;
     let written = write_codeplug(&mut file, req.channels, req.groups, req.model)?;
+
+    // Settings ride in the same file as the memories, so a codeplug export is
+    // also a settings write — the same arrangement as the ID-52's `.icf`.
+    // Nothing happens if the profile has none: an empty profile leaves the
+    // radio's own menu settings exactly as they were.
+    if let Some(json) = req.profile_settings {
+        let parsed: serde_json::Value = serde_json::from_str(json)
+            .map_err(|e| format!("This profile's settings are not valid JSON: {e}"))?;
+        if let Some(map) = parsed.as_object() {
+            super::settings::apply_settings(file.body_mut(), map);
+        }
+    }
+
     std::fs::write(path, file.to_bytes()).map_err(|e| format!("Could not write {path}: {e}"))?;
     Ok(written)
 }
@@ -1124,6 +1137,48 @@ mod tests {
             std::path::Path::new(&picked).parent(),
             "the new file did not land beside the one that was picked"
         );
+    }
+
+    /// One file carries both halves of a codeplug, so an export must patch the
+    /// MEMORIES and the MENU SETTINGS together — exactly as the ID-52's `.icf`
+    /// does. This is the test that fails if `apply_settings` is ever dropped
+    /// from the export path: without it the read side still works, the form
+    /// still fills, and the settings simply never reach the radio.
+    #[test]
+    fn an_export_patches_memories_and_settings_together() {
+        let scratch = Scratch::new("withsettings");
+        let template = scratch.save("01012026_130000.d75");
+        let model = model();
+        let ec = expanded(channel("PROBE", 146.520));
+
+        // Two settings on different bytes and of different shapes: a bool and
+        // a 9-byte NUL-padded text field.
+        let json = r#"{"tx-inhibit": true, "aprs-my-callsign": "WW8L-9"}"#;
+        let target = DRIVER.resolve_target(&template).expect("names a file");
+        DRIVER
+            .export(
+                &target,
+                &ExportRequest {
+                    channels: &[&ec],
+                    groups: &[],
+                    model: &model,
+                    profile_settings: Some(json),
+                },
+            )
+            .expect("export");
+
+        let out = super::super::d75::D75File::parse(&std::fs::read(&target).unwrap())
+            .expect("the export is a parseable .d75");
+        let body = out.body();
+        assert_eq!(body[0x1001], 1, "Tx Inhibit did not reach the file");
+        assert_eq!(
+            &body[0x1200..0x1209],
+            b"WW8L-9\0\0\0",
+            "the call sign did not reach the file, NUL-padded"
+        );
+        // And the memory still went in — settings must not displace channels.
+        let decoded = super::super::settings::decode_settings(body);
+        assert_eq!(decoded["tx-inhibit"], serde_json::Value::Bool(true));
     }
 
     /// Only a file this driver can actually patch counts as a template. Kenwood's

@@ -1,0 +1,1714 @@
+[
+ {
+  "key": "section-common",
+  "label": "Common",
+  "type": "section"
+ },
+ {
+  "key": "a-band-tx-power",
+  "label": "A Band Tx Power",
+  "type": "select",
+  "options": [
+   "High",
+   "Medium",
+   "Low",
+   "Economic Low"
+  ]
+ },
+ {
+  "key": "b-band-tx-power",
+  "label": "B Band Tx Power",
+  "type": "select",
+  "options": [
+   "High",
+   "Medium",
+   "Low",
+   "Economic Low"
+  ]
+ },
+ {
+  "key": "beat-shift",
+  "label": "Beat Shift",
+  "type": "select",
+  "options": [
+   "Type 1",
+   "Type 2",
+   "Type 3",
+   "Type 4",
+   "Type 5",
+   "Type 6",
+   "Type 7",
+   "Type 8"
+  ]
+ },
+ {
+  "key": "tx-inhibit",
+  "label": "Tx Inhibit",
+  "type": "boolean"
+ },
+ {
+  "key": "usb-out-select-rts-detect-out-select",
+  "label": "USB Out Select (RTS: \"Detect Out Select\")",
+  "type": "select",
+  "options": [
+   "Off (AF)",
+   "IF",
+   "Detect"
+  ]
+ },
+ {
+  "key": "time-out-timer",
+  "label": "Time-out Timer",
+  "type": "select",
+  "options": [
+   "0.5 min",
+   "10.0 min"
+  ]
+ },
+ {
+  "key": "mw-sw-antenna",
+  "label": "MW/SW Antenna",
+  "type": "select",
+  "options": [
+   "Ant Connector",
+   "Bar Antenna"
+  ]
+ },
+ {
+  "key": "mic-sensitivity",
+  "label": "Mic Sensitivity",
+  "type": "select",
+  "options": [
+   "High",
+   "Medium",
+   "Low"
+  ]
+ },
+ {
+  "key": "wx-alert",
+  "label": "Wx Alert",
+  "type": "boolean"
+ },
+ {
+  "key": "ssb-high-cut",
+  "label": "SSB High Cut",
+  "type": "select",
+  "options": [
+   "2.2",
+   "3.0"
+  ]
+ },
+ {
+  "key": "cw-width",
+  "label": "CW Width",
+  "type": "select",
+  "options": [
+   "0.3",
+   "2.0"
+  ]
+ },
+ {
+  "key": "am-high-cut",
+  "label": "AM High Cut",
+  "type": "select",
+  "options": [
+   "3.0",
+   "7.5"
+  ]
+ },
+ {
+  "key": "resume",
+  "label": "Resume",
+  "type": "select",
+  "options": [
+   "Time",
+   "Carrier",
+   "Seek"
+  ]
+ },
+ {
+  "key": "resume-digital",
+  "label": "Resume (Digital)",
+  "type": "select",
+  "options": [
+   "Time",
+   "Carrier",
+   "Seek"
+  ]
+ },
+ {
+  "key": "time-restart",
+  "label": "Time Restart",
+  "type": "integer",
+  "min": 1,
+  "max": 10
+ },
+ {
+  "key": "carrier-restart",
+  "label": "Carrier Restart",
+  "type": "integer",
+  "min": 1,
+  "max": 10
+ },
+ {
+  "key": "priority-scan",
+  "label": "Priority Scan",
+  "type": "boolean"
+ },
+ {
+  "key": "auto-backlight",
+  "label": "Auto Backlight",
+  "type": "boolean"
+ },
+ {
+  "key": "auto-wx-scan",
+  "label": "Auto Wx Scan",
+  "type": "select",
+  "options": [
+   "Off",
+   "15",
+   "30",
+   "60"
+  ]
+ },
+ {
+  "key": "auto-repeater-offset",
+  "label": "Auto Repeater Offset",
+  "type": "boolean"
+ },
+ {
+  "key": "call-key",
+  "label": "Call Key",
+  "type": "select",
+  "options": [
+   "CALL",
+   "1750 Hz"
+  ]
+ },
+ {
+  "key": "1750hz-tx-hold",
+  "label": "1750Hz Tx Hold",
+  "type": "boolean"
+ },
+ {
+  "key": "vox-enable",
+  "label": "VOX Enable",
+  "type": "boolean"
+ },
+ {
+  "key": "vox-gain",
+  "label": "VOX Gain",
+  "type": "integer",
+  "min": 0,
+  "max": 9
+ },
+ {
+  "key": "vox-delay",
+  "label": "VOX Delay",
+  "type": "select",
+  "options": [
+   "250 ms",
+   "3000 ms"
+  ]
+ },
+ {
+  "key": "tx-on-busy",
+  "label": "Tx On Busy",
+  "type": "boolean"
+ },
+ {
+  "key": "cw-pitch-frequency",
+  "label": "CW Pitch Frequency",
+  "type": "select",
+  "options": [
+   "400 Hz",
+   "1000 Hz"
+  ]
+ },
+ {
+  "key": "cw-reverse",
+  "label": "CW Reverse",
+  "type": "select",
+  "options": [
+   "Normal",
+   "Reverse"
+  ]
+ },
+ {
+  "key": "qso-log",
+  "label": "QSO Log",
+  "type": "boolean"
+ },
+ {
+  "key": "led-control-rx",
+  "label": "LED Control — RX",
+  "type": "boolean"
+ },
+ {
+  "key": "led-control-fm-radio",
+  "label": "LED Control — FM Radio",
+  "type": "boolean"
+ },
+ {
+  "key": "recall-method",
+  "label": "Recall Method",
+  "type": "select",
+  "options": [
+   "All Bands",
+   "Current Band"
+  ]
+ },
+ {
+  "key": "recording-band",
+  "label": "Recording Band",
+  "type": "select",
+  "options": [
+   "A Band",
+   "B Band"
+  ]
+ },
+ {
+  "key": "tx-monitor",
+  "label": "Tx Monitor",
+  "type": "boolean"
+ },
+ {
+  "key": "backlight-control",
+  "label": "Backlight Control",
+  "type": "select",
+  "options": [
+   "Manual",
+   "On",
+   "Auto",
+   "Auto (DC-IN)"
+  ]
+ },
+ {
+  "key": "backlight-timer",
+  "label": "Backlight Timer",
+  "type": "integer",
+  "min": 3,
+  "max": 60
+ },
+ {
+  "key": "lcd-brightness",
+  "label": "LCD Brightness",
+  "type": "select",
+  "options": [
+   "Low",
+   "Medium",
+   "High"
+  ]
+ },
+ {
+  "key": "single-band-display",
+  "label": "Single Band Display",
+  "type": "select",
+  "options": [
+   "Off",
+   "GPS (Altitude)",
+   "GPS (GS)",
+   "Date"
+  ]
+ },
+ {
+  "key": "meter-type",
+  "label": "Meter Type",
+  "type": "select",
+  "options": [
+   "Type 1",
+   "Type 3"
+  ]
+ },
+ {
+  "key": "background-color-rts-backlight-color",
+  "label": "Background Color (RTS: \"Backlight Color\")",
+  "type": "select",
+  "options": [
+   "Black",
+   "White"
+  ]
+ },
+ {
+  "key": "info-backlight",
+  "label": "Info Backlight",
+  "type": "select",
+  "options": [
+   "Off",
+   "LCD",
+   "LCD+Key"
+  ]
+ },
+ {
+  "key": "power-on-message",
+  "label": "Power On Message",
+  "type": "text",
+  "max_length": 16
+ },
+ {
+  "key": "digital-auto-reply",
+  "label": "Digital Auto Reply",
+  "type": "select",
+  "options": [
+   "Off",
+   "Voice Message 1 - Voice Message 4"
+  ]
+ },
+ {
+  "key": "section-configuration",
+  "label": "Configuration",
+  "type": "section"
+ },
+ {
+  "key": "balance",
+  "label": "Balance",
+  "type": "select",
+  "options": [
+   "index (A:100/B:100",
+   "Band Only"
+  ]
+ },
+ {
+  "key": "equalizer-enables-menu-911-receive-eq",
+  "label": "Equalizer enables (menu 911) — Receive EQ",
+  "type": "boolean"
+ },
+ {
+  "key": "equalizer-enables-menu-911-tx-eq-fm",
+  "label": "Equalizer enables (menu 911) — Tx EQ (FM",
+  "type": "boolean"
+ },
+ {
+  "key": "equalizer-enables-menu-911-tx-eq-dv",
+  "label": "Equalizer enables (menu 911) — Tx EQ (DV)",
+  "type": "boolean"
+ },
+ {
+  "key": "tx-equalizer-level-4-bands-0-4-0-8-1-6-3-2-khz",
+  "label": "Tx Equalizer Level, 4 bands (0.4/0.8/1.6/3.2 kHz)",
+  "type": "select",
+  "options": [
+   "9",
+   "0",
+   "3"
+  ]
+ },
+ {
+  "key": "rx-equalizer-level-5-bands-0-4-0-8-1-6-3-2-6-4-khz",
+  "label": "Rx Equalizer Level, 5 bands (0.4/0.8/1.6/3.2/6.4 kHz)",
+  "type": "select",
+  "options": [
+   "9",
+   "0",
+   "9"
+  ]
+ },
+ {
+  "key": "beep-a",
+  "label": "Beep (A)",
+  "type": "boolean"
+ },
+ {
+  "key": "beep-volume",
+  "label": "Beep Volume",
+  "type": "select",
+  "options": [
+   "Vol Link",
+   "Level 1-7"
+  ]
+ },
+ {
+  "key": "voice-guidance",
+  "label": "Voice Guidance",
+  "type": "select",
+  "options": [
+   "Off",
+   "Auto 2"
+  ]
+ },
+ {
+  "key": "voice-guidance-volume",
+  "label": "Voice Guidance Volume",
+  "type": "select",
+  "options": [
+   "Level 1",
+   "Level 7"
+  ]
+ },
+ {
+  "key": "usb-audio-level",
+  "label": "USB Audio Level",
+  "type": "select",
+  "options": [
+   "Level 1",
+   "Level 8"
+  ]
+ },
+ {
+  "key": "battery-saver",
+  "label": "Battery Saver",
+  "type": "select",
+  "options": [
+   "Off",
+   "0.2",
+   "0.4",
+   "0.6",
+   "0.8",
+   "1.0",
+   "2.0",
+   "3.0",
+   "4.0",
+   "5.0"
+  ]
+ },
+ {
+  "key": "auto-power-off",
+  "label": "Auto Power Off",
+  "type": "select",
+  "options": [
+   "Off",
+   "15",
+   "30",
+   "60"
+  ]
+ },
+ {
+  "key": "bluetooth-enable",
+  "label": "Bluetooth Enable",
+  "type": "boolean"
+ },
+ {
+  "key": "bluetooth-auto-connect",
+  "label": "Bluetooth Auto Connect",
+  "type": "boolean"
+ },
+ {
+  "key": "pf1-key",
+  "label": "PF1 Key",
+  "type": "select",
+  "options": [
+   "Recording",
+   "Voice Msg 1",
+   "Voice Msg 2",
+   "Voice Msg 3",
+   "Voice Msg 4",
+   "Voice Guidance",
+   "Battery Level",
+   "VOX",
+   "Group Name",
+   "Balance",
+   "GPS",
+   "Track Log",
+   "Squelch",
+   "Shift",
+   "Step",
+   "Low",
+   "Key Lock",
+   "Lockout",
+   "M>V",
+   "T.SEL",
+   "NEW",
+   "Voice Alert",
+   "LCD Brightness",
+   "DTMF CH0",
+   "Echolink CH0",
+   "1750Hz Tone",
+   "M.IN"
+  ]
+ },
+ {
+  "key": "pf2-key",
+  "label": "PF2 Key",
+  "type": "select",
+  "options": [
+   "Recording",
+   "Voice Msg 1",
+   "Voice Msg 2",
+   "Voice Msg 3",
+   "Voice Msg 4",
+   "Voice Guidance",
+   "Battery Level",
+   "VOX",
+   "Group Name",
+   "Balance",
+   "GPS",
+   "Track Log",
+   "Squelch",
+   "Shift",
+   "Step",
+   "Low",
+   "Key Lock",
+   "Lockout",
+   "M>V",
+   "T.SEL",
+   "NEW",
+   "Voice Alert",
+   "LCD Brightness",
+   "DTMF CH0",
+   "Echolink CH0",
+   "1750Hz Tone",
+   "M.IN"
+  ]
+ },
+ {
+  "key": "pf1-key-mic",
+  "label": "PF1 Key (Mic)",
+  "type": "select",
+  "options": [
+   "Recording",
+   "Voice Msg 1",
+   "Voice Msg 2",
+   "Voice Msg 3",
+   "Voice Msg 4",
+   "Voice Guidance",
+   "Battery Level",
+   "VOX",
+   "Group Name",
+   "Balance",
+   "GPS",
+   "Track Log",
+   "Squelch",
+   "Shift",
+   "Step",
+   "Low",
+   "Key Lock",
+   "Lockout",
+   "M>V",
+   "T.SEL",
+   "NEW",
+   "Voice Alert",
+   "LCD Brightness",
+   "DTMF CH0",
+   "Echolink CH0",
+   "1750Hz Tone",
+   "Screen Capture",
+   "Mode",
+   "Menu",
+   "A/B",
+   "VFO",
+   "MR",
+   "Call",
+   "Message",
+   "List",
+   "Beacon",
+   "REV",
+   "Tone",
+   "MHz",
+   "MARK",
+   "DUAL",
+   "APRS",
+   "OBJ",
+   "ATT",
+   "Fine",
+   "POS",
+   "BAND",
+   "MONI",
+   "Up",
+   "Down"
+  ]
+ },
+ {
+  "key": "pf2-key-mic",
+  "label": "PF2 Key (Mic)",
+  "type": "select",
+  "options": [
+   "Recording",
+   "Voice Msg 1",
+   "Voice Msg 2",
+   "Voice Msg 3",
+   "Voice Msg 4",
+   "Voice Guidance",
+   "Battery Level",
+   "VOX",
+   "Group Name",
+   "Balance",
+   "GPS",
+   "Track Log",
+   "Squelch",
+   "Shift",
+   "Step",
+   "Low",
+   "Key Lock",
+   "Lockout",
+   "M>V",
+   "T.SEL",
+   "NEW",
+   "Voice Alert",
+   "LCD Brightness",
+   "DTMF CH0",
+   "Echolink CH0",
+   "1750Hz Tone",
+   "Screen Capture",
+   "Mode",
+   "Menu",
+   "A/B",
+   "VFO",
+   "MR",
+   "Call",
+   "Message",
+   "List",
+   "Beacon",
+   "REV",
+   "Tone",
+   "MHz",
+   "MARK",
+   "DUAL",
+   "APRS",
+   "OBJ",
+   "ATT",
+   "Fine",
+   "POS",
+   "BAND",
+   "MONI",
+   "Up",
+   "Down"
+  ]
+ },
+ {
+  "key": "pf3-key-mic",
+  "label": "PF3 Key (Mic)",
+  "type": "select",
+  "options": [
+   "Recording",
+   "Voice Msg 1",
+   "Voice Msg 2",
+   "Voice Msg 3",
+   "Voice Msg 4",
+   "Voice Guidance",
+   "Battery Level",
+   "VOX",
+   "Group Name",
+   "Balance",
+   "GPS",
+   "Track Log",
+   "Squelch",
+   "Shift",
+   "Step",
+   "Low",
+   "Key Lock",
+   "Lockout",
+   "M>V",
+   "T.SEL",
+   "NEW",
+   "Voice Alert",
+   "LCD Brightness",
+   "DTMF CH0",
+   "Echolink CH0",
+   "1750Hz Tone",
+   "Screen Capture",
+   "Mode",
+   "Menu",
+   "A/B",
+   "VFO",
+   "MR",
+   "Call",
+   "Message",
+   "List",
+   "Beacon",
+   "REV",
+   "Tone",
+   "MHz",
+   "MARK",
+   "DUAL",
+   "APRS",
+   "OBJ",
+   "ATT",
+   "Fine",
+   "POS",
+   "BAND",
+   "MONI",
+   "Up",
+   "Down"
+  ]
+ },
+ {
+  "key": "time-zone",
+  "label": "Time Zone",
+  "type": "integer",
+  "min": 0,
+  "max": 112
+ },
+ {
+  "key": "keys-lock-type",
+  "label": "Keys Lock Type",
+  "type": "select",
+  "options": [
+   "Off",
+   "Both Locks"
+  ]
+ },
+ {
+  "key": "dtmf-keys-lock",
+  "label": "DTMF Keys Lock",
+  "type": "boolean"
+ },
+ {
+  "key": "mic-keys-lock",
+  "label": "Mic Keys Lock",
+  "type": "boolean"
+ },
+ {
+  "key": "volume-lock",
+  "label": "Volume Lock",
+  "type": "boolean"
+ },
+ {
+  "key": "speed-distance",
+  "label": "Speed, Distance",
+  "type": "select",
+  "options": [
+   "mi/h",
+   "km/h",
+   "knots",
+   "nm"
+  ]
+ },
+ {
+  "key": "altitude-rain",
+  "label": "Altitude, Rain",
+  "type": "select",
+  "options": [
+   "inch",
+   "mm"
+  ]
+ },
+ {
+  "key": "temperature",
+  "label": "Temperature",
+  "type": "select",
+  "options": [
+   "F",
+   "C"
+  ]
+ },
+ {
+  "key": "latitude-longitude",
+  "label": "Latitude, Longitude",
+  "type": "select",
+  "options": [
+   "dd mm.mm",
+   "dd mm ss.s"
+  ]
+ },
+ {
+  "key": "grid-square",
+  "label": "Grid Square",
+  "type": "select",
+  "options": [
+   "Maidenhead",
+   "SAR",
+   "SAR"
+  ]
+ },
+ {
+  "key": "pc-output-gps",
+  "label": "PC Output (GPS)",
+  "type": "select",
+  "options": [
+   "USB",
+   "Bluetooth"
+  ]
+ },
+ {
+  "key": "pc-output-aprs",
+  "label": "PC Output (APRS)",
+  "type": "select",
+  "options": [
+   "USB",
+   "Bluetooth"
+  ]
+ },
+ {
+  "key": "kiss",
+  "label": "KISS",
+  "type": "select",
+  "options": [
+   "USB",
+   "Bluetooth"
+  ]
+ },
+ {
+  "key": "dv-dr",
+  "label": "DV/DR",
+  "type": "select",
+  "options": [
+   "USB",
+   "Bluetooth"
+  ]
+ },
+ {
+  "key": "language",
+  "label": "Language",
+  "type": "select",
+  "options": [
+   "English",
+   "Japanese"
+  ]
+ },
+ {
+  "key": "pc-io-dv-gateway",
+  "label": "PC IO (DV Gateway)",
+  "type": "select",
+  "options": [
+   "USB",
+   "Bluetooth"
+  ]
+ },
+ {
+  "key": "charging",
+  "label": "Charging",
+  "type": "boolean"
+ },
+ {
+  "key": "callsign-readout",
+  "label": "Callsign Readout",
+  "type": "select",
+  "options": [
+   "Standard",
+   "Phonetics(Suffix)"
+  ]
+ },
+ {
+  "key": "bluetooth-device-name",
+  "label": "Bluetooth Device Name",
+  "type": "text",
+  "max_length": 16
+ },
+ {
+  "key": "section-dtmf-fm",
+  "label": "DTMF / FM",
+  "type": "section"
+ },
+ {
+  "key": "dtmf-speed",
+  "label": "DTMF Speed",
+  "type": "select",
+  "options": [
+   "50 ms",
+   "100 ms",
+   "150 ms"
+  ]
+ },
+ {
+  "key": "dtmf-tx-hold",
+  "label": "DTMF Tx Hold",
+  "type": "boolean"
+ },
+ {
+  "key": "fm-radio-mode",
+  "label": "FM Radio Mode",
+  "type": "boolean"
+ },
+ {
+  "key": "fm-auto-mute-return-time",
+  "label": "FM Auto Mute Return Time",
+  "type": "integer"
+ },
+ {
+  "key": "section-gps",
+  "label": "GPS",
+  "type": "section"
+ },
+ {
+  "key": "builtin-gps",
+  "label": "Builtin GPS",
+  "type": "boolean"
+ },
+ {
+  "key": "position-ambiguity",
+  "label": "Position Ambiguity",
+  "type": "select",
+  "options": [
+   "Off",
+   "4 Digit"
+  ]
+ },
+ {
+  "key": "gps-operating-mode",
+  "label": "GPS Operating Mode",
+  "type": "select",
+  "options": [
+   "Normal",
+   "GPS Receiver"
+  ]
+ },
+ {
+  "key": "gps-battery-saver",
+  "label": "GPS Battery Saver",
+  "type": "select",
+  "options": [
+   "Off",
+   "Auto"
+  ]
+ },
+ {
+  "key": "gps-pc-output",
+  "label": "GPS PC Output",
+  "type": "boolean"
+ },
+ {
+  "key": "gps-sentence-gga",
+  "label": "GPS Sentence — GGA",
+  "type": "boolean"
+ },
+ {
+  "key": "gps-sentence-gll",
+  "label": "GPS Sentence — GLL",
+  "type": "boolean"
+ },
+ {
+  "key": "gps-sentence-gsa",
+  "label": "GPS Sentence — GSA",
+  "type": "boolean"
+ },
+ {
+  "key": "gps-sentence-gsv",
+  "label": "GPS Sentence — GSV",
+  "type": "boolean"
+ },
+ {
+  "key": "gps-sentence-rmc",
+  "label": "GPS Sentence — RMC",
+  "type": "boolean"
+ },
+ {
+  "key": "gps-sentence-vtg-the-radio-enforces-max-4-selected",
+  "label": "GPS Sentence — VTG.  the radio enforces max 4 selected",
+  "type": "boolean"
+ },
+ {
+  "key": "track-log",
+  "label": "Track Log",
+  "type": "boolean"
+ },
+ {
+  "key": "track-log-record-method",
+  "label": "Track Log Record Method",
+  "type": "select",
+  "options": [
+   "Time",
+   "Distance",
+   "Beacon"
+  ]
+ },
+ {
+  "key": "track-log-interval",
+  "label": "Track Log Interval",
+  "type": "integer"
+ },
+ {
+  "key": "section-digital",
+  "label": "Digital",
+  "type": "section"
+ },
+ {
+  "key": "direct-reply",
+  "label": "Direct Reply",
+  "type": "boolean"
+ },
+ {
+  "key": "auto-reply-timing",
+  "label": "Auto Reply Timing",
+  "type": "select",
+  "options": [
+   "Immediate",
+   "5",
+   "10",
+   "20",
+   "30",
+   "60"
+  ]
+ },
+ {
+  "key": "data-tx-end-timing",
+  "label": "Data Tx End Timing",
+  "type": "select",
+  "options": [
+   "Off",
+   "0.5",
+   "1",
+   "1.5",
+   "2"
+  ]
+ },
+ {
+  "key": "dv-level-rts-id-1285",
+  "label": "DV Level (RTS id 1285)",
+  "type": "integer"
+ },
+ {
+  "key": "rx-afc",
+  "label": "Rx AFC",
+  "type": "boolean"
+ },
+ {
+  "key": "fm-auto-detection-on-dv",
+  "label": "FM Auto Detection on DV",
+  "type": "boolean"
+ },
+ {
+  "key": "data-frame-output",
+  "label": "Data Frame Output",
+  "type": "select",
+  "options": [
+   "All",
+   "Related to DSQ",
+   "DATA Mode"
+  ]
+ },
+ {
+  "key": "gps-information-in-frame",
+  "label": "GPS Information in Frame",
+  "type": "boolean"
+ },
+ {
+  "key": "dv-gps-sentence-gga",
+  "label": "DV GPS Sentence — GGA",
+  "type": "boolean"
+ },
+ {
+  "key": "dv-gps-sentence-gll",
+  "label": "DV GPS Sentence — GLL",
+  "type": "boolean"
+ },
+ {
+  "key": "dv-gps-sentence-gsa",
+  "label": "DV GPS Sentence — GSA",
+  "type": "boolean"
+ },
+ {
+  "key": "dv-gps-sentence-gsv",
+  "label": "DV GPS Sentence — GSV",
+  "type": "boolean"
+ },
+ {
+  "key": "dv-gps-sentence-rmc",
+  "label": "DV GPS Sentence — RMC",
+  "type": "boolean"
+ },
+ {
+  "key": "dv-gps-sentence-vtg",
+  "label": "DV GPS Sentence — VTG",
+  "type": "boolean"
+ },
+ {
+  "key": "dv-gps-sentence-aprs-max-4-selected",
+  "label": "DV GPS Sentence — APRS.  max 4 selected",
+  "type": "boolean"
+ },
+ {
+  "key": "auto-tx",
+  "label": "Auto Tx",
+  "type": "select",
+  "options": [
+   "Off",
+   "0.2",
+   "0.5",
+   "1",
+   "2",
+   "3",
+   "5",
+   "10",
+   "20",
+   "30",
+   "60"
+  ]
+ },
+ {
+  "key": "display-method",
+  "label": "Display Method",
+  "type": "select",
+  "options": [
+   "Off",
+   "All",
+   "Related to DQS",
+   "My Station Only"
+  ]
+ },
+ {
+  "key": "single-display-size",
+  "label": "Single Display Size",
+  "type": "select",
+  "options": [
+   "Half Display",
+   "Entire Display"
+  ]
+ },
+ {
+  "key": "dual-display-size",
+  "label": "Dual Display Size",
+  "type": "select",
+  "options": [
+   "Half Display",
+   "Entire Display"
+  ]
+ },
+ {
+  "key": "display-hold-time",
+  "label": "Display Hold Time",
+  "type": "select",
+  "options": [
+   "0",
+   "3",
+   "5",
+   "10",
+   "20",
+   "30",
+   "60",
+   "Infinite"
+  ]
+ },
+ {
+  "key": "callsign-announce",
+  "label": "Callsign Announce",
+  "type": "select",
+  "options": [
+   "Off",
+   "Kerchunk",
+   "Except Kerchunk",
+   "My Station Only",
+   "All"
+  ]
+ },
+ {
+  "key": "standby-beep",
+  "label": "Standby Beep",
+  "type": "boolean"
+ },
+ {
+  "key": "dv-device-name",
+  "label": "DV Device Name",
+  "type": "text",
+  "max_length": 8
+ },
+ {
+  "key": "selected-my-callsign",
+  "label": "Selected My Callsign",
+  "type": "integer",
+  "min": 0,
+  "max": 5
+ },
+ {
+  "key": "rpt1",
+  "label": "RPT1",
+  "type": "text",
+  "max_length": 8
+ },
+ {
+  "key": "rpt2",
+  "label": "RPT2",
+  "type": "text",
+  "max_length": 8
+ },
+ {
+  "key": "section-aprs-basic",
+  "label": "APRS Basic",
+  "type": "section"
+ },
+ {
+  "key": "decay-algorithm-moving",
+  "label": "Decay Algorithm \"Moving\"",
+  "type": "integer"
+ },
+ {
+  "key": "decay-algorithm-stopped",
+  "label": "Decay Algorithm \"Stopped\"",
+  "type": "integer"
+ },
+ {
+  "key": "data-band",
+  "label": "Data Band",
+  "type": "select",
+  "options": [
+   "A-Band",
+   "B-Band"
+  ]
+ },
+ {
+  "key": "data-speed",
+  "label": "Data Speed",
+  "type": "select",
+  "options": [
+   "1200 bps",
+   "9600 bps"
+  ]
+ },
+ {
+  "key": "dcd-sense",
+  "label": "DCD Sense",
+  "type": "select",
+  "options": [
+   "Busy",
+   "Detect Data",
+   "Off (Ignore)"
+  ]
+ },
+ {
+  "key": "tx-delay",
+  "label": "Tx Delay",
+  "type": "select",
+  "options": [
+   "100 ms",
+   "150 ms",
+   "200 ms",
+   "300 ms",
+   "400 ms",
+   "500 ms",
+   "750 ms",
+   "1000 ms"
+  ]
+ },
+ {
+  "key": "waypoint-format",
+  "label": "Waypoint Format",
+  "type": "select",
+  "options": [
+   "NMEA",
+   "KENWOOD"
+  ]
+ },
+ {
+  "key": "waypoint-length",
+  "label": "Waypoint Length",
+  "type": "integer"
+ },
+ {
+  "key": "waypoint-output",
+  "label": "Waypoint Output",
+  "type": "select",
+  "options": [
+   "All",
+   "Local",
+   "Filtered"
+  ]
+ },
+ {
+  "key": "position-comment",
+  "label": "Position Comment",
+  "type": "select",
+  "options": [
+   "Off Duty",
+   "Enroute",
+   "In Service",
+   "Returning",
+   "Committed",
+   "Special",
+   "PRIORITY",
+   "CUSTOM 0",
+   "CUSTOM 1",
+   "CUSTOM 2",
+   "CUSTOM 3",
+   "CUSTOM 4",
+   "CUSTOM 5",
+   "CUSTOM 6",
+   "EMERGENCY!"
+  ]
+ },
+ {
+  "key": "beacon-method",
+  "label": "Beacon Method",
+  "type": "select",
+  "options": [
+   "Manual",
+   "SmartBeaconing"
+  ]
+ },
+ {
+  "key": "beacon-initial-interval",
+  "label": "Beacon Initial Interval",
+  "type": "select",
+  "options": [
+   ".2 min",
+   ".5 min",
+   "1 min",
+   "2 min",
+   "3 min",
+   "5 min",
+   "10 min",
+   "20 min",
+   "30 min",
+   "60 min"
+  ]
+ },
+ {
+  "key": "packet-path-type",
+  "label": "Packet Path Type",
+  "type": "select",
+  "options": [
+   "New-N",
+   "RELAY"
+  ]
+ },
+ {
+  "key": "wide1-1",
+  "label": "WIDE1-1",
+  "type": "boolean"
+ },
+ {
+  "key": "total-hops",
+  "label": "Total Hops",
+  "type": "select",
+  "options": [
+   "0",
+   "1",
+   "2",
+   "3",
+   "4",
+   "5",
+   "6",
+   "7"
+  ]
+ },
+ {
+  "key": "aprs-my-callsign",
+  "label": "APRS My Callsign",
+  "type": "text",
+  "max_length": 9
+ },
+ {
+  "key": "aprs-lock-frequency",
+  "label": "APRS Lock — Frequency",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs-lock-ptt",
+  "label": "APRS Lock — PTT",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs-lock-aprs-key",
+  "label": "APRS Lock — APRS Key",
+  "type": "boolean"
+ },
+ {
+  "key": "beacon-information-speed",
+  "label": "Beacon Information Speed",
+  "type": "boolean"
+ },
+ {
+  "key": "beacon-information-altitude",
+  "label": "Beacon Information Altitude",
+  "type": "boolean"
+ },
+ {
+  "key": "position-limit",
+  "label": "Position Limit",
+  "type": "select",
+  "options": [
+   "value / 10 (Off",
+   "30",
+   "60"
+  ]
+ },
+ {
+  "key": "packet-filter-type-weather",
+  "label": "Packet Filter Type — Weather",
+  "type": "boolean"
+ },
+ {
+  "key": "packet-filter-type-digi",
+  "label": "Packet Filter Type — DIGI",
+  "type": "boolean"
+ },
+ {
+  "key": "packet-filter-type-mobile",
+  "label": "Packet Filter Type — Mobile",
+  "type": "boolean"
+ },
+ {
+  "key": "packet-filter-type-object",
+  "label": "Packet Filter Type — Object",
+  "type": "boolean"
+ },
+ {
+  "key": "packet-filter-type-navitra",
+  "label": "Packet Filter Type — NAVITRA",
+  "type": "boolean"
+ },
+ {
+  "key": "packet-filter-type-1-way",
+  "label": "Packet Filter Type — 1-Way",
+  "type": "boolean"
+ },
+ {
+  "key": "packet-filter-type-others",
+  "label": "Packet Filter Type — Others",
+  "type": "boolean"
+ },
+ {
+  "key": "station-icon-table-char",
+  "label": "Station Icon, table char",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "decay-algorithm-enable",
+  "label": "Decay Algorithm enable",
+  "type": "boolean"
+ },
+ {
+  "key": "proportional-pathing-enable",
+  "label": "Proportional Pathing enable",
+  "type": "boolean"
+ },
+ {
+  "key": "packet-path-literal",
+  "label": "Packet Path, literal",
+  "type": "text",
+  "max_length": 62
+ },
+ {
+  "key": "network",
+  "label": "Network",
+  "type": "select",
+  "options": [
+   "APRS",
+   "ALTNET"
+  ]
+ },
+ {
+  "key": "network-altnet-text",
+  "label": "Network ALTNET text",
+  "type": "text",
+  "max_length": 6
+ },
+ {
+  "key": "section-aprs-messaging",
+  "label": "APRS Messaging",
+  "type": "section"
+ },
+ {
+  "key": "pc-output",
+  "label": "PC Output",
+  "type": "integer"
+ },
+ {
+  "key": "aprs-voice",
+  "label": "APRS Voice",
+  "type": "boolean"
+ },
+ {
+  "key": "voice-alert",
+  "label": "Voice Alert",
+  "type": "select",
+  "options": [
+   "Off",
+   "On",
+   "Rx Only"
+  ]
+ },
+ {
+  "key": "voice-alert-ctcss-frequency",
+  "label": "Voice Alert CTCSS Frequency",
+  "type": "select",
+  "options": [
+   "index into the 42-entry CTCSS list (67.0",
+   "254.1"
+  ]
+ },
+ {
+  "key": "qsy-info-in-status",
+  "label": "QSY Info. in Status",
+  "type": "boolean"
+ },
+ {
+  "key": "tone-narrow",
+  "label": "Tone / Narrow",
+  "type": "boolean"
+ },
+ {
+  "key": "shift-offset",
+  "label": "Shift / Offset",
+  "type": "boolean"
+ },
+ {
+  "key": "qsy-limit-distance",
+  "label": "QSY Limit Distance",
+  "type": "select",
+  "options": [
+   "distance / 10 (Off",
+   "10",
+   "40"
+  ]
+ },
+ {
+  "key": "smartbeaconing-low-speed",
+  "label": "SmartBeaconing Low Speed",
+  "type": "integer"
+ },
+ {
+  "key": "smartbeaconing-high-speed",
+  "label": "SmartBeaconing High Speed",
+  "type": "integer"
+ },
+ {
+  "key": "slow-rate",
+  "label": "Slow Rate",
+  "type": "integer",
+  "min": 1,
+  "max": 100
+ },
+ {
+  "key": "fast-rate",
+  "label": "Fast Rate",
+  "type": "integer",
+  "min": 10,
+  "max": 180
+ },
+ {
+  "key": "turn-angle",
+  "label": "Turn Angle",
+  "type": "integer"
+ },
+ {
+  "key": "turn-slope",
+  "label": "Turn Slope",
+  "type": "integer"
+ },
+ {
+  "key": "turn-time",
+  "label": "Turn Time",
+  "type": "integer"
+ },
+ {
+  "key": "auto-reply",
+  "label": "Auto Reply",
+  "type": "boolean"
+ },
+ {
+  "key": "reply-delay-time",
+  "label": "Reply Delay Time",
+  "type": "select",
+  "options": [
+   "0",
+   "10 seconds",
+   "20 seconds",
+   "30 seconds",
+   "60 seconds"
+  ]
+ },
+ {
+  "key": "reply-message-text",
+  "label": "Reply Message Text",
+  "type": "text",
+  "max_length": 50
+ },
+ {
+  "key": "reply-to",
+  "label": "Reply To",
+  "type": "text",
+  "max_length": 9
+ },
+ {
+  "key": "message-group-code",
+  "label": "Message Group Code",
+  "type": "text",
+  "max_length": 59
+ },
+ {
+  "key": "bulletin-group-code",
+  "label": "Bulletin Group Code",
+  "type": "text",
+  "max_length": 35
+ },
+ {
+  "key": "rx-beep",
+  "label": "RX Beep",
+  "type": "select",
+  "options": [
+   "All",
+   "All New",
+   "Mine",
+   "Message Only",
+   "Off"
+  ]
+ },
+ {
+  "key": "tx-beep-beacon",
+  "label": "TX Beep (Beacon)",
+  "type": "boolean"
+ },
+ {
+  "key": "special-call",
+  "label": "Special Call",
+  "type": "text",
+  "max_length": 9
+ },
+ {
+  "key": "display-area",
+  "label": "Display Area",
+  "type": "select",
+  "options": [
+   "One Line",
+   "Entire Display",
+   "Entire Always"
+  ]
+ },
+ {
+  "key": "interrupt-time",
+  "label": "Interrupt Time",
+  "type": "select",
+  "options": [
+   "3 sec",
+   "5",
+   "10",
+   "20",
+   "30",
+   "60",
+   "Forever"
+  ]
+ },
+ {
+  "key": "section-aprs-digipeat",
+  "label": "APRS Digipeat",
+  "type": "section"
+ },
+ {
+  "key": "digipeat-my-callsign",
+  "label": "Digipeat (My Callsign)",
+  "type": "boolean"
+ },
+ {
+  "key": "uidigipeat",
+  "label": "UIdigipeat",
+  "type": "boolean"
+ },
+ {
+  "key": "uidigi-aliases",
+  "label": "UIdigi Aliases",
+  "type": "text",
+  "max_length": 39
+ },
+ {
+  "key": "uitrace",
+  "label": "UItrace",
+  "type": "boolean"
+ },
+ {
+  "key": "uitrace-alias",
+  "label": "UItrace Alias",
+  "type": "text",
+  "max_length": 5
+ },
+ {
+  "key": "uiflood",
+  "label": "UIflood",
+  "type": "boolean"
+ },
+ {
+  "key": "uiflood-alias",
+  "label": "UIflood Alias",
+  "type": "text",
+  "max_length": 5
+ },
+ {
+  "key": "uiflood-substitution",
+  "label": "UIflood Substitution",
+  "type": "select",
+  "options": [
+   "First",
+   "ID",
+   "NOID"
+  ]
+ }
+]

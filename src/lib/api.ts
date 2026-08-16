@@ -343,6 +343,10 @@ export const api = {
   // decoded shape again. See radios/icom_id52/settings.rs.
   readId52SettingsFromCard: (path: string) =>
     invoke<RadioSettingsRead>("read_id52_settings_from_card", { path }),
+  // The TH-D75's settings live in the `.d75` backup it writes to its microSD
+  // card. Same decoded shape again. See radios/kenwood_thd75/settings.rs.
+  readThd75SettingsFromCard: (path: string) =>
+    invoke<RadioSettingsRead>("read_thd75_settings_from_card", { path }),
   writeRadioSettings: (port: string, profileId: number) =>
     invoke<SettingsWriteReport>("write_radio_settings", { port, profileId }),
   // One program command for every radio (3.6e). Dispatches on capability:

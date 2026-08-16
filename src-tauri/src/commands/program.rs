@@ -588,6 +588,38 @@ pub async fn read_id52_settings_from_card(path: String) -> Result<RadioSettingsR
     .estr()?
 }
 
+/// The TH-D75's version of the same, reading the `.d75` the radio writes to its
+/// microSD card.
+///
+/// Nothing is written here. The values land in the profile form and go back out
+/// into a `.d75` when the codeplug is written, the way the ID-52's do — this
+/// radio also carries memories and settings in one file.
+///
+/// Offsets in the settings table are BODY offsets, so the decoder gets
+/// `d75.body()` rather than the whole file.
+#[tauri::command]
+pub async fn read_thd75_settings_from_card(path: String) -> Result<RadioSettingsRead, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = std::fs::read(&path).map_err(|e| {
+            format!(
+                "Could not read {path}: {e}. Pick a config file from \
+                 KENWOOD/TH-D75/SETTINGS/DATA/ on the radio's microSD card — save one \
+                 with Menu > Configuration > SD Card > Save Setting if it is not there."
+            )
+        })?;
+        let d75 = crate::radios::kenwood_thd75::d75::D75File::parse(&bytes)?;
+        let settings = crate::radios::kenwood_thd75::settings::decode_settings(d75.body());
+        let count = settings.as_object().map(|o| o.len()).unwrap_or(0);
+        Ok(RadioSettingsRead {
+            settings,
+            count,
+            backup_path: path,
+        })
+    })
+    .await
+    .estr()?
+}
+
 /// Push a saved radio profile's non-channel settings to the connected radio,
 /// leaving channels untouched. Every driver takes a mandatory backup before the
 /// first byte goes out; the returned report says how to verify (in-session
