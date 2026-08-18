@@ -13,11 +13,16 @@
 //! `icom_id52` is the second (issue #38), and the second radio programmed from
 //! a memory card rather than a cable. Its `.icf` container is finished; its
 //! memory map is waiting on dumps from the radio.
+//!
+//! `kenwood_thd75` is the third card radio (issue #40) and the first Kenwood.
+//! Its `.d75` layout came from CHIRP's `thd74.py`, verified against a save off
+//! the radio before any of it was written.
 
 pub(crate) mod anytone_atd890uv;
 pub(crate) mod baofeng_uv5r;
 pub(crate) mod driver;
 pub(crate) mod icom_id52;
+pub(crate) mod kenwood_thd75;
 pub(crate) mod registry;
 pub(crate) mod tidradio_tdh3;
 pub(crate) mod yaesu_ft5d;

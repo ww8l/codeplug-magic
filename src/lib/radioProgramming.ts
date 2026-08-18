@@ -119,6 +119,28 @@ const MEDIA_WRITES: Record<string, MediaWrite> = {
     preserves:
       "Channel lists become memory groups, and everything else in the file — the repeater list, your call signs, GPS and Bluetooth — is carried across untouched. Writing to the card creates a NEW settings file named the way the radio names its own, built from the newest one there, so nothing you saved is modified at all.",
   },
+  // The third card radio. Like the ID-52 it keeps everything in one file the
+  // radio writes and reads back, and like the ID-52 the card can stay in the
+  // radio — USB-C mounts it as a drive.
+  kenwood_thd75_sd: {
+    action: "Write to microSD…",
+    // Picking a file identifies the card, it does not nominate a file to
+    // overwrite — the write always creates a new save beside it, so the title
+    // says so rather than implying the picked file is about to be rewritten.
+    pickTitle:
+      "Select any config file from KENWOOD/TH-D75/SETTINGS/DATA/ on the radio’s microSD card — a new one will be written beside it",
+    filterName: "TH-D75 config file",
+    extensions: ["d75"],
+    // Menu paths are the TH-D75 manual's, confirmed against Tim's radio.
+    before:
+      "On the radio, save its configuration to the card: Menu → Configuration → SD Card → Save Setting. Then put the card in this computer — or connect the radio over USB-C and switch it to SD card mode — and pick that file from KENWOOD/TH-D75/SETTINGS/DATA/ below.",
+    after:
+      "Put the card back in the radio and load it: Menu → Configuration → SD Card → Load Setting → pick the newest file. Then check the memory list in each group, not just the one the radio comes up on.",
+    found:
+      "It already holds a config file, so there is nothing to pick — just check it is current (the radio writes one with Menu → Configuration → SD Card → Save Setting).",
+    preserves:
+      "Channel lists become memory groups, and everything else in the file — APRS, your call sign history, the repeater list and every menu setting — is carried across untouched. Writing to the card creates a NEW config file named the way the radio names its own, built from the newest one there, so nothing you saved is modified at all.",
+  },
 };
 
 /// How a model is programmed from removable media, or null if it is a cable

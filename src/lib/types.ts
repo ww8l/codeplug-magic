@@ -25,6 +25,14 @@ export interface Channel {
   dmr_timeslot: number | null;
   dmr_talkgroup: number | null;
   dstar_capable: boolean;
+  /// The three D-STAR call signs (issue #41). Null means "let the radio's
+  /// driver derive it" — every D-STAR repeater imported from RepeaterBook
+  /// arrives with a call sign and no module letter, so blank has to keep
+  /// working. Stored as typed ("W0QEY B"); each driver packs it to the eight
+  /// characters its radio wants.
+  dstar_ur_call: string | null;
+  dstar_rpt1: string | null;
+  dstar_rpt2: string | null;
   ysf_capable: boolean;
   nxdn_capable: boolean;
   p25_capable: boolean;
@@ -88,6 +96,14 @@ export interface ChannelInput {
   dmr_timeslot: number | null;
   dmr_talkgroup: number | null;
   dstar_capable: boolean;
+  /// The three D-STAR call signs (issue #41). Null means "let the radio's
+  /// driver derive it" — every D-STAR repeater imported from RepeaterBook
+  /// arrives with a call sign and no module letter, so blank has to keep
+  /// working. Stored as typed ("W0QEY B"); each driver packs it to the eight
+  /// characters its radio wants.
+  dstar_ur_call: string | null;
+  dstar_rpt1: string | null;
+  dstar_rpt2: string | null;
   ysf_capable: boolean;
   nxdn_capable: boolean;
   p25_capable: boolean;
