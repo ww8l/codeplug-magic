@@ -444,6 +444,53 @@ mod tests {
         assert_eq!(body[0x122f], 2, "the selector holds an index, not a bitmap");
     }
 
+    /// No enum label may itself be a RANGE. Beep Volume shipped as
+    /// `(0, "Vol Link"), (1, "Level 1-7")` — two labels standing in for eight
+    /// values, so picking the second wrote 1 and the operator could not reach
+    /// Levels 2-7 at all.
+    ///
+    /// `enum_labels_cover_their_whole_range` cannot see this one: 0 and 1 are
+    /// perfectly contiguous. The tell is in the label text, where "1-7" is a
+    /// span the sheet wrote and the generator took for a name.
+    #[test]
+    fn no_enum_label_is_secretly_a_range() {
+        // A label may legitimately contain a hyphen ("Economic Low", "1-Way",
+        // "Off (AF)"), so this looks only for digit-hyphen-digit, which is how
+        // every range in the measurement sheet is written.
+        let looks_like_a_range = |l: &str| {
+            let b = l.as_bytes();
+            // "Level 1-7"
+            b.windows(3)
+                .any(|w| w[0].is_ascii_digit() && w[1] == b'-' && w[2].is_ascii_digit())
+                // "400 - 800", "Off/ 1-Digit - 4-Digit". No option name in this
+                // table contains a spaced hyphen; the sheet writes its ranges
+                // that way.
+                || l.contains(" - ")
+        };
+        // The guard has to fire on the label it was written for, and stay
+        // quiet on the hyphens that are part of a real option name.
+        assert!(looks_like_a_range("Level 1-7"), "the shipped bug");
+        assert!(looks_like_a_range("Off/ 1-Digit - 4-Digit"));
+        assert!(looks_like_a_range("400 - 800"));
+        for ok in ["Economic Low", "1-Way", "Off (AF)", "Level 1", "1750 Hz"] {
+            assert!(!looks_like_a_range(ok), "false positive on {ok:?}");
+        }
+
+        for f in THD75_SETTINGS_FIELDS {
+            let SK::Enum { labels, .. } = &f.kind else {
+                continue;
+            };
+            for (v, l) in *labels {
+                assert!(
+                    !looks_like_a_range(l),
+                    "{}: code {v} is labelled {l:?}, which is a RANGE, not one \
+                     option — the values between its ends are unreachable",
+                    f.key
+                );
+            }
+        }
+    }
+
     /// An untouched row in one of the APRS grids is 0xff all through, not NUL.
     /// It must read as empty, and staying empty must not rewrite it.
     #[test]

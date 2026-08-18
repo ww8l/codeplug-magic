@@ -642,8 +642,14 @@
   "label": "Beep Volume",
   "type": "select",
   "options": [
-   "Vol Link",
-   "Level 1-7"
+   "Volume Link",
+   "Level 1",
+   "Level 2",
+   "Level 3",
+   "Level 4",
+   "Level 5",
+   "Level 6",
+   "Level 7"
   ]
  },
  {
@@ -662,6 +668,7 @@
   "label": "Voice Guidance Volume",
   "type": "select",
   "options": [
+   "Volume Link",
    "Level 1",
    "Level 2",
    "Level 3",
