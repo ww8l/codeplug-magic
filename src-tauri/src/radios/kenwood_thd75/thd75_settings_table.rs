@@ -7,22 +7,29 @@
 //
 // `UNVERIFIED-ORDER` marks a field whose option LABELS came from the
 // manual with nothing in the measurement sheet to check their order
-// against. The address and the encoding are measured; the order of the
-// labels is not. This radio reverses the manual's printed order in at
-// least three places, so treat those as provisional.
+// against. As of s108 NO field carries it: every enum's first and last
+// index has been driven on the instrument and its stored byte read, so
+// the marker stays only as the grade to stamp on the next radio's
+// first pass. This radio reverses the manual's printed order in at
+// least three places, so a list nobody checked is never good enough.
+//
+// ⚠ Enum labels must cover the whole range, not just the ends. Ten
+// fields once shipped with only their two endpoints because the
+// generator's `First=0 … Last=N` form parsed as a two-value enum.
+// `enum_labels_cover_their_whole_range` in settings.rs is the guard.
 pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "a-band-tx-power", byte: 0x00359, kind: SK::Enum { width: 1, labels: &[(0, "High"), (1, "Medium"), (2, "Low"), (3, "Economic Low")] } },  // A Band Tx Power
     SF { key: "b-band-tx-power", byte: 0x00369, kind: SK::Enum { width: 1, labels: &[(0, "High"), (1, "Medium"), (2, "Low"), (3, "Economic Low")] } },  // B Band Tx Power
     SF { key: "beat-shift", byte: 0x01000, kind: SK::Enum { width: 1, labels: &[(0, "Type 1"), (1, "Type 2"), (2, "Type 3"), (3, "Type 4"), (4, "Type 5"), (5, "Type 6"), (6, "Type 7"), (7, "Type 8")] } },  // Beat Shift
     SF { key: "tx-inhibit", byte: 0x01001, kind: SK::Bool },  // Tx Inhibit
     SF { key: "usb-out-select-rts-detect-out-select", byte: 0x01002, kind: SK::Enum { width: 1, labels: &[(0, "Off (AF)"), (1, "IF"), (2, "Detect")] } },  // USB Out Select (RTS: "Detect Out Select")
-    SF { key: "time-out-timer", byte: 0x01003, kind: SK::Enum { width: 1, labels: &[(0, "0.5 min"), (10, "10.0 min")] } },  // Time-out Timer
+    SF { key: "time-out-timer", byte: 0x01003, kind: SK::Enum { width: 1, labels: &[(0, "0.5"), (1, "1.0"), (2, "1.5"), (3, "2.0"), (4, "2.5"), (5, "3.0"), (6, "3.5"), (7, "4.0"), (8, "4.5"), (9, "5.0"), (10, "10.0")] } },  // Time-out Timer
     SF { key: "mw-sw-antenna", byte: 0x01005, kind: SK::Enum { width: 1, labels: &[(0, "Ant Connector"), (1, "Bar Antenna")] } },  // MW/SW Antenna
     SF { key: "mic-sensitivity", byte: 0x01006, kind: SK::Enum { width: 1, labels: &[(0, "High"), (1, "Medium"), (2, "Low")] } },  // Mic Sensitivity
     SF { key: "wx-alert", byte: 0x01007, kind: SK::Bool },  // Wx Alert
-    SF { key: "ssb-high-cut", byte: 0x01008, kind: SK::Enum { width: 1, labels: &[(0, "2.2"), (4, "3.0")] } },  // SSB High Cut
-    SF { key: "cw-width", byte: 0x01009, kind: SK::Enum { width: 1, labels: &[(0, "0.3"), (4, "2.0")] } },  // CW Width
-    SF { key: "am-high-cut", byte: 0x0100a, kind: SK::Enum { width: 1, labels: &[(0, "3.0"), (3, "7.5")] } },  // AM High Cut
+    SF { key: "ssb-high-cut", byte: 0x01008, kind: SK::Enum { width: 1, labels: &[(0, "2.2"), (1, "2.4"), (2, "2.6"), (3, "2.8"), (4, "3.0")] } },  // SSB High Cut
+    SF { key: "cw-width", byte: 0x01009, kind: SK::Enum { width: 1, labels: &[(0, "0.3"), (1, "0.5"), (2, "1.0"), (3, "1.5"), (4, "2.0")] } },  // CW Width
+    SF { key: "am-high-cut", byte: 0x0100a, kind: SK::Enum { width: 1, labels: &[(0, "3.0"), (1, "4.5"), (2, "6.0"), (3, "7.5")] } },  // AM High Cut
     SF { key: "resume", byte: 0x0100c, kind: SK::Enum { width: 1, labels: &[(0, "Time"), (1, "Carrier"), (2, "Seek")] } },  // Resume
     SF { key: "resume-digital", byte: 0x0100d, kind: SK::Enum { width: 1, labels: &[(0, "Time"), (1, "Carrier"), (2, "Seek")] } },  // Resume (Digital)
     SF { key: "time-restart", byte: 0x0100e, kind: SK::Uint { width: 1 } },  // Time Restart
@@ -35,9 +42,9 @@ pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "1750hz-tx-hold", byte: 0x0101a, kind: SK::Bool },  // 1750Hz Tx Hold
     SF { key: "vox-enable", byte: 0x0101b, kind: SK::Bool },  // VOX Enable
     SF { key: "vox-gain", byte: 0x0101c, kind: SK::Uint { width: 1 } },  // VOX Gain
-    SF { key: "vox-delay", byte: 0x0101d, kind: SK::Enum { width: 1, labels: &[(0, "250 ms"), (6, "3000 ms")] } },  // VOX Delay
+    SF { key: "vox-delay", byte: 0x0101d, kind: SK::Enum { width: 1, labels: &[(0, "250"), (1, "500"), (2, "750"), (3, "1000"), (4, "1500"), (5, "2000"), (6, "3000")] } },  // VOX Delay
     SF { key: "tx-on-busy", byte: 0x0101e, kind: SK::Bool },  // Tx On Busy
-    SF { key: "cw-pitch-frequency", byte: 0x01024, kind: SK::Enum { width: 1, labels: &[(0, "400 Hz"), (6, "1000 Hz")] } },  // CW Pitch Frequency
+    SF { key: "cw-pitch-frequency", byte: 0x01024, kind: SK::Enum { width: 1, labels: &[(0, "400 Hz"), (1, "500 Hz"), (2, "600 Hz"), (3, "700 Hz"), (4, "800 Hz"), (5, "900 Hz"), (6, "1000 Hz")] } },  // CW Pitch Frequency
     SF { key: "cw-reverse", byte: 0x01026, kind: SK::Enum { width: 1, labels: &[(0, "Normal"), (1, "Reverse")] } },  // CW Reverse
     SF { key: "qso-log", byte: 0x01027, kind: SK::Bool },  // QSO Log
     SF { key: "led-control-rx", byte: 0x01028, kind: SK::BoolBit { shift: 0 } },  // LED Control — RX
@@ -49,23 +56,30 @@ pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "backlight-timer", byte: 0x01061, kind: SK::Uint { width: 1 } },  // Backlight Timer
     SF { key: "lcd-brightness", byte: 0x01062, kind: SK::Enum { width: 1, labels: &[(0, "Low"), (1, "Medium"), (2, "High")] } },  // LCD Brightness
     SF { key: "single-band-display", byte: 0x01063, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "GPS (Altitude)"), (2, "GPS (GS)"), (3, "Date")] } },  // Single Band Display
-    SF { key: "meter-type", byte: 0x01064, kind: SK::Enum { width: 1, labels: &[(0, "Type 1"), (2, "Type 3")] } },  // Meter Type
+    SF { key: "meter-type", byte: 0x01064, kind: SK::Enum { width: 1, labels: &[(0, "Type 1"), (1, "Type 2"), (2, "Type 3")] } },  // Meter Type
     SF { key: "background-color-rts-backlight-color", byte: 0x01065, kind: SK::Enum { width: 1, labels: &[(0, "Black"), (1, "White")] } },  // Background Color (RTS: "Backlight Color")
     SF { key: "info-backlight", byte: 0x01096, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "LCD"), (2, "LCD+Key")] } },  // Info Backlight
     SF { key: "power-on-message", byte: 0x010c0, kind: SK::Text { len: 16 } },  // Power On Message
-    SF { key: "digital-auto-reply", byte: 0x01a21, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "Voice Message 1 - Voice Message 4")] } },  // Digital Auto Reply  // UNVERIFIED-ORDER
-    SF { key: "balance", byte: 0x01066, kind: SK::Enum { width: 1, labels: &[(4, "index (A:100/B:100"), (9, "Band Only")] } },  // Balance
+    SF { key: "digital-auto-reply", byte: 0x01a21, kind: SK::Enum { width: 1, labels: &[(255, "Off"), (0, "Voice Message 1"), (1, "Voice Message 2"), (2, "Voice Message 3"), (3, "Voice Message 4")] } },  // Digital Auto Reply
+    SF { key: "balance", byte: 0x01066, kind: SK::Enum { width: 1, labels: &[(0, "A:100/B:0"), (1, "A:100/B:25"), (2, "A:100/B:50"), (3, "A:100/B:75"), (4, "A:100/B:100"), (5, "A:75/B:100"), (6, "A:50/B:100"), (7, "A:25/B:100"), (8, "A:0/B:100"), (9, "Operation Band Only")] } },  // Balance
     SF { key: "equalizer-enables-menu-911-receive-eq", byte: 0x01067, kind: SK::BoolBit { shift: 0 } },  // Equalizer enables (menu 911) — Receive EQ
     SF { key: "equalizer-enables-menu-911-tx-eq-fm", byte: 0x01067, kind: SK::BoolBit { shift: 1 } },  // Equalizer enables (menu 911) — Tx EQ (FM
     SF { key: "equalizer-enables-menu-911-tx-eq-dv", byte: 0x01067, kind: SK::BoolBit { shift: 2 } },  // Equalizer enables (menu 911) — Tx EQ (DV)
-    SF { key: "tx-equalizer-level-4-bands-0-4-0-8-1-6-3-2-khz", byte: 0x01068, kind: SK::Enum { width: 1, labels: &[(0, "9"), (9, "0"), (12, "3")] } },  // Tx Equalizer Level, 4 bands (0.4/0.8/1.6/3.2 kHz)
-    SF { key: "rx-equalizer-level-5-bands-0-4-0-8-1-6-3-2-6-4-khz", byte: 0x0106c, kind: SK::Enum { width: 1, labels: &[(0, "9"), (9, "0"), (18, "9")] } },  // Rx Equalizer Level, 5 bands (0.4/0.8/1.6/3.2/6.4 kHz)
+    SF { key: "tx-equalizer-level-0-4-khz", byte: 0x01068, kind: SK::Enum { width: 1, labels: &[(0, "-9"), (1, "-8"), (2, "-7"), (3, "-6"), (4, "-5"), (5, "-4"), (6, "-3"), (7, "-2"), (8, "-1"), (9, "0"), (10, "+1"), (11, "+2"), (12, "+3")] } },  // Tx Equalizer Level — 0.4 kHz
+    SF { key: "tx-equalizer-level-0-8-khz", byte: 0x01069, kind: SK::Enum { width: 1, labels: &[(0, "-9"), (1, "-8"), (2, "-7"), (3, "-6"), (4, "-5"), (5, "-4"), (6, "-3"), (7, "-2"), (8, "-1"), (9, "0"), (10, "+1"), (11, "+2"), (12, "+3")] } },  // Tx Equalizer Level — 0.8 kHz
+    SF { key: "tx-equalizer-level-1-6-khz", byte: 0x0106a, kind: SK::Enum { width: 1, labels: &[(0, "-9"), (1, "-8"), (2, "-7"), (3, "-6"), (4, "-5"), (5, "-4"), (6, "-3"), (7, "-2"), (8, "-1"), (9, "0"), (10, "+1"), (11, "+2"), (12, "+3")] } },  // Tx Equalizer Level — 1.6 kHz
+    SF { key: "tx-equalizer-level-3-2-khz", byte: 0x0106b, kind: SK::Enum { width: 1, labels: &[(0, "-9"), (1, "-8"), (2, "-7"), (3, "-6"), (4, "-5"), (5, "-4"), (6, "-3"), (7, "-2"), (8, "-1"), (9, "0"), (10, "+1"), (11, "+2"), (12, "+3")] } },  // Tx Equalizer Level — 3.2 kHz
+    SF { key: "rx-equalizer-level-0-4-khz", byte: 0x0106c, kind: SK::Enum { width: 1, labels: &[(0, "-9"), (1, "-8"), (2, "-7"), (3, "-6"), (4, "-5"), (5, "-4"), (6, "-3"), (7, "-2"), (8, "-1"), (9, "0"), (10, "+1"), (11, "+2"), (12, "+3"), (13, "+4"), (14, "+5"), (15, "+6"), (16, "+7"), (17, "+8"), (18, "+9")] } },  // Rx Equalizer Level — 0.4 kHz
+    SF { key: "rx-equalizer-level-0-8-khz", byte: 0x0106d, kind: SK::Enum { width: 1, labels: &[(0, "-9"), (1, "-8"), (2, "-7"), (3, "-6"), (4, "-5"), (5, "-4"), (6, "-3"), (7, "-2"), (8, "-1"), (9, "0"), (10, "+1"), (11, "+2"), (12, "+3"), (13, "+4"), (14, "+5"), (15, "+6"), (16, "+7"), (17, "+8"), (18, "+9")] } },  // Rx Equalizer Level — 0.8 kHz
+    SF { key: "rx-equalizer-level-1-6-khz", byte: 0x0106e, kind: SK::Enum { width: 1, labels: &[(0, "-9"), (1, "-8"), (2, "-7"), (3, "-6"), (4, "-5"), (5, "-4"), (6, "-3"), (7, "-2"), (8, "-1"), (9, "0"), (10, "+1"), (11, "+2"), (12, "+3"), (13, "+4"), (14, "+5"), (15, "+6"), (16, "+7"), (17, "+8"), (18, "+9")] } },  // Rx Equalizer Level — 1.6 kHz
+    SF { key: "rx-equalizer-level-3-2-khz", byte: 0x0106f, kind: SK::Enum { width: 1, labels: &[(0, "-9"), (1, "-8"), (2, "-7"), (3, "-6"), (4, "-5"), (5, "-4"), (6, "-3"), (7, "-2"), (8, "-1"), (9, "0"), (10, "+1"), (11, "+2"), (12, "+3"), (13, "+4"), (14, "+5"), (15, "+6"), (16, "+7"), (17, "+8"), (18, "+9")] } },  // Rx Equalizer Level — 3.2 kHz
+    SF { key: "rx-equalizer-level-6-4-khz", byte: 0x01070, kind: SK::Enum { width: 1, labels: &[(0, "-9"), (1, "-8"), (2, "-7"), (3, "-6"), (4, "-5"), (5, "-4"), (6, "-3"), (7, "-2"), (8, "-1"), (9, "0"), (10, "+1"), (11, "+2"), (12, "+3"), (13, "+4"), (14, "+5"), (15, "+6"), (16, "+7"), (17, "+8"), (18, "+9")] } },  // Rx Equalizer Level — 6.4 kHz
     SF { key: "beep-a", byte: 0x01071, kind: SK::Bool },  // Beep (A)
     SF { key: "beep-volume", byte: 0x01072, kind: SK::Enum { width: 1, labels: &[(0, "Vol Link"), (1, "Level 1-7")] } },  // Beep Volume
-    SF { key: "voice-guidance", byte: 0x01073, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (3, "Auto 2")] } },  // Voice Guidance
-    SF { key: "voice-guidance-volume", byte: 0x01074, kind: SK::Enum { width: 1, labels: &[(0, "Level 1"), (6, "Level 7")] } },  // Voice Guidance Volume
-    SF { key: "usb-audio-level", byte: 0x01075, kind: SK::Enum { width: 1, labels: &[(0, "Level 1"), (7, "Level 8")] } },  // USB Audio Level
-    SF { key: "battery-saver", byte: 0x01076, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "0.2"), (2, "0.4"), (3, "0.6"), (4, "0.8"), (5, "1.0"), (6, "2.0"), (7, "3.0"), (8, "4.0"), (9, "5.0")] } },  // Battery Saver  // UNVERIFIED-ORDER
+    SF { key: "voice-guidance", byte: 0x01073, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "Manual"), (2, "Auto1"), (3, "Auto2")] } },  // Voice Guidance
+    SF { key: "voice-guidance-volume", byte: 0x01074, kind: SK::Enum { width: 1, labels: &[(0, "Level 1"), (1, "Level 2"), (2, "Level 3"), (3, "Level 4"), (4, "Level 5"), (5, "Level 6"), (6, "Level 7")] } },  // Voice Guidance Volume
+    SF { key: "usb-audio-level", byte: 0x01075, kind: SK::Enum { width: 1, labels: &[(0, "Level 1"), (1, "Level 2"), (2, "Level 3"), (3, "Level 4"), (4, "Level 5"), (5, "Level 6"), (6, "Level 7")] } },  // USB Audio Level
+    SF { key: "battery-saver", byte: 0x01076, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "0.2"), (2, "0.4"), (3, "0.6"), (4, "0.8"), (5, "1.0"), (6, "2.0"), (7, "3.0"), (8, "4.0"), (9, "5.0")] } },  // Battery Saver
     SF { key: "auto-power-off", byte: 0x01077, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "15"), (2, "30"), (3, "60")] } },  // Auto Power Off
     SF { key: "bluetooth-enable", byte: 0x01078, kind: SK::Bool },  // Bluetooth Enable
     SF { key: "bluetooth-auto-connect", byte: 0x01079, kind: SK::Bool },  // Bluetooth Auto Connect
@@ -75,7 +89,7 @@ pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "pf2-key-mic", byte: 0x0107d, kind: SK::Enum { width: 1, labels: &[(0, "Recording"), (1, "Voice Msg 1"), (2, "Voice Msg 2"), (3, "Voice Msg 3"), (4, "Voice Msg 4"), (6, "Voice Guidance"), (7, "Battery Level"), (8, "VOX"), (9, "Group Name"), (10, "Balance"), (11, "GPS"), (12, "Track Log"), (13, "Squelch"), (14, "Shift"), (15, "Step"), (16, "Low"), (17, "Key Lock"), (18, "Lockout"), (19, "M>V"), (20, "T.SEL"), (21, "NEW"), (22, "Voice Alert"), (24, "LCD Brightness"), (27, "DTMF CH0"), (28, "Echolink CH0"), (29, "1750Hz Tone"), (31, "Screen Capture"), (32, "Mode"), (33, "Menu"), (34, "A/B"), (35, "VFO"), (36, "MR"), (37, "Call"), (38, "Message"), (39, "List"), (40, "Beacon"), (41, "REV"), (42, "Tone"), (44, "MHz"), (45, "MARK"), (46, "DUAL"), (47, "APRS"), (48, "OBJ"), (49, "ATT"), (50, "Fine"), (51, "POS"), (52, "BAND"), (53, "MONI"), (54, "Up"), (55, "Down")] } },  // PF2 Key (Mic)
     SF { key: "pf3-key-mic", byte: 0x0107e, kind: SK::Enum { width: 1, labels: &[(0, "Recording"), (1, "Voice Msg 1"), (2, "Voice Msg 2"), (3, "Voice Msg 3"), (4, "Voice Msg 4"), (6, "Voice Guidance"), (7, "Battery Level"), (8, "VOX"), (9, "Group Name"), (10, "Balance"), (11, "GPS"), (12, "Track Log"), (13, "Squelch"), (14, "Shift"), (15, "Step"), (16, "Low"), (17, "Key Lock"), (18, "Lockout"), (19, "M>V"), (20, "T.SEL"), (21, "NEW"), (22, "Voice Alert"), (24, "LCD Brightness"), (27, "DTMF CH0"), (28, "Echolink CH0"), (29, "1750Hz Tone"), (31, "Screen Capture"), (32, "Mode"), (33, "Menu"), (34, "A/B"), (35, "VFO"), (36, "MR"), (37, "Call"), (38, "Message"), (39, "List"), (40, "Beacon"), (41, "REV"), (42, "Tone"), (44, "MHz"), (45, "MARK"), (46, "DUAL"), (47, "APRS"), (48, "OBJ"), (49, "ATT"), (50, "Fine"), (51, "POS"), (52, "BAND"), (53, "MONI"), (54, "Up"), (55, "Down")] } },  // PF3 Key (Mic)
     SF { key: "time-zone", byte: 0x01083, kind: SK::Uint { width: 1 } },  // Time Zone
-    SF { key: "keys-lock-type", byte: 0x01084, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (3, "Both Locks")] } },  // Keys Lock Type
+    SF { key: "keys-lock-type", byte: 0x01084, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "Key Lock"), (2, "Frequency Lock"), (3, "Both Locks")] } },  // Keys Lock Type
     SF { key: "dtmf-keys-lock", byte: 0x01085, kind: SK::Bool },  // DTMF Keys Lock
     SF { key: "mic-keys-lock", byte: 0x01086, kind: SK::Bool },  // Mic Keys Lock
     SF { key: "volume-lock", byte: 0x01087, kind: SK::Bool },  // Volume Lock
@@ -91,16 +105,18 @@ pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "language", byte: 0x01092, kind: SK::Enum { width: 1, labels: &[(0, "English"), (1, "Japanese")] } },  // Language
     SF { key: "pc-io-dv-gateway", byte: 0x01093, kind: SK::Enum { width: 1, labels: &[(0, "USB"), (1, "Bluetooth")] } },  // PC IO (DV Gateway)
     SF { key: "charging", byte: 0x01094, kind: SK::Bool },  // Charging
-    SF { key: "callsign-readout", byte: 0x01095, kind: SK::Enum { width: 1, labels: &[(0, "Standard"), (2, "Phonetics(Suffix)")] } },  // Callsign Readout
+    SF { key: "callsign-readout", byte: 0x01095, kind: SK::Enum { width: 1, labels: &[(0, "Standard"), (1, "Full Phonetics"), (2, "Suffix Phonetics")] } },  // Callsign Readout
+    SF { key: "voice-guidance-speed", byte: 0x01097, kind: SK::Enum { width: 1, labels: &[(0, "Speed 1"), (1, "Speed 2"), (2, "Speed 3"), (3, "Speed 4")] } },  // Voice Guidance Speed
     SF { key: "bluetooth-device-name", byte: 0x010d0, kind: SK::Text { len: 16 } },  // Bluetooth Device Name
     SF { key: "dtmf-speed", byte: 0x0101f, kind: SK::Enum { width: 1, labels: &[(0, "50 ms"), (1, "100 ms"), (2, "150 ms")] } },  // DTMF Speed
+    SF { key: "dtmf-pause-time", byte: 0x01020, kind: SK::Enum { width: 1, labels: &[(0, "100 ms"), (1, "250 ms"), (2, "500 ms"), (3, "750 ms"), (4, "1000 ms"), (5, "1500 ms"), (6, "2000 ms")] } },  // DTMF Pause Time
     SF { key: "dtmf-tx-hold", byte: 0x01021, kind: SK::Bool },  // DTMF Tx Hold
     SF { key: "fm-radio-mode", byte: 0x01040, kind: SK::Bool },  // FM Radio Mode
     SF { key: "fm-auto-mute-return-time", byte: 0x01041, kind: SK::Uint { width: 1 } },  // FM Auto Mute Return Time
     SF { key: "builtin-gps", byte: 0x01100, kind: SK::Bool },  // Builtin GPS
-    SF { key: "position-ambiguity", byte: 0x01101, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (4, "4 Digit")] } },  // Position Ambiguity
+    SF { key: "position-ambiguity", byte: 0x01101, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "1 Digit"), (2, "2 Digit"), (3, "3 Digit"), (4, "4 Digit")] } },  // Position Ambiguity
     SF { key: "gps-operating-mode", byte: 0x01102, kind: SK::Enum { width: 1, labels: &[(0, "Normal"), (1, "GPS Receiver")] } },  // GPS Operating Mode
-    SF { key: "gps-battery-saver", byte: 0x01103, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (5, "Auto")] } },  // GPS Battery Saver
+    SF { key: "gps-battery-saver", byte: 0x01103, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "1 minute"), (2, "2 minutes"), (3, "4 minutes"), (4, "8 minutes"), (5, "Auto")] } },  // GPS Battery Saver
     SF { key: "gps-pc-output", byte: 0x01104, kind: SK::Bool },  // GPS PC Output
     SF { key: "gps-sentence-gga", byte: 0x01105, kind: SK::BoolBit { shift: 0 } },  // GPS Sentence — GGA
     SF { key: "gps-sentence-gll", byte: 0x01105, kind: SK::BoolBit { shift: 1 } },  // GPS Sentence — GLL
@@ -112,12 +128,12 @@ pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "track-log-record-method", byte: 0x01108, kind: SK::Enum { width: 1, labels: &[(0, "Time"), (1, "Distance"), (2, "Beacon")] } },  // Track Log Record Method
     SF { key: "track-log-interval", byte: 0x01110, kind: SK::Uint { width: 1 } },  // Track Log Interval
     SF { key: "direct-reply", byte: 0x01a00, kind: SK::Bool },  // Direct Reply
-    SF { key: "auto-reply-timing", byte: 0x01a01, kind: SK::Enum { width: 1, labels: &[(0, "Immediate"), (1, "5"), (2, "10"), (3, "20"), (4, "30"), (5, "60")] } },  // Auto Reply Timing  // UNVERIFIED-ORDER
-    SF { key: "data-tx-end-timing", byte: 0x01a02, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "0.5"), (2, "1"), (3, "1.5"), (4, "2")] } },  // Data Tx End Timing  // UNVERIFIED-ORDER
+    SF { key: "auto-reply-timing", byte: 0x01a01, kind: SK::Enum { width: 1, labels: &[(0, "Immediate"), (1, "5"), (2, "10"), (3, "20"), (4, "30"), (5, "60")] } },  // Auto Reply Timing
+    SF { key: "data-tx-end-timing", byte: 0x01a02, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "0.5"), (2, "1"), (3, "1.5"), (4, "2")] } },  // Data Tx End Timing
     SF { key: "dv-level-rts-id-1285", byte: 0x01a03, kind: SK::Uint { width: 1 } },  // DV Level (RTS id 1285)
     SF { key: "rx-afc", byte: 0x01a04, kind: SK::Bool },  // Rx AFC
     SF { key: "fm-auto-detection-on-dv", byte: 0x01a05, kind: SK::Bool },  // FM Auto Detection on DV
-    SF { key: "data-frame-output", byte: 0x01a06, kind: SK::Enum { width: 1, labels: &[(0, "All"), (1, "Related to DSQ"), (2, "DATA Mode")] } },  // Data Frame Output  // UNVERIFIED-ORDER
+    SF { key: "data-frame-output", byte: 0x01a06, kind: SK::Enum { width: 1, labels: &[(0, "All"), (1, "Related to DSQ"), (2, "DATA Mode")] } },  // Data Frame Output
     SF { key: "gps-information-in-frame", byte: 0x01a0a, kind: SK::Bool },  // GPS Information in Frame
     SF { key: "dv-gps-sentence-gga", byte: 0x01a0b, kind: SK::BoolBit { shift: 0 } },  // DV GPS Sentence — GGA
     SF { key: "dv-gps-sentence-gll", byte: 0x01a0b, kind: SK::BoolBit { shift: 1 } },  // DV GPS Sentence — GLL
@@ -126,14 +142,15 @@ pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "dv-gps-sentence-rmc", byte: 0x01a0b, kind: SK::BoolBit { shift: 4 } },  // DV GPS Sentence — RMC
     SF { key: "dv-gps-sentence-vtg", byte: 0x01a0b, kind: SK::BoolBit { shift: 5 } },  // DV GPS Sentence — VTG
     SF { key: "dv-gps-sentence-aprs-max-4-selected", byte: 0x01a0b, kind: SK::BoolBit { shift: 6 } },  // DV GPS Sentence — APRS.  max 4 selected
-    SF { key: "auto-tx", byte: 0x01a0c, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "0.2"), (2, "0.5"), (3, "1"), (4, "2"), (5, "3"), (6, "5"), (7, "10"), (8, "20"), (9, "30"), (10, "60")] } },  // Auto Tx  // UNVERIFIED-ORDER
-    SF { key: "display-method", byte: 0x01a0d, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "All"), (2, "Related to DQS"), (3, "My Station Only")] } },  // Display Method  // UNVERIFIED-ORDER
-    SF { key: "single-display-size", byte: 0x01a0e, kind: SK::Enum { width: 1, labels: &[(0, "Half Display"), (1, "Entire Display")] } },  // Single Display Size  // UNVERIFIED-ORDER
-    SF { key: "dual-display-size", byte: 0x01a0f, kind: SK::Enum { width: 1, labels: &[(0, "Half Display"), (1, "Entire Display")] } },  // Dual Display Size  // UNVERIFIED-ORDER
-    SF { key: "display-hold-time", byte: 0x01a10, kind: SK::Enum { width: 1, labels: &[(0, "0"), (1, "3"), (2, "5"), (3, "10"), (4, "20"), (5, "30"), (6, "60"), (7, "Infinite")] } },  // Display Hold Time  // UNVERIFIED-ORDER
-    SF { key: "callsign-announce", byte: 0x01a11, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "Kerchunk"), (2, "Except Kerchunk"), (3, "My Station Only"), (4, "All")] } },  // Callsign Announce  // UNVERIFIED-ORDER
+    SF { key: "auto-tx", byte: 0x01a0c, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "0.2"), (2, "0.5"), (3, "1"), (4, "2"), (5, "3"), (6, "5"), (7, "10"), (8, "20"), (9, "30"), (10, "60")] } },  // Auto Tx
+    SF { key: "display-method", byte: 0x01a0d, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "All"), (2, "Related to DQS"), (3, "My Station Only")] } },  // Display Method
+    SF { key: "single-display-size", byte: 0x01a0e, kind: SK::Enum { width: 1, labels: &[(0, "Half Display"), (1, "Entire Display")] } },  // Single Display Size
+    SF { key: "dual-display-size", byte: 0x01a0f, kind: SK::Enum { width: 1, labels: &[(0, "Half Display"), (1, "Entire Display")] } },  // Dual Display Size
+    SF { key: "display-hold-time", byte: 0x01a10, kind: SK::Enum { width: 1, labels: &[(0, "0"), (1, "3"), (2, "5"), (3, "10"), (4, "20"), (5, "30"), (6, "60"), (7, "Infinite")] } },  // Display Hold Time
+    SF { key: "callsign-announce", byte: 0x01a11, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "Kerchunk"), (2, "Except Kerchunk"), (3, "My Station Only"), (4, "All")] } },  // Callsign Announce
     SF { key: "standby-beep", byte: 0x01a12, kind: SK::Bool },  // Standby Beep
     SF { key: "dv-device-name", byte: 0x01ad0, kind: SK::Text { len: 8 } },  // DV Device Name
+    SF { key: "dv-mode", byte: 0x01ca0, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "Reflector TERM Mode")] } },  // DV Mode
     SF { key: "selected-my-callsign", byte: 0x01ca1, kind: SK::Uint { width: 1 } },  // Selected My Callsign
     SF { key: "rpt1", byte: 0x01cf0, kind: SK::Text { len: 8 } },  // RPT1
     SF { key: "rpt2", byte: 0x01cf8, kind: SK::Text { len: 8 } },  // RPT2
@@ -143,13 +160,13 @@ pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "data-speed", byte: 0x0120c, kind: SK::Enum { width: 1, labels: &[(0, "1200 bps"), (1, "9600 bps")] } },  // Data Speed
     SF { key: "dcd-sense", byte: 0x0120d, kind: SK::Enum { width: 1, labels: &[(0, "Busy"), (1, "Detect Data"), (2, "Off (Ignore)")] } },  // DCD Sense
     SF { key: "tx-delay", byte: 0x0120f, kind: SK::Enum { width: 1, labels: &[(0, "100 ms"), (1, "150 ms"), (2, "200 ms"), (3, "300 ms"), (4, "400 ms"), (5, "500 ms"), (6, "750 ms"), (7, "1000 ms")] } },  // Tx Delay
-    SF { key: "waypoint-format", byte: 0x01213, kind: SK::Enum { width: 1, labels: &[(0, "NMEA"), (2, "KENWOOD")] } },  // Waypoint Format
+    SF { key: "waypoint-format", byte: 0x01213, kind: SK::Enum { width: 1, labels: &[(0, "NMEA"), (1, "MAGELLAN"), (2, "KENWOOD")] } },  // Waypoint Format
     SF { key: "waypoint-length", byte: 0x01214, kind: SK::Uint { width: 1 } },  // Waypoint Length
     SF { key: "waypoint-output", byte: 0x01215, kind: SK::Enum { width: 1, labels: &[(0, "All"), (1, "Local"), (2, "Filtered")] } },  // Waypoint Output
     SF { key: "position-comment", byte: 0x01222, kind: SK::Enum { width: 1, labels: &[(0, "Off Duty"), (1, "Enroute"), (2, "In Service"), (3, "Returning"), (4, "Committed"), (5, "Special"), (6, "PRIORITY"), (7, "CUSTOM 0"), (8, "CUSTOM 1"), (9, "CUSTOM 2"), (10, "CUSTOM 3"), (11, "CUSTOM 4"), (12, "CUSTOM 5"), (13, "CUSTOM 6"), (14, "EMERGENCY!")] } },  // Position Comment
-    SF { key: "beacon-method", byte: 0x0136a, kind: SK::Enum { width: 1, labels: &[(0, "Manual"), (3, "SmartBeaconing")] } },  // Beacon Method
+    SF { key: "beacon-method", byte: 0x0136a, kind: SK::Enum { width: 1, labels: &[(0, "Manual"), (1, "PTT"), (2, "Auto"), (3, "SmartBeaconing")] } },  // Beacon Method
     SF { key: "beacon-initial-interval", byte: 0x0136b, kind: SK::Enum { width: 1, labels: &[(0, ".2 min"), (1, ".5 min"), (2, "1 min"), (3, "2 min"), (4, "3 min"), (5, "5 min"), (6, "10 min"), (7, "20 min"), (8, "30 min"), (9, "60 min")] } },  // Beacon Initial Interval
-    SF { key: "packet-path-type", byte: 0x01375, kind: SK::Enum { width: 1, labels: &[(0, "New-N"), (1, "RELAY")] } },  // Packet Path Type
+    SF { key: "packet-path-type", byte: 0x01375, kind: SK::Enum { width: 1, labels: &[(0, "New-N Paradigm"), (1, "RELAY Paradigm"), (2, "State/Section/Region"), (3, "Others1"), (4, "Others2"), (5, "Others3")] } },  // Packet Path Type
     SF { key: "wide1-1", byte: 0x01376, kind: SK::Bool },  // WIDE1-1
     SF { key: "total-hops", byte: 0x01377, kind: SK::Enum { width: 1, labels: &[(0, "0"), (1, "1"), (2, "2"), (3, "3"), (4, "4"), (5, "5"), (6, "6"), (7, "7")] } },  // Total Hops
     SF { key: "aprs-my-callsign", byte: 0x01200, kind: SK::Text { len: 9 } },  // APRS My Callsign
@@ -158,7 +175,7 @@ pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "aprs-lock-aprs-key", byte: 0x0120a, kind: SK::BoolBit { shift: 2 } },  // APRS Lock — APRS Key
     SF { key: "beacon-information-speed", byte: 0x01220, kind: SK::Bool },  // Beacon Information Speed
     SF { key: "beacon-information-altitude", byte: 0x01221, kind: SK::Bool },  // Beacon Information Altitude
-    SF { key: "position-limit", byte: 0x01365, kind: SK::Enum { width: 1, labels: &[(0, "value / 10 (Off"), (3, "30"), (6, "60")] } },  // Position Limit
+    SF { key: "position-limit", byte: 0x01365, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "10"), (2, "20"), (3, "30"), (4, "40"), (5, "50"), (6, "60"), (7, "70"), (8, "80"), (9, "90"), (10, "100"), (11, "110"), (12, "120"), (13, "130"), (14, "140"), (15, "150"), (16, "160"), (17, "170"), (18, "180"), (19, "190"), (20, "200"), (21, "210"), (22, "220"), (23, "230"), (24, "240"), (25, "250"), (26, "260"), (27, "270"), (28, "280"), (29, "290"), (30, "300"), (31, "310"), (32, "320"), (33, "330"), (34, "340"), (35, "350"), (36, "360"), (37, "370"), (38, "380"), (39, "390"), (40, "400"), (41, "410"), (42, "420"), (43, "430"), (44, "440"), (45, "450"), (46, "460"), (47, "470"), (48, "480"), (49, "490"), (50, "500"), (51, "510"), (52, "520"), (53, "530"), (54, "540"), (55, "550"), (56, "560"), (57, "570"), (58, "580"), (59, "590"), (60, "600"), (61, "610"), (62, "620"), (63, "630"), (64, "640"), (65, "650"), (66, "660"), (67, "670"), (68, "680"), (69, "690"), (70, "700"), (71, "710"), (72, "720"), (73, "730"), (74, "740"), (75, "750"), (76, "760"), (77, "770"), (78, "780"), (79, "790"), (80, "800"), (81, "810"), (82, "820"), (83, "830"), (84, "840"), (85, "850"), (86, "860"), (87, "870"), (88, "880"), (89, "890"), (90, "900"), (91, "910"), (92, "920"), (93, "930"), (94, "940"), (95, "950"), (96, "960"), (97, "970"), (98, "980"), (99, "990"), (100, "1000"), (101, "1010"), (102, "1020"), (103, "1030"), (104, "1040"), (105, "1050"), (106, "1060"), (107, "1070"), (108, "1080"), (109, "1090"), (110, "1100"), (111, "1110"), (112, "1120"), (113, "1130"), (114, "1140"), (115, "1150"), (116, "1160"), (117, "1170"), (118, "1180"), (119, "1190"), (120, "1200"), (121, "1210"), (122, "1220"), (123, "1230"), (124, "1240"), (125, "1250"), (126, "1260"), (127, "1270"), (128, "1280"), (129, "1290"), (130, "1300"), (131, "1310"), (132, "1320"), (133, "1330"), (134, "1340"), (135, "1350"), (136, "1360"), (137, "1370"), (138, "1380"), (139, "1390"), (140, "1400"), (141, "1410"), (142, "1420"), (143, "1430"), (144, "1440"), (145, "1450"), (146, "1460"), (147, "1470"), (148, "1480"), (149, "1490"), (150, "1500"), (151, "1510"), (152, "1520"), (153, "1530"), (154, "1540"), (155, "1550"), (156, "1560"), (157, "1570"), (158, "1580"), (159, "1590"), (160, "1600"), (161, "1610"), (162, "1620"), (163, "1630"), (164, "1640"), (165, "1650"), (166, "1660"), (167, "1670"), (168, "1680"), (169, "1690"), (170, "1700"), (171, "1710"), (172, "1720"), (173, "1730"), (174, "1740"), (175, "1750"), (176, "1760"), (177, "1770"), (178, "1780"), (179, "1790"), (180, "1800"), (181, "1810"), (182, "1820"), (183, "1830"), (184, "1840"), (185, "1850"), (186, "1860"), (187, "1870"), (188, "1880"), (189, "1890"), (190, "1900"), (191, "1910"), (192, "1920"), (193, "1930"), (194, "1940"), (195, "1950"), (196, "1960"), (197, "1970"), (198, "1980"), (199, "1990"), (200, "2000"), (201, "2010"), (202, "2020"), (203, "2030"), (204, "2040"), (205, "2050"), (206, "2060"), (207, "2070"), (208, "2080"), (209, "2090"), (210, "2100"), (211, "2110"), (212, "2120"), (213, "2130"), (214, "2140"), (215, "2150"), (216, "2160"), (217, "2170"), (218, "2180"), (219, "2190"), (220, "2200"), (221, "2210"), (222, "2220"), (223, "2230"), (224, "2240"), (225, "2250"), (226, "2260"), (227, "2270"), (228, "2280"), (229, "2290"), (230, "2300"), (231, "2310"), (232, "2320"), (233, "2330"), (234, "2340"), (235, "2350"), (236, "2360"), (237, "2370"), (238, "2380"), (239, "2390"), (240, "2400"), (241, "2410"), (242, "2420"), (243, "2430"), (244, "2440"), (245, "2450"), (246, "2460"), (247, "2470"), (248, "2480"), (249, "2490"), (250, "2500")] } },  // Position Limit
     SF { key: "packet-filter-type-weather", byte: 0x01366, kind: SK::BoolBit { shift: 0 } },  // Packet Filter Type — Weather
     SF { key: "packet-filter-type-digi", byte: 0x01366, kind: SK::BoolBit { shift: 1 } },  // Packet Filter Type — DIGI
     SF { key: "packet-filter-type-mobile", byte: 0x01366, kind: SK::BoolBit { shift: 2 } },  // Packet Filter Type — Mobile
@@ -175,11 +192,11 @@ pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "pc-output", byte: 0x01216, kind: SK::Uint { width: 1 } },  // PC Output
     SF { key: "aprs-voice", byte: 0x01219, kind: SK::Bool },  // APRS Voice
     SF { key: "voice-alert", byte: 0x0121a, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "On"), (2, "Rx Only")] } },  // Voice Alert
-    SF { key: "voice-alert-ctcss-frequency", byte: 0x0121b, kind: SK::Enum { width: 1, labels: &[(0, "index into the 42-entry CTCSS list (67.0"), (41, "254.1")] } },  // Voice Alert CTCSS Frequency
+    SF { key: "voice-alert-ctcss-frequency", byte: 0x0121b, kind: SK::Enum { width: 1, labels: &[(0, "67.0"), (1, "69.3"), (2, "71.9"), (3, "74.4"), (4, "77.0"), (5, "79.7"), (6, "82.5"), (7, "85.4"), (8, "88.5"), (9, "91.5"), (10, "94.8"), (11, "97.4"), (12, "100.0"), (13, "103.5"), (14, "107.2"), (15, "110.9"), (16, "114.8"), (17, "118.8"), (18, "123.0"), (19, "127.3"), (20, "131.8"), (21, "136.5"), (22, "141.3"), (23, "146.2"), (24, "151.4"), (25, "156.7"), (26, "162.2"), (27, "167.9"), (28, "173.8"), (29, "179.9"), (30, "186.2"), (31, "192.8"), (32, "203.5"), (33, "206.5"), (34, "210.7"), (35, "218.1"), (36, "225.7"), (37, "229.1"), (38, "233.6"), (39, "241.8"), (40, "250.3"), (41, "254.1")] } },  // Voice Alert CTCSS Frequency
     SF { key: "qsy-info-in-status", byte: 0x01361, kind: SK::Bool },  // QSY Info. in Status
     SF { key: "tone-narrow", byte: 0x01362, kind: SK::Bool },  // Tone / Narrow
     SF { key: "shift-offset", byte: 0x01363, kind: SK::Bool },  // Shift / Offset
-    SF { key: "qsy-limit-distance", byte: 0x01364, kind: SK::Enum { width: 1, labels: &[(0, "distance / 10 (Off"), (1, "10"), (4, "40")] } },  // QSY Limit Distance
+    SF { key: "qsy-limit-distance", byte: 0x01364, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "10"), (2, "20"), (3, "30"), (4, "40"), (5, "50"), (6, "60"), (7, "70"), (8, "80"), (9, "90"), (10, "100"), (11, "110"), (12, "120"), (13, "130"), (14, "140"), (15, "150"), (16, "160"), (17, "170"), (18, "180"), (19, "190"), (20, "200"), (21, "210"), (22, "220"), (23, "230"), (24, "240"), (25, "250"), (26, "260"), (27, "270"), (28, "280"), (29, "290"), (30, "300"), (31, "310"), (32, "320"), (33, "330"), (34, "340"), (35, "350"), (36, "360"), (37, "370"), (38, "380"), (39, "390"), (40, "400"), (41, "410"), (42, "420"), (43, "430"), (44, "440"), (45, "450"), (46, "460"), (47, "470"), (48, "480"), (49, "490"), (50, "500"), (51, "510"), (52, "520"), (53, "530"), (54, "540"), (55, "550"), (56, "560"), (57, "570"), (58, "580"), (59, "590"), (60, "600"), (61, "610"), (62, "620"), (63, "630"), (64, "640"), (65, "650"), (66, "660"), (67, "670"), (68, "680"), (69, "690"), (70, "700"), (71, "710"), (72, "720"), (73, "730"), (74, "740"), (75, "750"), (76, "760"), (77, "770"), (78, "780"), (79, "790"), (80, "800"), (81, "810"), (82, "820"), (83, "830"), (84, "840"), (85, "850"), (86, "860"), (87, "870"), (88, "880"), (89, "890"), (90, "900"), (91, "910"), (92, "920"), (93, "930"), (94, "940"), (95, "950"), (96, "960"), (97, "970"), (98, "980"), (99, "990"), (100, "1000"), (101, "1010"), (102, "1020"), (103, "1030"), (104, "1040"), (105, "1050"), (106, "1060"), (107, "1070"), (108, "1080"), (109, "1090"), (110, "1100"), (111, "1110"), (112, "1120"), (113, "1130"), (114, "1140"), (115, "1150"), (116, "1160"), (117, "1170"), (118, "1180"), (119, "1190"), (120, "1200"), (121, "1210"), (122, "1220"), (123, "1230"), (124, "1240"), (125, "1250"), (126, "1260"), (127, "1270"), (128, "1280"), (129, "1290"), (130, "1300"), (131, "1310"), (132, "1320"), (133, "1330"), (134, "1340"), (135, "1350"), (136, "1360"), (137, "1370"), (138, "1380"), (139, "1390"), (140, "1400"), (141, "1410"), (142, "1420"), (143, "1430"), (144, "1440"), (145, "1450"), (146, "1460"), (147, "1470"), (148, "1480"), (149, "1490"), (150, "1500"), (151, "1510"), (152, "1520"), (153, "1530"), (154, "1540"), (155, "1550"), (156, "1560"), (157, "1570"), (158, "1580"), (159, "1590"), (160, "1600"), (161, "1610"), (162, "1620"), (163, "1630"), (164, "1640"), (165, "1650"), (166, "1660"), (167, "1670"), (168, "1680"), (169, "1690"), (170, "1700"), (171, "1710"), (172, "1720"), (173, "1730"), (174, "1740"), (175, "1750"), (176, "1760"), (177, "1770"), (178, "1780"), (179, "1790"), (180, "1800"), (181, "1810"), (182, "1820"), (183, "1830"), (184, "1840"), (185, "1850"), (186, "1860"), (187, "1870"), (188, "1880"), (189, "1890"), (190, "1900"), (191, "1910"), (192, "1920"), (193, "1930"), (194, "1940"), (195, "1950"), (196, "1960"), (197, "1970"), (198, "1980"), (199, "1990"), (200, "2000"), (201, "2010"), (202, "2020"), (203, "2030"), (204, "2040"), (205, "2050"), (206, "2060"), (207, "2070"), (208, "2080"), (209, "2090"), (210, "2100"), (211, "2110"), (212, "2120"), (213, "2130"), (214, "2140"), (215, "2150"), (216, "2160"), (217, "2170"), (218, "2180"), (219, "2190"), (220, "2200"), (221, "2210"), (222, "2220"), (223, "2230"), (224, "2240"), (225, "2250"), (226, "2260"), (227, "2270"), (228, "2280"), (229, "2290"), (230, "2300"), (231, "2310"), (232, "2320"), (233, "2330"), (234, "2340"), (235, "2350"), (236, "2360"), (237, "2370"), (238, "2380"), (239, "2390"), (240, "2400"), (241, "2410"), (242, "2420"), (243, "2430"), (244, "2440"), (245, "2450"), (246, "2460"), (247, "2470"), (248, "2480"), (249, "2490"), (250, "2500")] } },  // QSY Limit Distance
     SF { key: "smartbeaconing-low-speed", byte: 0x0136e, kind: SK::Uint { width: 1 } },  // SmartBeaconing Low Speed
     SF { key: "smartbeaconing-high-speed", byte: 0x0136f, kind: SK::Uint { width: 1 } },  // SmartBeaconing High Speed
     SF { key: "slow-rate", byte: 0x01370, kind: SK::Uint { width: 1 } },  // Slow Rate

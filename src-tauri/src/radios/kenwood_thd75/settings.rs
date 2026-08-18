@@ -304,4 +304,46 @@ mod tests {
         assert_eq!(apply_settings(&mut body, &m), 1);
         assert_eq!(body[0x107c], 43, "the unknown code must not be normalised");
     }
+
+    /// An enum must label its whole range, not just its ends.
+    ///
+    /// The generator writes a measured range as `First=0 … Last=N` and lets the
+    /// manual supply the middle. Until s108 that form was ALSO matched by the
+    /// parser for fully-spelled-out enums, which returned just the two
+    /// endpoints -- so Time-out Timer shipped 2 options instead of 11, and ten
+    /// fields in all lost their middles. Nothing failed: the table compiled,
+    /// the schema agreed with it, and the form simply could not express most of
+    /// each range.
+    ///
+    /// A hole is the signature, so this looks for holes. The generator is not
+    /// in this repo (it lives in a gitignored scratchpad), which is exactly why
+    /// the guard has to be here.
+    #[test]
+    fn enum_labels_cover_their_whole_range() {
+        // The codes that are deliberately not contiguous, each measured:
+        //   digital-auto-reply stores Off as 0xff, not as an index
+        //   the five PF keys share one 56-value function enum, and six of its
+        //   codes belong to functions no key can be assigned
+        let sentinels = ["digital-auto-reply"];
+        let pf = |k: &str| k.starts_with("pf") && k.contains("-key");
+
+        for f in THD75_SETTINGS_FIELDS {
+            let SK::Enum { labels, .. } = &f.kind else {
+                continue;
+            };
+            if sentinels.contains(&f.key) || pf(f.key) {
+                continue;
+            }
+            let mut codes: Vec<u32> = labels.iter().map(|(v, _)| *v).collect();
+            codes.sort_unstable();
+            let (lo, hi) = (codes[0], *codes.last().unwrap());
+            assert_eq!(
+                codes.len() as u32,
+                hi - lo + 1,
+                "{}: codes {lo}..={hi} but only {} labels -- an enum with a hole                  in it cannot express the values the radio actually stores",
+                f.key,
+                codes.len()
+            );
+        }
+    }
 }
