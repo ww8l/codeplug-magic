@@ -132,3 +132,46 @@ export function modelModes(m: RadioModel): string[] {
   if (m.m17_capable) modes.push("M17");
   return modes;
 }
+
+/** One sub-tab of the settings form: a section heading and the fields under it. */
+export interface SettingsTab {
+  key: string;
+  label: string;
+  fields: SettingField[];
+}
+
+/**
+ * Split a schema into sub-tabs on its section headings, or return null to leave
+ * it as the single scroll it has always been.
+ *
+ * Only schemas carrying an APRS section are split. Those radios keep their APRS
+ * settings in tables — status texts, canned phrases, beacon objects — so their
+ * field count runs away from the rest, and their own programming software
+ * already presents APRS on tabs of its own. Splitting there matches what the
+ * operator has seen before; splitting a radio with no APRS would just add a
+ * click to a list that reads fine as one column.
+ *
+ * Tabs are presentation only. The form holds every field's value whether or not
+ * its tab is on screen, so saving is unaffected by which one is open.
+ */
+export function settingsTabs(fields: SettingField[]): SettingsTab[] | null {
+  const hasAprs = fields.some(
+    (f) => f.type === "section" && /^APRS\b/i.test(f.label),
+  );
+  if (!hasAprs) return null;
+
+  const tabs: SettingsTab[] = [];
+  for (const f of fields) {
+    if (f.type === "section") {
+      tabs.push({ key: f.key, label: f.label, fields: [] });
+    } else if (tabs.length > 0) {
+      tabs[tabs.length - 1].fields.push(f);
+    } else {
+      // A field ahead of the first heading. No schema does this today, but
+      // dropping it would hide a real setting, so it gets a tab of its own.
+      tabs.push({ key: "section-general", label: "General", fields: [f] });
+    }
+  }
+  // A heading with nothing under it would be an empty tab.
+  return tabs.filter((t) => t.fields.length > 0);
+}

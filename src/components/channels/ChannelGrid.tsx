@@ -37,6 +37,11 @@ export const ALL_COLUMNS: Column[] = [
   { key: "power", label: "Power", width: 64, align: "center", render: (c) => c.power ?? "" },
   { key: "dmr_color_code", label: "DMR CC", width: 64, align: "center", render: (c) => (c.dmr_color_code != null ? String(c.dmr_color_code) : "") },
   { key: "dstar_capable", label: "D-STAR", width: 64, align: "center", render: (c) => check(c.dstar_capable) },
+  // Off by default: blank on nearly every row, because blank means "derive it"
+  // and that is the right answer for every repeater RepeaterBook supplied.
+  { key: "dstar_ur_call", label: "UR Call", width: 84, render: (c) => c.dstar_ur_call ?? "" },
+  { key: "dstar_rpt1", label: "RPT-1", width: 84, render: (c) => c.dstar_rpt1 ?? "" },
+  { key: "dstar_rpt2", label: "RPT-2", width: 84, render: (c) => c.dstar_rpt2 ?? "" },
   { key: "ysf_capable", label: "YSF", width: 56, align: "center", render: (c) => check(c.ysf_capable) },
   { key: "nxdn_capable", label: "NXDN", width: 58, align: "center", render: (c) => check(c.nxdn_capable) },
   { key: "p25_capable", label: "P25", width: 54, align: "center", render: (c) => check(c.p25_capable) },

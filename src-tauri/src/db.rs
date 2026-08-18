@@ -51,17 +51,17 @@ mod tests {
 
         // Models are reintroduced one at a time (migration 0005 trimmed the
         // original set): currently the Baofeng UV-5R, TIDRADIO TD-H3, AnyTone
-        // AT-D890UV, Yaesu FT5D and Icom ID-52. (0015 removed the Vero VR-N76
-        // placeholder.) Neither the FT5D nor the ID-52 has a migration of its
-        // own — seeding INSERTs new (manufacturer, model) rows, so a new model
-        // reaches existing databases on the next startup without one.
+        // AT-D890UV, Yaesu FT5D, Icom ID-52 and Kenwood TH-D75. (0015 removed
+        // the Vero VR-N76 placeholder.) None of the last three has a migration
+        // of its own — seeding INSERTs new (manufacturer, model) rows, so a new
+        // model reaches existing databases on the next startup without one.
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM radio_models")
             .fetch_one(&pool)
             .await
             .unwrap();
         assert_eq!(
-            count.0, 5,
-            "expected the UV-5R, TD-H3, AT-D890UV, FT5D and ID-52 seeded models"
+            count.0, 6,
+            "expected the UV-5R, TD-H3, AT-D890UV, FT5D, ID-52 and TH-D75 seeded models"
         );
 
         let models: Vec<(String,)> =
@@ -70,7 +70,10 @@ mod tests {
                 .await
                 .unwrap();
         let names: Vec<&str> = models.iter().map(|m| m.0.as_str()).collect();
-        assert_eq!(names, vec!["AT-D890UV", "FT5D", "ID-52", "TD-H3", "UV-5R"]);
+        assert_eq!(
+            names,
+            vec!["AT-D890UV", "FT5D", "ID-52", "TD-H3", "TH-D75", "UV-5R"]
+        );
 
         // Seeding twice must remain idempotent.
         crate::seed::seed_radio_models(&pool).await.unwrap();
@@ -78,7 +81,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(count2.0, 5, "seeding should be idempotent");
+        assert_eq!(count2.0, 6, "seeding should be idempotent");
 
         // The full Brandmeister talkgroup list should be seeded (~1,750 rows),
         // and re-seeding is idempotent.

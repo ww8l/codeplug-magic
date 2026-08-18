@@ -23,12 +23,13 @@ use crate::models::RadioModel;
 /// Every driver compiled into the app. Order is not significant — lookups are
 /// by `key()`, which is unique. (A static array rather than a slice literal:
 /// references to statics aren't const-promotable inside a returned temporary.)
-static DRIVERS: [&dyn RadioDriver; 5] = [
+static DRIVERS: [&dyn RadioDriver; 6] = [
     &super::baofeng_uv5r::DRIVER,
     &super::tidradio_tdh3::DRIVER,
     &super::anytone_atd890uv::DRIVER,
     &super::yaesu_ft5d::DRIVER,
     &super::icom_id52::DRIVER,
+    &super::kenwood_thd75::DRIVER,
 ];
 
 pub(crate) fn all_drivers() -> &'static [&'static dyn RadioDriver] {
@@ -77,6 +78,7 @@ mod tests {
             "anytone_atd890uv",
             "yaesu_ft5d",
             "icom_id52",
+            "kenwood_thd75",
         ] {
             let d = driver_for_key(key).unwrap_or_else(|| panic!("no driver for '{key}'"));
             assert_eq!(d.key(), key);
@@ -102,10 +104,11 @@ mod tests {
         for d in all_drivers() {
             let (expect_read, expect_write) = match d.key() {
                 "baofeng_uv5r" => (true, false),
-                // Both card radios: no cable, so no cable settings session. The
-                // FT5D's settings ride in its microSD backup and the ID-52's in
-                // its `.icf`, neither of which goes through these traits.
-                "yaesu_ft5d" | "icom_id52" => (false, false),
+                // All three card radios: no cable, so no cable settings session.
+                // The FT5D's settings ride in its microSD backup, the ID-52's in
+                // its `.icf` and the TH-D75's in its `.d75`, none of which goes
+                // through these traits.
+                "yaesu_ft5d" | "icom_id52" | "kenwood_thd75" => (false, false),
                 _ => (true, true),
             };
             assert_eq!(

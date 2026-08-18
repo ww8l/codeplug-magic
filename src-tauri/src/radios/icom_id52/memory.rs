@@ -1143,6 +1143,32 @@ mod tests {
         assert_eq!(unpack_call(&r[0x2C..0x33]), "W0ABC  G");
     }
 
+    /// Issue #41 in the BYTES, not just in the CSV. The `.icf` is the file that
+    /// actually programs this radio, and it reaches the same `call_signs` by a
+    /// different route — so the override is asserted at both ends rather than
+    /// inferred from the two paths sharing a function.
+    #[test]
+    fn a_channels_own_call_signs_reach_the_icf_record() {
+        let mut c = chan(1, "REFLECTOR", 442.100);
+        c.mode = Some("DSTAR".into());
+        c.callsign = Some("W0ABC".into());
+        c.tx_freq = Some(447.100);
+        c.dstar_ur_call = Some("REF030CL".into());
+        c.dstar_rpt1 = Some("w0abc a".into());
+        let ec = expand(c);
+
+        let r = rec(&write(&[&ec], &[]), 0).to_vec();
+        assert_eq!(unpack_call(&r[0x1E..0x25]), "REF030CL");
+        assert_eq!(
+            unpack_call(&r[0x25..0x2C]),
+            "W0ABC  A",
+            "the stored module lost to the band rule"
+        );
+        // Not given, so still derived — and from the channel's own callsign
+        // rather than from the overridden RPT1.
+        assert_eq!(unpack_call(&r[0x2C..0x33]), "W0ABC  G");
+    }
+
     /// The radio calls it Split Tone, and the two frequencies are not
     /// interchangeable: the repeater tone is transmitted, the TSQL tone opens
     /// squelch. Measured from a memory set to send 103.5 and receive 107.2.
@@ -1634,8 +1660,18 @@ mod tests {
         c.ctcss_downlink = hz("TSQL Frequency");
         let dtcs = get("DTCS Code");
         c.dcs_code = (!dtcs.is_empty()).then_some(dtcs);
-        let rpt1 = get("RPT1 Call Sign");
-        c.callsign = (!rpt1.is_empty()).then(|| rpt1.trim_end().trim_end_matches(['A', 'B', 'C']).trim_end().to_string());
+        // The radio's own three call signs, carried across as themselves
+        // (issue #41). This used to strip the module letter off RPT1 to
+        // reconstruct `callsign` and let the exporter derive it back, which was
+        // only ever exact because the radio follows the band convention — a
+        // memory that did not would have compared equal to a guess.
+        c.dstar_ur_call = Some(get("Your Call Sign")).filter(|s| !s.is_empty());
+        c.dstar_rpt1 = Some(get("RPT1 Call Sign")).filter(|s| !s.is_empty());
+        c.dstar_rpt2 = Some(get("RPT2 Call Sign")).filter(|s| !s.is_empty());
+        c.callsign = c
+            .dstar_rpt1
+            .as_deref()
+            .map(|r| r.trim_end().trim_end_matches(['A', 'B', 'C']).trim_end().to_string());
         c
     }
 
