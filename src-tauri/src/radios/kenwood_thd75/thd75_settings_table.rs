@@ -189,6 +189,17 @@ pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "packet-path-literal", byte: 0x01380, kind: SK::Text { len: 62 } },  // Packet Path, literal
     SF { key: "network", byte: 0x01460, kind: SK::Enum { width: 1, labels: &[(0, "APRS"), (1, "ALTNET")] } },  // Network
     SF { key: "network-altnet-text", byte: 0x01461, kind: SK::Text { len: 6 } },  // Network ALTNET text
+    SF { key: "selected-status-text", byte: 0x0122f, kind: SK::Enum { width: 1, labels: &[(0, "Status Text 1"), (1, "Status Text 2"), (2, "Status Text 3"), (3, "Status Text 4"), (4, "Status Text 5")] } },  // Selected Status Text  // selects one row; NOT a per-row flag
+    SF { key: "status-text-1", byte: 0x01230, kind: SK::Text { len: 42 } },  // Status Text 1
+    SF { key: "status-text-1-tx-rate", byte: 0x0125a, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "1/1"), (2, "1/2"), (3, "1/3"), (4, "1/4"), (5, "1/5"), (6, "1/6"), (7, "1/7"), (8, "1/8")] } },  // Status Text 1 Tx Rate
+    SF { key: "status-text-2", byte: 0x01260, kind: SK::Text { len: 42 } },  // Status Text 2
+    SF { key: "status-text-2-tx-rate", byte: 0x0128a, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "1/1"), (2, "1/2"), (3, "1/3"), (4, "1/4"), (5, "1/5"), (6, "1/6"), (7, "1/7"), (8, "1/8")] } },  // Status Text 2 Tx Rate
+    SF { key: "status-text-3", byte: 0x01290, kind: SK::Text { len: 42 } },  // Status Text 3
+    SF { key: "status-text-3-tx-rate", byte: 0x012ba, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "1/1"), (2, "1/2"), (3, "1/3"), (4, "1/4"), (5, "1/5"), (6, "1/6"), (7, "1/7"), (8, "1/8")] } },  // Status Text 3 Tx Rate
+    SF { key: "status-text-4", byte: 0x012c0, kind: SK::Text { len: 42 } },  // Status Text 4
+    SF { key: "status-text-4-tx-rate", byte: 0x012ea, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "1/1"), (2, "1/2"), (3, "1/3"), (4, "1/4"), (5, "1/5"), (6, "1/6"), (7, "1/7"), (8, "1/8")] } },  // Status Text 4 Tx Rate
+    SF { key: "status-text-5", byte: 0x012f0, kind: SK::Text { len: 42 } },  // Status Text 5
+    SF { key: "status-text-5-tx-rate", byte: 0x0131a, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "1/1"), (2, "1/2"), (3, "1/3"), (4, "1/4"), (5, "1/5"), (6, "1/6"), (7, "1/7"), (8, "1/8")] } },  // Status Text 5 Tx Rate
     SF { key: "pc-output", byte: 0x01216, kind: SK::Uint { width: 1 } },  // PC Output
     SF { key: "aprs-voice", byte: 0x01219, kind: SK::Bool },  // APRS Voice
     SF { key: "voice-alert", byte: 0x0121a, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "On"), (2, "Rx Only")] } },  // Voice Alert
@@ -215,6 +226,26 @@ pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "special-call", byte: 0x01860, kind: SK::Text { len: 9 } },  // Special Call
     SF { key: "display-area", byte: 0x01869, kind: SK::Enum { width: 1, labels: &[(0, "One Line"), (1, "Entire Display"), (2, "Entire Always")] } },  // Display Area
     SF { key: "interrupt-time", byte: 0x0186a, kind: SK::Enum { width: 1, labels: &[(0, "3 sec"), (1, "5"), (2, "10"), (3, "20"), (4, "30"), (5, "60"), (6, "Forever")] } },  // Interrupt Time
+    SF { key: "user-phrase-1", byte: 0x01500, kind: SK::Text { len: 32 } },  // User Phrase 1
+    SF { key: "user-phrase-2", byte: 0x01520, kind: SK::Text { len: 32 } },  // User Phrase 2
+    SF { key: "user-phrase-3", byte: 0x01540, kind: SK::Text { len: 32 } },  // User Phrase 3
+    SF { key: "user-phrase-4", byte: 0x01560, kind: SK::Text { len: 32 } },  // User Phrase 4
+    SF { key: "user-phrase-5", byte: 0x01580, kind: SK::Text { len: 32 } },  // User Phrase 5
+    SF { key: "user-phrase-6", byte: 0x015a0, kind: SK::Text { len: 32 } },  // User Phrase 6
+    SF { key: "user-phrase-7", byte: 0x015c0, kind: SK::Text { len: 32 } },  // User Phrase 7
+    SF { key: "user-phrase-8", byte: 0x015e0, kind: SK::Text { len: 32 } },  // User Phrase 8
+    SF { key: "user-phrase-9", byte: 0x01600, kind: SK::Text { len: 32 } },  // User Phrase 9
+    SF { key: "user-phrase-10", byte: 0x01620, kind: SK::Text { len: 32 } },  // User Phrase 10
+    SF { key: "user-phrase-11", byte: 0x01640, kind: SK::Text { len: 32 } },  // User Phrase 11
+    SF { key: "user-phrase-12", byte: 0x01660, kind: SK::Text { len: 32 } },  // User Phrase 12
+    SF { key: "user-phrase-13", byte: 0x01680, kind: SK::Text { len: 32 } },  // User Phrase 13
+    SF { key: "user-phrase-14", byte: 0x016a0, kind: SK::Text { len: 32 } },  // User Phrase 14
+    SF { key: "user-phrase-15", byte: 0x016c0, kind: SK::Text { len: 32 } },  // User Phrase 15
+    SF { key: "user-phrase-16", byte: 0x016e0, kind: SK::Text { len: 32 } },  // User Phrase 16
+    SF { key: "user-phrase-17", byte: 0x01700, kind: SK::Text { len: 32 } },  // User Phrase 17
+    SF { key: "user-phrase-18", byte: 0x01720, kind: SK::Text { len: 32 } },  // User Phrase 18
+    SF { key: "user-phrase-19", byte: 0x01740, kind: SK::Text { len: 32 } },  // User Phrase 19
+    SF { key: "user-phrase-20", byte: 0x01760, kind: SK::Text { len: 32 } },  // User Phrase 20
     SF { key: "digipeat-my-callsign", byte: 0x0146c, kind: SK::Bool },  // Digipeat (My Callsign)
     SF { key: "uidigipeat", byte: 0x0146e, kind: SK::Bool },  // UIdigipeat
     SF { key: "uidigi-aliases", byte: 0x0146f, kind: SK::Text { len: 39 } },  // UIdigi Aliases
@@ -223,4 +254,77 @@ pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "uiflood", byte: 0x014a6, kind: SK::Bool },  // UIflood
     SF { key: "uiflood-alias", byte: 0x014a7, kind: SK::Text { len: 5 } },  // UIflood Alias
     SF { key: "uiflood-substitution", byte: 0x014ac, kind: SK::Enum { width: 1, labels: &[(0, "First"), (1, "ID"), (2, "NOID")] } },  // UIflood Substitution
+    SF { key: "mice-k-handy-1-type", byte: 0x00800, kind: SK::Text { len: 1 } },  // MicE-K Handy 1 Type
+    SF { key: "mice-k-handy-1-name", byte: 0x00801, kind: SK::Text { len: 15 } },  // MicE-K Handy 1 Name
+    SF { key: "mice-k-handy-2-type", byte: 0x00810, kind: SK::Text { len: 1 } },  // MicE-K Handy 2 Type
+    SF { key: "mice-k-handy-2-name", byte: 0x00811, kind: SK::Text { len: 15 } },  // MicE-K Handy 2 Name
+    SF { key: "mice-k-handy-3-type", byte: 0x00820, kind: SK::Text { len: 1 } },  // MicE-K Handy 3 Type
+    SF { key: "mice-k-handy-3-name", byte: 0x00821, kind: SK::Text { len: 15 } },  // MicE-K Handy 3 Name
+    SF { key: "mice-k-handy-4-type", byte: 0x00830, kind: SK::Text { len: 1 } },  // MicE-K Handy 4 Type
+    SF { key: "mice-k-handy-4-name", byte: 0x00831, kind: SK::Text { len: 15 } },  // MicE-K Handy 4 Name
+    SF { key: "mice-k-handy-5-type", byte: 0x00840, kind: SK::Text { len: 1 } },  // MicE-K Handy 5 Type
+    SF { key: "mice-k-handy-5-name", byte: 0x00841, kind: SK::Text { len: 15 } },  // MicE-K Handy 5 Name
+    SF { key: "mice-k-mobile-1-type", byte: 0x00850, kind: SK::Text { len: 1 } },  // MicE-K Mobile 1 Type
+    SF { key: "mice-k-mobile-1-name", byte: 0x00851, kind: SK::Text { len: 15 } },  // MicE-K Mobile 1 Name
+    SF { key: "mice-k-mobile-2-type", byte: 0x00860, kind: SK::Text { len: 1 } },  // MicE-K Mobile 2 Type
+    SF { key: "mice-k-mobile-2-name", byte: 0x00861, kind: SK::Text { len: 15 } },  // MicE-K Mobile 2 Name
+    SF { key: "mice-k-mobile-3-type", byte: 0x00870, kind: SK::Text { len: 1 } },  // MicE-K Mobile 3 Type
+    SF { key: "mice-k-mobile-3-name", byte: 0x00871, kind: SK::Text { len: 15 } },  // MicE-K Mobile 3 Name
+    SF { key: "mice-k-mobile-4-type", byte: 0x00880, kind: SK::Text { len: 1 } },  // MicE-K Mobile 4 Type
+    SF { key: "mice-k-mobile-4-name", byte: 0x00881, kind: SK::Text { len: 15 } },  // MicE-K Mobile 4 Name
+    SF { key: "mice-k-mobile-5-type", byte: 0x00890, kind: SK::Text { len: 1 } },  // MicE-K Mobile 5 Type
+    SF { key: "mice-k-mobile-5-name", byte: 0x00891, kind: SK::Text { len: 15 } },  // MicE-K Mobile 5 Name
+    SF { key: "mice-y-handy-1-type", byte: 0x008a0, kind: SK::Text { len: 1 } },  // MicE-Y Handy 1 Type
+    SF { key: "mice-y-handy-1-name", byte: 0x008a1, kind: SK::Text { len: 15 } },  // MicE-Y Handy 1 Name
+    SF { key: "mice-y-handy-2-type", byte: 0x008b0, kind: SK::Text { len: 1 } },  // MicE-Y Handy 2 Type
+    SF { key: "mice-y-handy-2-name", byte: 0x008b1, kind: SK::Text { len: 15 } },  // MicE-Y Handy 2 Name
+    SF { key: "mice-y-handy-3-type", byte: 0x008c0, kind: SK::Text { len: 1 } },  // MicE-Y Handy 3 Type
+    SF { key: "mice-y-handy-3-name", byte: 0x008c1, kind: SK::Text { len: 15 } },  // MicE-Y Handy 3 Name
+    SF { key: "mice-y-handy-4-type", byte: 0x008d0, kind: SK::Text { len: 1 } },  // MicE-Y Handy 4 Type
+    SF { key: "mice-y-handy-4-name", byte: 0x008d1, kind: SK::Text { len: 15 } },  // MicE-Y Handy 4 Name
+    SF { key: "mice-y-handy-5-type", byte: 0x008e0, kind: SK::Text { len: 1 } },  // MicE-Y Handy 5 Type
+    SF { key: "mice-y-handy-5-name", byte: 0x008e1, kind: SK::Text { len: 15 } },  // MicE-Y Handy 5 Name
+    SF { key: "selected-beacon-object", byte: 0x019c0, kind: SK::Enum { width: 1, labels: &[(0, "Beacon Object 1"), (1, "Beacon Object 2"), (2, "Beacon Object 3")] } },  // Selected Beacon Object  // selects one row; NOT a per-row flag
+    SF { key: "beacon-object-1-latitude-degrees", byte: 0x01900, kind: SK::Uint { width: 1 } },  // Beacon Object 1 Latitude Degrees
+    SF { key: "beacon-object-1-latitude-minutes", byte: 0x01901, kind: SK::Uint { width: 1 } },  // Beacon Object 1 Latitude Minutes
+    SF { key: "beacon-object-1-latitude-1-10000-minutes", byte: 0x01902, kind: SK::UintLe { width: 2 } },  // Beacon Object 1 Latitude 1/10000 Minutes
+    SF { key: "beacon-object-1-longitude-degrees", byte: 0x01904, kind: SK::Uint { width: 1 } },  // Beacon Object 1 Longitude Degrees
+    SF { key: "beacon-object-1-longitude-minutes", byte: 0x01905, kind: SK::Uint { width: 1 } },  // Beacon Object 1 Longitude Minutes
+    SF { key: "beacon-object-1-longitude-1-10000-minutes", byte: 0x01906, kind: SK::UintLe { width: 2 } },  // Beacon Object 1 Longitude 1/10000 Minutes
+    SF { key: "beacon-object-1-latitude-north", byte: 0x01908, kind: SK::BoolBit { shift: 3 } },  // Beacon Object 1 Latitude North
+    SF { key: "beacon-object-1-longitude-east", byte: 0x01908, kind: SK::BoolBit { shift: 2 } },  // Beacon Object 1 Longitude East
+    SF { key: "beacon-object-1-name", byte: 0x01909, kind: SK::Text { len: 9 } },  // Beacon Object 1 Name
+    SF { key: "beacon-object-1-type", byte: 0x01912, kind: SK::Enum { width: 1, labels: &[(0, "Live Object"), (1, "Killed Object"), (2, "Live Item"), (3, "Killed Item")] } },  // Beacon Object 1 Type
+    SF { key: "beacon-object-1-method", byte: 0x01913, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "Temp"), (2, "Auto 15 min"), (3, "Auto 30 min"), (4, "Auto 60 min")] } },  // Beacon Object 1 Method
+    SF { key: "beacon-object-1-icon-table", byte: 0x01914, kind: SK::Text { len: 1 } },  // Beacon Object 1 Icon Table
+    SF { key: "beacon-object-1-icon-symbol", byte: 0x01915, kind: SK::Text { len: 1 } },  // Beacon Object 1 Icon Symbol
+    SF { key: "beacon-object-1-comment", byte: 0x01916, kind: SK::Text { len: 42 } },  // Beacon Object 1 Comment
+    SF { key: "beacon-object-2-latitude-degrees", byte: 0x01940, kind: SK::Uint { width: 1 } },  // Beacon Object 2 Latitude Degrees
+    SF { key: "beacon-object-2-latitude-minutes", byte: 0x01941, kind: SK::Uint { width: 1 } },  // Beacon Object 2 Latitude Minutes
+    SF { key: "beacon-object-2-latitude-1-10000-minutes", byte: 0x01942, kind: SK::UintLe { width: 2 } },  // Beacon Object 2 Latitude 1/10000 Minutes
+    SF { key: "beacon-object-2-longitude-degrees", byte: 0x01944, kind: SK::Uint { width: 1 } },  // Beacon Object 2 Longitude Degrees
+    SF { key: "beacon-object-2-longitude-minutes", byte: 0x01945, kind: SK::Uint { width: 1 } },  // Beacon Object 2 Longitude Minutes
+    SF { key: "beacon-object-2-longitude-1-10000-minutes", byte: 0x01946, kind: SK::UintLe { width: 2 } },  // Beacon Object 2 Longitude 1/10000 Minutes
+    SF { key: "beacon-object-2-latitude-north", byte: 0x01948, kind: SK::BoolBit { shift: 3 } },  // Beacon Object 2 Latitude North
+    SF { key: "beacon-object-2-longitude-east", byte: 0x01948, kind: SK::BoolBit { shift: 2 } },  // Beacon Object 2 Longitude East
+    SF { key: "beacon-object-2-name", byte: 0x01949, kind: SK::Text { len: 9 } },  // Beacon Object 2 Name
+    SF { key: "beacon-object-2-type", byte: 0x01952, kind: SK::Enum { width: 1, labels: &[(0, "Live Object"), (1, "Killed Object"), (2, "Live Item"), (3, "Killed Item")] } },  // Beacon Object 2 Type
+    SF { key: "beacon-object-2-method", byte: 0x01953, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "Temp"), (2, "Auto 15 min"), (3, "Auto 30 min"), (4, "Auto 60 min")] } },  // Beacon Object 2 Method
+    SF { key: "beacon-object-2-icon-table", byte: 0x01954, kind: SK::Text { len: 1 } },  // Beacon Object 2 Icon Table
+    SF { key: "beacon-object-2-icon-symbol", byte: 0x01955, kind: SK::Text { len: 1 } },  // Beacon Object 2 Icon Symbol
+    SF { key: "beacon-object-2-comment", byte: 0x01956, kind: SK::Text { len: 42 } },  // Beacon Object 2 Comment
+    SF { key: "beacon-object-3-latitude-degrees", byte: 0x01980, kind: SK::Uint { width: 1 } },  // Beacon Object 3 Latitude Degrees
+    SF { key: "beacon-object-3-latitude-minutes", byte: 0x01981, kind: SK::Uint { width: 1 } },  // Beacon Object 3 Latitude Minutes
+    SF { key: "beacon-object-3-latitude-1-10000-minutes", byte: 0x01982, kind: SK::UintLe { width: 2 } },  // Beacon Object 3 Latitude 1/10000 Minutes
+    SF { key: "beacon-object-3-longitude-degrees", byte: 0x01984, kind: SK::Uint { width: 1 } },  // Beacon Object 3 Longitude Degrees
+    SF { key: "beacon-object-3-longitude-minutes", byte: 0x01985, kind: SK::Uint { width: 1 } },  // Beacon Object 3 Longitude Minutes
+    SF { key: "beacon-object-3-longitude-1-10000-minutes", byte: 0x01986, kind: SK::UintLe { width: 2 } },  // Beacon Object 3 Longitude 1/10000 Minutes
+    SF { key: "beacon-object-3-latitude-north", byte: 0x01988, kind: SK::BoolBit { shift: 3 } },  // Beacon Object 3 Latitude North
+    SF { key: "beacon-object-3-longitude-east", byte: 0x01988, kind: SK::BoolBit { shift: 2 } },  // Beacon Object 3 Longitude East
+    SF { key: "beacon-object-3-name", byte: 0x01989, kind: SK::Text { len: 9 } },  // Beacon Object 3 Name
+    SF { key: "beacon-object-3-type", byte: 0x01992, kind: SK::Enum { width: 1, labels: &[(0, "Live Object"), (1, "Killed Object"), (2, "Live Item"), (3, "Killed Item")] } },  // Beacon Object 3 Type
+    SF { key: "beacon-object-3-method", byte: 0x01993, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "Temp"), (2, "Auto 15 min"), (3, "Auto 30 min"), (4, "Auto 60 min")] } },  // Beacon Object 3 Method
+    SF { key: "beacon-object-3-icon-table", byte: 0x01994, kind: SK::Text { len: 1 } },  // Beacon Object 3 Icon Table
+    SF { key: "beacon-object-3-icon-symbol", byte: 0x01995, kind: SK::Text { len: 1 } },  // Beacon Object 3 Icon Symbol
+    SF { key: "beacon-object-3-comment", byte: 0x01996, kind: SK::Text { len: 42 } },  // Beacon Object 3 Comment
 ];
