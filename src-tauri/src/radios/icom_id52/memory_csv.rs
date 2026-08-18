@@ -407,10 +407,34 @@ pub(super) fn dtcs_polarity(stored: &str) -> &'static str {
 /// The three D-STAR call sign columns, blank on an analog memory.
 ///
 /// Icom packs a call sign into 8 characters with the **port letter last**:
-/// `OE1XDS C`. The port is the repeater's band — `C` on 2 m, `B` on 70 cm, `A`
-/// on 23 cm — and the gateway is the same call with `G`. `CQCQCQ` in `Your` is
-/// the ordinary "call anyone" destination.
+/// `OE1XDS C`. The port is the repeater's module — `C` on 2 m, `B` on 70 cm,
+/// `A` on 23 cm — and the gateway is the same call with `G`. `CQCQCQ` in `Your`
+/// is the ordinary "call anyone" destination.
+///
+/// **The channel's own values win** (issue #41), each field falling back
+/// independently to the derivation below. That derivation cannot express a
+/// reflector command in `Your Callsign`, nor a module that departs from the
+/// band convention, nor a hotspot whose RPT1 is its owner's call — but it stays,
+/// because the channel library's D-STAR repeaters come from RepeaterBook, which
+/// carries a call sign and no module letter.
 pub(super) fn call_signs(ec: &ExpandedChannel, dv: bool) -> (String, String, String) {
+    let stored = |f: &Option<String>| {
+        f.as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(crate::util::pack_dstar_call)
+    };
+    let c = &ec.channel;
+    let (d_ur, d_rpt1, d_rpt2) = derived_call_signs(ec, dv);
+    (
+        stored(&c.dstar_ur_call).unwrap_or(d_ur),
+        stored(&c.dstar_rpt1).unwrap_or(d_rpt1),
+        stored(&c.dstar_rpt2).unwrap_or(d_rpt2),
+    )
+}
+
+/// What the exporter writes for a channel that names no call signs of its own.
+fn derived_call_signs(ec: &ExpandedChannel, dv: bool) -> (String, String, String) {
     if !dv {
         return (String::new(), String::new(), String::new());
     }
@@ -693,6 +717,25 @@ mod tests {
         for col in [TONE, RPT_TONE, TSQL_TONE, DTCS, DTCS_POL] {
             assert_eq!(r[col], "", "column {col} should be empty on a DV memory");
         }
+    }
+
+    /// Issue #41: the channel's own call signs beat the derivation, field by
+    /// field. The reflector command is the case no rule can produce, and the
+    /// module here contradicts the band convention on purpose.
+    #[test]
+    fn a_channels_own_call_signs_beat_the_derivation() {
+        let mut c = chan(1, "REFLECTOR", 442.100);
+        c.mode = Some("DSTAR".into());
+        c.callsign = Some("W0ABC".into());
+        c.tx_freq = Some(447.100);
+        c.dstar_ur_call = Some("REF030CL".into());
+        c.dstar_rpt1 = Some("w0abc a".into());
+        let ec = expand(c);
+
+        let r = &rows(&render_csv(&[&ec], &[], &model()).unwrap())[0];
+        assert_eq!(r[YOUR], "REF030CL");
+        assert_eq!(r[RPT1], "W0ABC  A", "the stored module lost to the band rule");
+        assert_eq!(r[RPT2], "W0ABC  G", "RPT2 was not given, so it still derives");
     }
 
     /// An analog memory must leave the digital columns empty — an FM row with

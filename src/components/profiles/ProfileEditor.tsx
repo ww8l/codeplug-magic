@@ -26,6 +26,7 @@ import {
   parseSchema,
   parseSettings,
   seedValues,
+  settingsTabs,
   type SettingsValues,
 } from "../../lib/profiles";
 import { Button, TextInput, Select, Badge, Spinner } from "../ui";
@@ -126,6 +127,7 @@ const CARD_SETTINGS_READERS: Record<
 > = {
   yaesu_ft5d_sd: api.readFt5dSettingsFromBackup,
   icom_id52_icf: api.readId52SettingsFromCard,
+  kenwood_thd75_sd: api.readThd75SettingsFromCard,
 };
 
 /**
@@ -559,6 +561,43 @@ function Capabilities({ model }: { model: RadioModel }) {
   );
 }
 
+/**
+ * The two-column field grid. Takes a flat list, so it draws either a whole
+ * schema — headings included — or the fields of one sub-tab, which have had
+ * their heading lifted into the tab button.
+ */
+function SettingsGrid({
+  fields,
+  values,
+  onChange,
+}: {
+  fields: SettingField[];
+  values: SettingsValues;
+  onChange: (key: string, v: string | number | boolean) => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-2">
+      {fields.map((f) =>
+        f.type === "section" ? (
+          <h4
+            key={f.key}
+            className="mt-2 border-b border-slate-200 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 first:mt-0 sm:col-span-2 dark:border-slate-700 dark:text-slate-400"
+          >
+            {f.label}
+          </h4>
+        ) : (
+          <SettingsField
+            key={f.key}
+            field={f}
+            value={values[f.key] ?? ""}
+            onChange={(v) => onChange(f.key, v)}
+          />
+        ),
+      )}
+    </div>
+  );
+}
+
 function SettingsField({
   field,
   value,
@@ -653,6 +692,12 @@ export function ProfileEditor({
   const [saving, setSaving] = useState(false);
 
   const fields = useMemo(() => parseSchema(model), [model]);
+  // Non-null only for the radios whose settings are split across sub-tabs —
+  // see `settingsTabs`. Null keeps the original single scroll.
+  const subTabs = useMemo(() => settingsTabs(fields), [fields]);
+  const [subTab, setSubTab] = useState<string | null>(null);
+  const openSubTab =
+    subTabs?.find((t) => t.key === subTab) ?? subTabs?.[0] ?? null;
   // Programmed from its own memory card, which means its settings are patched
   // into a file that already holds the operator's — see the seeding note below.
   const cardReader = model?.export_format
@@ -682,6 +727,7 @@ export function ProfileEditor({
     );
     setLastId(profile.id);
     setTab("settings");
+    setSubTab(null);
   }
 
   const setValue = (key: string, v: string | number | boolean) =>
@@ -804,26 +850,39 @@ export function ProfileEditor({
               <p className="text-xs text-slate-400">
                 This model has no configurable non-channel settings.
               </p>
-            ) : (
-              <div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-2">
-                {fields.map((f) =>
-                  f.type === "section" ? (
-                    <h4
-                      key={f.key}
-                      className="mt-2 border-b border-slate-200 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 first:mt-0 sm:col-span-2 dark:border-slate-700 dark:text-slate-400"
+            ) : openSubTab ? (
+              /* Split across sub-tabs. Every field's value stays in `values`
+                 whichever tab is open, so this changes what is drawn and
+                 nothing about what is saved. */
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-1">
+                  {subTabs!.map((t) => (
+                    <button
+                      key={t.key}
+                      onClick={() => setSubTab(t.key)}
+                      className={clsx(
+                        "rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
+                        t.key === openSubTab.key
+                          ? "bg-sky-600 text-white"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700",
+                      )}
                     >
-                      {f.label}
-                    </h4>
-                  ) : (
-                    <SettingsField
-                      key={f.key}
-                      field={f}
-                      value={values[f.key] ?? ""}
-                      onChange={(v) => setValue(f.key, v)}
-                    />
-                  ),
-                )}
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                <SettingsGrid
+                  fields={openSubTab.fields}
+                  values={values}
+                  onChange={setValue}
+                />
               </div>
+            ) : (
+              <SettingsGrid
+                fields={fields}
+                values={values}
+                onChange={setValue}
+              />
             )}
 
             <div className="space-y-1.5 pt-2">

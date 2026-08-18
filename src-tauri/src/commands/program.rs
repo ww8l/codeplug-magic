@@ -417,6 +417,7 @@ pub async fn find_memory_cards(format: String) -> Vec<MemoryCard> {
     tauri::async_runtime::spawn_blocking(move || match format.as_str() {
         "yaesu_ft5d_sd" => ft5d_cards(),
         "icom_id52_icf" => id52_cards(),
+        "kenwood_thd75_sd" => thd75_cards(),
         _ => Vec::new(),
     })
     .await
@@ -485,6 +486,47 @@ fn id52_cards() -> Vec<MemoryCard> {
     out
 }
 
+/// The TH-D75 names its own config files too, so — like the ID-52 — what gets
+/// offered is the **folder**, `KENWOOD/TH-D75/SETTINGS/DATA`. The write builds a
+/// new `MMDDYYYY_HHMMSS.d75` in it from the newest save there, so every file the
+/// operator has taken off the radio survives untouched.
+///
+/// A folder counts only if it holds a file this driver can actually use as a
+/// template. That is a stricter test than "there is a `.d75` in here": Kenwood's
+/// own MCP-D75 software writes the full clone image into the same folder with
+/// the same extension, and a partial save declares the same header as a good
+/// one. Both parse-fail by name, and neither should make the card look ready.
+fn thd75_cards() -> Vec<MemoryCard> {
+    let mut out = Vec::new();
+    for root in mounted_roots() {
+        let dir = root
+            .join("KENWOOD")
+            .join("TH-D75")
+            .join("SETTINGS")
+            .join("DATA");
+        let usable = std::fs::read_dir(&dir).is_ok_and(|entries| {
+            entries.flatten().any(|e| {
+                let p = e.path();
+                p.extension().is_some_and(|x| x.eq_ignore_ascii_case("d75"))
+                    && std::fs::read(&p).is_ok_and(|b| {
+                        crate::radios::kenwood_thd75::d75::D75File::parse(&b).is_ok()
+                    })
+            })
+        });
+        if !usable {
+            continue;
+        }
+        out.push(MemoryCard {
+            // A new file every time, so there is nothing of the operator's to
+            // keep a pristine copy of.
+            has_original: false,
+            volume: volume_name(&root),
+            path: dir.to_string_lossy().into_owned(),
+        });
+    }
+    out
+}
+
 /// The file-based sibling of [`read_radio_settings`]. The FT5D has no proven
 /// cable modality, so its "radio" for settings purposes is the backup file its
 /// own Back Up menu writes — the same file the codeplug export patches. Nothing
@@ -535,6 +577,38 @@ pub async fn read_id52_settings_from_card(path: String) -> Result<RadioSettingsR
         let icf = crate::radios::icom_id52::icf::IcfFile::parse(&text)?;
         crate::radios::icom_id52::check_is_an_id52_file(&icf)?;
         let settings = crate::radios::icom_id52::settings::decode_settings(icf.image());
+        let count = settings.as_object().map(|o| o.len()).unwrap_or(0);
+        Ok(RadioSettingsRead {
+            settings,
+            count,
+            backup_path: path,
+        })
+    })
+    .await
+    .estr()?
+}
+
+/// The TH-D75's version of the same, reading the `.d75` the radio writes to its
+/// microSD card.
+///
+/// Nothing is written here. The values land in the profile form and go back out
+/// into a `.d75` when the codeplug is written, the way the ID-52's do — this
+/// radio also carries memories and settings in one file.
+///
+/// Offsets in the settings table are BODY offsets, so the decoder gets
+/// `d75.body()` rather than the whole file.
+#[tauri::command]
+pub async fn read_thd75_settings_from_card(path: String) -> Result<RadioSettingsRead, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = std::fs::read(&path).map_err(|e| {
+            format!(
+                "Could not read {path}: {e}. Pick a config file from \
+                 KENWOOD/TH-D75/SETTINGS/DATA/ on the radio's microSD card — save one \
+                 with Menu > Configuration > SD Card > Save Setting if it is not there."
+            )
+        })?;
+        let d75 = crate::radios::kenwood_thd75::d75::D75File::parse(&bytes)?;
+        let settings = crate::radios::kenwood_thd75::settings::decode_settings(d75.body());
         let count = settings.as_object().map(|o| o.len()).unwrap_or(0);
         Ok(RadioSettingsRead {
             settings,
