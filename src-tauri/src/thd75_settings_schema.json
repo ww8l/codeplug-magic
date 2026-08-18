@@ -335,7 +335,8 @@
    "Off",
    "GPS (Altitude)",
    "GPS (GS)",
-   "Date"
+   "Date",
+   "Demodulation Mode"
   ]
  },
  {
@@ -2744,6 +2745,13 @@
   "key": "digipeat-my-callsign",
   "label": "Digipeat (My Callsign)",
   "type": "boolean"
+ },
+ {
+  "key": "uicheck",
+  "label": "Uicheck",
+  "type": "integer",
+  "min": 1,
+  "max": 250
  },
  {
   "key": "uidigipeat",
