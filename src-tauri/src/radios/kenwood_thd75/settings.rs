@@ -180,13 +180,20 @@ pub(crate) fn apply_settings(body: &mut [u8], settings: &Map<String, Value>) -> 
             }
             (SK::Text { len }, Value::String(s)) => {
                 let n = *len as usize;
-                // An empty value over a field that is still 0xff all through is
-                // a row the operator has never touched, and NUL-filling it
-                // would push a change they did not ask for onto the radio --
-                // the same reason a card radio's form seeds blank rather than
-                // with defaults. Clearing a field that holds real text still
-                // works: those bytes are not 0xff, so it falls through.
-                if s.is_empty() && body[at..at + n].iter().all(|&b| b == 0xff) {
+                // Writing an empty value over a field that ALREADY reads as
+                // empty would change only its padding, which is a change the
+                // operator did not ask for -- the same reason a card radio's
+                // form seeds blank rather than with defaults. Untouched rows
+                // in the APRS grids are 0xff, sometimes 0xff then NUL, so
+                // testing the decoded value rather than the byte pattern is
+                // what actually covers them. Clearing a field that holds real
+                // text still NUL-fills, because it does not read as empty.
+                let already_empty = body[at..at + n]
+                    .iter()
+                    .take_while(|&&b| b != 0 && b != 0xff)
+                    .next()
+                    .is_none();
+                if s.is_empty() && already_empty {
                     true
                 } else {
                     // NUL-pad to the FULL field width. Writing only the string
@@ -509,6 +516,18 @@ mod tests {
             "an empty value must not NUL-fill a row the operator never touched"
         );
 
+        // ★ A row can also be 0xff for part of its length and NUL for the
+        // rest -- Status Text 5 on the real card is exactly that. It reads as
+        // empty, so it must be left alone too. Testing the byte pattern for
+        // "all 0xff" missed this and rewrote 16 bytes.
+        body[0x1540..0x1550].fill(0xff);
+        body[0x1550..0x1560].fill(0);
+        let before = body[0x1540..0x1560].to_vec();
+        let mut s = Map::new();
+        s.insert("user-phrase-3".into(), Value::from(""));
+        apply_settings(&mut body, &s);
+        assert_eq!(&body[0x1540..0x1560], &before[..], "mixed padding rewritten");
+
         // Clearing a row that DOES hold text still works.
         let mut s = Map::new();
         s.insert("user-phrase-2".into(), Value::from("HELLO"));
@@ -516,6 +535,40 @@ mod tests {
         s.insert("user-phrase-2".into(), Value::from(""));
         apply_settings(&mut body, &s);
         assert!(body[0x1520..0x1540].iter().all(|&b| b == 0));
+    }
+
+    /// Apply a whole saved profile back onto the capture it was read from, and
+    /// assert the body comes out BYTE-IDENTICAL.
+    ///
+    /// This is the write half of the read/write pair, and the only check that
+    /// can catch a field whose encoder changes bytes the decoder never looked
+    /// at -- padding, spare bits, an untouched grid row. Read-back tests
+    /// cannot see it, because both sides agree on the value while the bytes
+    /// drift ([[read-path-working-hides-a-dead-write-path]]).
+    ///
+    ///     THD75_CAPTURE=…/baseline.d75 THD75_PROFILE=…/profile.json \
+    ///       cargo test --lib a_profile_read_from_a_capture_writes_it_back -- --ignored
+    #[test]
+    #[ignore]
+    fn a_profile_read_from_a_capture_writes_it_back_unchanged() {
+        let file = std::fs::read(std::env::var("THD75_CAPTURE").expect("capture")).unwrap();
+        let json = std::fs::read_to_string(std::env::var("THD75_PROFILE").expect("profile")).unwrap();
+        let saved: Map<String, Value> = serde_json::from_str(&json).expect("profile parses");
+
+        let mut body = file[0x100..].to_vec();
+        let before = body.clone();
+        let written = apply_settings(&mut body, &saved);
+        println!("{written} fields applied");
+
+        let diff: Vec<usize> = (0..body.len()).filter(|&i| body[i] != before[i]).collect();
+        for &i in diff.iter().take(20) {
+            let who = THD75_SETTINGS_FIELDS
+                .iter()
+                .find(|f| i >= f.byte as usize && i < field_end(f))
+                .map_or("<no field claims it>", |f| f.key);
+            println!("  {:#06x}  {:#04x} -> {:#04x}  {who}", i, before[i], body[i]);
+        }
+        assert!(diff.is_empty(), "{} bytes changed writing a profile back", diff.len());
     }
 
     /// Decode a real RT Systems capture and check the four APRS grids against

@@ -55,7 +55,7 @@ pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "backlight-control", byte: 0x01060, kind: SK::Enum { width: 1, labels: &[(0, "Manual"), (1, "On"), (2, "Auto"), (3, "Auto (DC-IN)")] } },  // Backlight Control
     SF { key: "backlight-timer", byte: 0x01061, kind: SK::Uint { width: 1 } },  // Backlight Timer
     SF { key: "lcd-brightness", byte: 0x01062, kind: SK::Enum { width: 1, labels: &[(0, "Low"), (1, "Medium"), (2, "High")] } },  // LCD Brightness
-    SF { key: "single-band-display", byte: 0x01063, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "GPS (Altitude)"), (2, "GPS (GS)"), (3, "Date")] } },  // Single Band Display
+    SF { key: "single-band-display", byte: 0x01063, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "GPS (Altitude)"), (2, "GPS (GS)"), (3, "Date"), (4, "Demodulation Mode")] } },  // Single Band Display
     SF { key: "meter-type", byte: 0x01064, kind: SK::Enum { width: 1, labels: &[(0, "Type 1"), (1, "Type 2"), (2, "Type 3")] } },  // Meter Type
     SF { key: "background-color-rts-backlight-color", byte: 0x01065, kind: SK::Enum { width: 1, labels: &[(0, "Black"), (1, "White")] } },  // Background Color (RTS: "Backlight Color")
     SF { key: "info-backlight", byte: 0x01096, kind: SK::Enum { width: 1, labels: &[(0, "Off"), (1, "LCD"), (2, "LCD+Key")] } },  // Info Backlight
@@ -247,6 +247,7 @@ pub(crate) const THD75_SETTINGS_FIELDS: &[SF] = &[
     SF { key: "user-phrase-19", byte: 0x01740, kind: SK::Text { len: 32 } },  // User Phrase 19
     SF { key: "user-phrase-20", byte: 0x01760, kind: SK::Text { len: 32 } },  // User Phrase 20
     SF { key: "digipeat-my-callsign", byte: 0x0146c, kind: SK::Bool },  // Digipeat (My Callsign)
+    SF { key: "uicheck", byte: 0x0146d, kind: SK::Uint { width: 1 } },  // Uicheck
     SF { key: "uidigipeat", byte: 0x0146e, kind: SK::Bool },  // UIdigipeat
     SF { key: "uidigi-aliases", byte: 0x0146f, kind: SK::Text { len: 39 } },  // UIdigi Aliases
     SF { key: "uitrace", byte: 0x014a0, kind: SK::Bool },  // UItrace
