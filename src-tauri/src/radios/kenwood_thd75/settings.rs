@@ -91,7 +91,15 @@ fn decode_field(body: &[u8], f: &SF) -> Value {
         SK::Text { len } => {
             let end = (at + *len as usize).min(body.len());
             let raw = &body[at..end];
-            let cut = raw.iter().position(|&b| b == 0).unwrap_or(raw.len());
+            // ⚠ 0xff terminates as surely as NUL. A record in one of the APRS
+            // grids that the operator has never filled in is 0xff all through,
+            // and cutting only at NUL rendered all 42 bytes of it as mojibake
+            // in the form. No text field here is anything but 7-bit ASCII, so
+            // neither byte can be part of a real value.
+            let cut = raw
+                .iter()
+                .position(|&b| b == 0 || b == 0xff)
+                .unwrap_or(raw.len());
             Value::String(String::from_utf8_lossy(&raw[..cut]).trim_end().to_string())
         }
     }
@@ -172,14 +180,25 @@ pub(crate) fn apply_settings(body: &mut [u8], settings: &Map<String, Value>) -> 
             }
             (SK::Text { len }, Value::String(s)) => {
                 let n = *len as usize;
-                // NUL-pad to the FULL field width. Writing only the string and
-                // leaving the tail alone would splice the previous value's
-                // ending on to a shorter new one.
-                let bytes = s.as_bytes();
-                for i in 0..n {
-                    body[at + i] = bytes.get(i).copied().filter(|b| b.is_ascii()).unwrap_or(0);
+                // An empty value over a field that is still 0xff all through is
+                // a row the operator has never touched, and NUL-filling it
+                // would push a change they did not ask for onto the radio --
+                // the same reason a card radio's form seeds blank rather than
+                // with defaults. Clearing a field that holds real text still
+                // works: those bytes are not 0xff, so it falls through.
+                if s.is_empty() && body[at..at + n].iter().all(|&b| b == 0xff) {
+                    true
+                } else {
+                    // NUL-pad to the FULL field width. Writing only the string
+                    // and leaving the tail alone would splice the previous
+                    // value's ending on to a shorter new one.
+                    let bytes = s.as_bytes();
+                    for i in 0..n {
+                        body[at + i] =
+                            bytes.get(i).copied().filter(|b| b.is_ascii()).unwrap_or(0);
+                    }
+                    true
                 }
-                true
             }
             _ => false,
         };
@@ -423,5 +442,86 @@ mod tests {
         assert_eq!(&body[0x1230..0x1235], b"FIRST");
         assert_eq!(&body[0x1230 + 4 * 0x30..0x1230 + 4 * 0x30 + 4], b"LAST");
         assert_eq!(body[0x122f], 2, "the selector holds an index, not a bitmap");
+    }
+
+    /// An untouched row in one of the APRS grids is 0xff all through, not NUL.
+    /// It must read as empty, and staying empty must not rewrite it.
+    #[test]
+    fn an_untouched_grid_row_reads_empty_and_is_left_alone() {
+        let mut body = vec![0u8; 0x2000];
+        body[0x1500..0x1520].fill(0xff); // user phrase 1, never filled in
+
+        let v = decode_settings(&body);
+        assert_eq!(v["user-phrase-1"], "", "0xff is padding, not a character");
+
+        let mut s = Map::new();
+        s.insert("user-phrase-1".into(), Value::from(""));
+        apply_settings(&mut body, &s);
+        assert!(
+            body[0x1500..0x1520].iter().all(|&b| b == 0xff),
+            "an empty value must not NUL-fill a row the operator never touched"
+        );
+
+        // Clearing a row that DOES hold text still works.
+        let mut s = Map::new();
+        s.insert("user-phrase-2".into(), Value::from("HELLO"));
+        apply_settings(&mut body, &s);
+        s.insert("user-phrase-2".into(), Value::from(""));
+        apply_settings(&mut body, &s);
+        assert!(body[0x1520..0x1540].iter().all(|&b| b == 0));
+    }
+
+    /// Decode a real RT Systems capture and check the four APRS grids against
+    /// the distinctive strings that were typed into them on the instrument.
+    ///
+    /// The layouts are strides rather than one measured address per field, so
+    /// a base or stride wrong by one still produces a table that compiles,
+    /// passes the overlap guard, and reads plausible-looking bytes out of the
+    /// wrong record. Reading a capture whose contents are known is what rules
+    /// that out. `scratchpad/` is gitignored, so the capture comes in by env
+    /// var and the test is #[ignore]d:
+    ///
+    ///     THD75_CAPTURE=scratchpad/thd75/rts/rts119.d75 \
+    ///       cargo test --lib decodes_a_real_captures_aprs_grids -- --ignored
+    #[test]
+    #[ignore]
+    fn decodes_a_real_captures_aprs_grids() {
+        let path = std::env::var("THD75_CAPTURE").expect("THD75_CAPTURE");
+        let file = std::fs::read(path).expect("read capture");
+        let v = decode_settings(&file[0x100..]);
+
+        // Two rows a full stride apart, and the selector that is one index.
+        assert_eq!(v["status-text-1"], "TIMMYS D75");
+        assert_eq!(v["status-text-2"], "ZZTEST2");
+        assert_eq!(v["status-text-1-tx-rate"], "1/4");
+        assert_eq!(v["selected-status-text"], "Status Text 5");
+        // An untouched row: 0xff all through, which must read as empty.
+        assert_eq!(v["status-text-5"], "");
+
+        // The first and the twentieth phrase, the last one filling its 32
+        // bytes exactly.
+        assert_eq!(v["user-phrase-1"], "ZZPHRASE1");
+        assert_eq!(v["user-phrase-20"], "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345");
+
+        // ★ The Mic-E type is the ASCII character, not the number.
+        assert_eq!(v["mice-k-handy-1-type"], "7");
+        assert_eq!(v["mice-k-handy-1-name"], "KHANDY");
+
+        // A whole beacon object, every cell of it.
+        assert_eq!(v["selected-beacon-object"], "Beacon Object 3");
+        assert_eq!(v["beacon-object-1-latitude-degrees"], 12);
+        assert_eq!(v["beacon-object-1-latitude-minutes"], 34);
+        assert_eq!(v["beacon-object-1-latitude-1-10000-minutes"], 5600);
+        assert_eq!(v["beacon-object-1-latitude-north"], Value::Bool(true));
+        assert_eq!(v["beacon-object-1-longitude-degrees"], 123);
+        assert_eq!(v["beacon-object-1-longitude-minutes"], 45);
+        assert_eq!(v["beacon-object-1-longitude-1-10000-minutes"], 6700);
+        assert_eq!(v["beacon-object-1-longitude-east"], Value::Bool(true));
+        assert_eq!(v["beacon-object-1-name"], "ZOBJ1");
+        assert_eq!(v["beacon-object-1-type"], "Killed Object");
+        assert_eq!(v["beacon-object-1-method"], "Auto 30 min");
+        assert_eq!(v["beacon-object-1-icon-table"], "/");
+        assert_eq!(v["beacon-object-1-icon-symbol"], "K");
+        assert_eq!(v["beacon-object-1-comment"], "ZCOMMENT1");
     }
 }
