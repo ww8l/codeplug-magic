@@ -2013,6 +2013,128 @@
   "max_length": 6
  },
  {
+  "key": "selected-status-text",
+  "label": "Selected Status Text",
+  "type": "select",
+  "options": [
+   "Status Text 1",
+   "Status Text 2",
+   "Status Text 3",
+   "Status Text 4",
+   "Status Text 5"
+  ]
+ },
+ {
+  "key": "status-text-1",
+  "label": "Status Text 1",
+  "type": "text",
+  "max_length": 42
+ },
+ {
+  "key": "status-text-1-tx-rate",
+  "label": "Status Text 1 Tx Rate",
+  "type": "select",
+  "options": [
+   "Off",
+   "1/1",
+   "1/2",
+   "1/3",
+   "1/4",
+   "1/5",
+   "1/6",
+   "1/7",
+   "1/8"
+  ]
+ },
+ {
+  "key": "status-text-2",
+  "label": "Status Text 2",
+  "type": "text",
+  "max_length": 42
+ },
+ {
+  "key": "status-text-2-tx-rate",
+  "label": "Status Text 2 Tx Rate",
+  "type": "select",
+  "options": [
+   "Off",
+   "1/1",
+   "1/2",
+   "1/3",
+   "1/4",
+   "1/5",
+   "1/6",
+   "1/7",
+   "1/8"
+  ]
+ },
+ {
+  "key": "status-text-3",
+  "label": "Status Text 3",
+  "type": "text",
+  "max_length": 42
+ },
+ {
+  "key": "status-text-3-tx-rate",
+  "label": "Status Text 3 Tx Rate",
+  "type": "select",
+  "options": [
+   "Off",
+   "1/1",
+   "1/2",
+   "1/3",
+   "1/4",
+   "1/5",
+   "1/6",
+   "1/7",
+   "1/8"
+  ]
+ },
+ {
+  "key": "status-text-4",
+  "label": "Status Text 4",
+  "type": "text",
+  "max_length": 42
+ },
+ {
+  "key": "status-text-4-tx-rate",
+  "label": "Status Text 4 Tx Rate",
+  "type": "select",
+  "options": [
+   "Off",
+   "1/1",
+   "1/2",
+   "1/3",
+   "1/4",
+   "1/5",
+   "1/6",
+   "1/7",
+   "1/8"
+  ]
+ },
+ {
+  "key": "status-text-5",
+  "label": "Status Text 5",
+  "type": "text",
+  "max_length": 42
+ },
+ {
+  "key": "status-text-5-tx-rate",
+  "label": "Status Text 5 Tx Rate",
+  "type": "select",
+  "options": [
+   "Off",
+   "1/1",
+   "1/2",
+   "1/3",
+   "1/4",
+   "1/5",
+   "1/6",
+   "1/7",
+   "1/8"
+  ]
+ },
+ {
   "key": "section-aprs-messaging",
   "label": "APRS Messaging",
   "type": "section"
@@ -2487,6 +2609,126 @@
   ]
  },
  {
+  "key": "user-phrase-1",
+  "label": "User Phrase 1",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-2",
+  "label": "User Phrase 2",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-3",
+  "label": "User Phrase 3",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-4",
+  "label": "User Phrase 4",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-5",
+  "label": "User Phrase 5",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-6",
+  "label": "User Phrase 6",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-7",
+  "label": "User Phrase 7",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-8",
+  "label": "User Phrase 8",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-9",
+  "label": "User Phrase 9",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-10",
+  "label": "User Phrase 10",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-11",
+  "label": "User Phrase 11",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-12",
+  "label": "User Phrase 12",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-13",
+  "label": "User Phrase 13",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-14",
+  "label": "User Phrase 14",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-15",
+  "label": "User Phrase 15",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-16",
+  "label": "User Phrase 16",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-17",
+  "label": "User Phrase 17",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-18",
+  "label": "User Phrase 18",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-19",
+  "label": "User Phrase 19",
+  "type": "text",
+  "max_length": 32
+ },
+ {
+  "key": "user-phrase-20",
+  "label": "User Phrase 20",
+  "type": "text",
+  "max_length": 32
+ },
+ {
   "key": "section-aprs-digipeat",
   "label": "APRS Digipeat",
   "type": "section"
@@ -2538,5 +2780,502 @@
    "ID",
    "NOID"
   ]
+ },
+ {
+  "key": "section-aprs-mic-e-codes",
+  "label": "APRS Mic-E Codes",
+  "type": "section"
+ },
+ {
+  "key": "mice-k-handy-1-type",
+  "label": "MicE-K Handy 1 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-k-handy-1-name",
+  "label": "MicE-K Handy 1 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "mice-k-handy-2-type",
+  "label": "MicE-K Handy 2 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-k-handy-2-name",
+  "label": "MicE-K Handy 2 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "mice-k-handy-3-type",
+  "label": "MicE-K Handy 3 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-k-handy-3-name",
+  "label": "MicE-K Handy 3 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "mice-k-handy-4-type",
+  "label": "MicE-K Handy 4 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-k-handy-4-name",
+  "label": "MicE-K Handy 4 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "mice-k-handy-5-type",
+  "label": "MicE-K Handy 5 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-k-handy-5-name",
+  "label": "MicE-K Handy 5 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "mice-k-mobile-1-type",
+  "label": "MicE-K Mobile 1 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-k-mobile-1-name",
+  "label": "MicE-K Mobile 1 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "mice-k-mobile-2-type",
+  "label": "MicE-K Mobile 2 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-k-mobile-2-name",
+  "label": "MicE-K Mobile 2 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "mice-k-mobile-3-type",
+  "label": "MicE-K Mobile 3 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-k-mobile-3-name",
+  "label": "MicE-K Mobile 3 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "mice-k-mobile-4-type",
+  "label": "MicE-K Mobile 4 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-k-mobile-4-name",
+  "label": "MicE-K Mobile 4 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "mice-k-mobile-5-type",
+  "label": "MicE-K Mobile 5 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-k-mobile-5-name",
+  "label": "MicE-K Mobile 5 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "mice-y-handy-1-type",
+  "label": "MicE-Y Handy 1 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-y-handy-1-name",
+  "label": "MicE-Y Handy 1 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "mice-y-handy-2-type",
+  "label": "MicE-Y Handy 2 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-y-handy-2-name",
+  "label": "MicE-Y Handy 2 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "mice-y-handy-3-type",
+  "label": "MicE-Y Handy 3 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-y-handy-3-name",
+  "label": "MicE-Y Handy 3 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "mice-y-handy-4-type",
+  "label": "MicE-Y Handy 4 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-y-handy-4-name",
+  "label": "MicE-Y Handy 4 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "mice-y-handy-5-type",
+  "label": "MicE-Y Handy 5 Type",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "mice-y-handy-5-name",
+  "label": "MicE-Y Handy 5 Name",
+  "type": "text",
+  "max_length": 15
+ },
+ {
+  "key": "section-aprs-objects",
+  "label": "APRS Objects",
+  "type": "section"
+ },
+ {
+  "key": "selected-beacon-object",
+  "label": "Selected Beacon Object",
+  "type": "select",
+  "options": [
+   "Beacon Object 1",
+   "Beacon Object 2",
+   "Beacon Object 3"
+  ]
+ },
+ {
+  "key": "beacon-object-1-latitude-degrees",
+  "label": "Beacon Object 1 Latitude Degrees",
+  "type": "integer",
+  "min": 0,
+  "max": 90
+ },
+ {
+  "key": "beacon-object-1-latitude-minutes",
+  "label": "Beacon Object 1 Latitude Minutes",
+  "type": "integer",
+  "min": 0,
+  "max": 59
+ },
+ {
+  "key": "beacon-object-1-latitude-1-10000-minutes",
+  "label": "Beacon Object 1 Latitude 1/10000 Minutes",
+  "type": "integer",
+  "min": 0,
+  "max": 9999
+ },
+ {
+  "key": "beacon-object-1-longitude-degrees",
+  "label": "Beacon Object 1 Longitude Degrees",
+  "type": "integer",
+  "min": 0,
+  "max": 180
+ },
+ {
+  "key": "beacon-object-1-longitude-minutes",
+  "label": "Beacon Object 1 Longitude Minutes",
+  "type": "integer",
+  "min": 0,
+  "max": 59
+ },
+ {
+  "key": "beacon-object-1-longitude-1-10000-minutes",
+  "label": "Beacon Object 1 Longitude 1/10000 Minutes",
+  "type": "integer",
+  "min": 0,
+  "max": 9999
+ },
+ {
+  "key": "beacon-object-1-latitude-north",
+  "label": "Beacon Object 1 Latitude North",
+  "type": "boolean"
+ },
+ {
+  "key": "beacon-object-1-longitude-east",
+  "label": "Beacon Object 1 Longitude East",
+  "type": "boolean"
+ },
+ {
+  "key": "beacon-object-1-name",
+  "label": "Beacon Object 1 Name",
+  "type": "text",
+  "max_length": 9
+ },
+ {
+  "key": "beacon-object-1-type",
+  "label": "Beacon Object 1 Type",
+  "type": "select",
+  "options": [
+   "Live Object",
+   "Killed Object",
+   "Live Item",
+   "Killed Item"
+  ]
+ },
+ {
+  "key": "beacon-object-1-method",
+  "label": "Beacon Object 1 Method",
+  "type": "select",
+  "options": [
+   "Off",
+   "Temp",
+   "Auto 15 min",
+   "Auto 30 min",
+   "Auto 60 min"
+  ]
+ },
+ {
+  "key": "beacon-object-1-icon-table",
+  "label": "Beacon Object 1 Icon Table",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "beacon-object-1-icon-symbol",
+  "label": "Beacon Object 1 Icon Symbol",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "beacon-object-1-comment",
+  "label": "Beacon Object 1 Comment",
+  "type": "text",
+  "max_length": 42
+ },
+ {
+  "key": "beacon-object-2-latitude-degrees",
+  "label": "Beacon Object 2 Latitude Degrees",
+  "type": "integer",
+  "min": 0,
+  "max": 90
+ },
+ {
+  "key": "beacon-object-2-latitude-minutes",
+  "label": "Beacon Object 2 Latitude Minutes",
+  "type": "integer",
+  "min": 0,
+  "max": 59
+ },
+ {
+  "key": "beacon-object-2-latitude-1-10000-minutes",
+  "label": "Beacon Object 2 Latitude 1/10000 Minutes",
+  "type": "integer",
+  "min": 0,
+  "max": 9999
+ },
+ {
+  "key": "beacon-object-2-longitude-degrees",
+  "label": "Beacon Object 2 Longitude Degrees",
+  "type": "integer",
+  "min": 0,
+  "max": 180
+ },
+ {
+  "key": "beacon-object-2-longitude-minutes",
+  "label": "Beacon Object 2 Longitude Minutes",
+  "type": "integer",
+  "min": 0,
+  "max": 59
+ },
+ {
+  "key": "beacon-object-2-longitude-1-10000-minutes",
+  "label": "Beacon Object 2 Longitude 1/10000 Minutes",
+  "type": "integer",
+  "min": 0,
+  "max": 9999
+ },
+ {
+  "key": "beacon-object-2-latitude-north",
+  "label": "Beacon Object 2 Latitude North",
+  "type": "boolean"
+ },
+ {
+  "key": "beacon-object-2-longitude-east",
+  "label": "Beacon Object 2 Longitude East",
+  "type": "boolean"
+ },
+ {
+  "key": "beacon-object-2-name",
+  "label": "Beacon Object 2 Name",
+  "type": "text",
+  "max_length": 9
+ },
+ {
+  "key": "beacon-object-2-type",
+  "label": "Beacon Object 2 Type",
+  "type": "select",
+  "options": [
+   "Live Object",
+   "Killed Object",
+   "Live Item",
+   "Killed Item"
+  ]
+ },
+ {
+  "key": "beacon-object-2-method",
+  "label": "Beacon Object 2 Method",
+  "type": "select",
+  "options": [
+   "Off",
+   "Temp",
+   "Auto 15 min",
+   "Auto 30 min",
+   "Auto 60 min"
+  ]
+ },
+ {
+  "key": "beacon-object-2-icon-table",
+  "label": "Beacon Object 2 Icon Table",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "beacon-object-2-icon-symbol",
+  "label": "Beacon Object 2 Icon Symbol",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "beacon-object-2-comment",
+  "label": "Beacon Object 2 Comment",
+  "type": "text",
+  "max_length": 42
+ },
+ {
+  "key": "beacon-object-3-latitude-degrees",
+  "label": "Beacon Object 3 Latitude Degrees",
+  "type": "integer",
+  "min": 0,
+  "max": 90
+ },
+ {
+  "key": "beacon-object-3-latitude-minutes",
+  "label": "Beacon Object 3 Latitude Minutes",
+  "type": "integer",
+  "min": 0,
+  "max": 59
+ },
+ {
+  "key": "beacon-object-3-latitude-1-10000-minutes",
+  "label": "Beacon Object 3 Latitude 1/10000 Minutes",
+  "type": "integer",
+  "min": 0,
+  "max": 9999
+ },
+ {
+  "key": "beacon-object-3-longitude-degrees",
+  "label": "Beacon Object 3 Longitude Degrees",
+  "type": "integer",
+  "min": 0,
+  "max": 180
+ },
+ {
+  "key": "beacon-object-3-longitude-minutes",
+  "label": "Beacon Object 3 Longitude Minutes",
+  "type": "integer",
+  "min": 0,
+  "max": 59
+ },
+ {
+  "key": "beacon-object-3-longitude-1-10000-minutes",
+  "label": "Beacon Object 3 Longitude 1/10000 Minutes",
+  "type": "integer",
+  "min": 0,
+  "max": 9999
+ },
+ {
+  "key": "beacon-object-3-latitude-north",
+  "label": "Beacon Object 3 Latitude North",
+  "type": "boolean"
+ },
+ {
+  "key": "beacon-object-3-longitude-east",
+  "label": "Beacon Object 3 Longitude East",
+  "type": "boolean"
+ },
+ {
+  "key": "beacon-object-3-name",
+  "label": "Beacon Object 3 Name",
+  "type": "text",
+  "max_length": 9
+ },
+ {
+  "key": "beacon-object-3-type",
+  "label": "Beacon Object 3 Type",
+  "type": "select",
+  "options": [
+   "Live Object",
+   "Killed Object",
+   "Live Item",
+   "Killed Item"
+  ]
+ },
+ {
+  "key": "beacon-object-3-method",
+  "label": "Beacon Object 3 Method",
+  "type": "select",
+  "options": [
+   "Off",
+   "Temp",
+   "Auto 15 min",
+   "Auto 30 min",
+   "Auto 60 min"
+  ]
+ },
+ {
+  "key": "beacon-object-3-icon-table",
+  "label": "Beacon Object 3 Icon Table",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "beacon-object-3-icon-symbol",
+  "label": "Beacon Object 3 Icon Symbol",
+  "type": "text",
+  "max_length": 1
+ },
+ {
+  "key": "beacon-object-3-comment",
+  "label": "Beacon Object 3 Comment",
+  "type": "text",
+  "max_length": 42
  }
 ]

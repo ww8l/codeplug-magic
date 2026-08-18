@@ -40,9 +40,23 @@ pub(crate) enum SK {
     /// Fixed-length ASCII, **NUL-padded**. Not space-padded: a short TH-D75
     /// callsign is followed by zero bytes.
     Text { len: u32 },
+    /// Unsigned integer stored **little-endian**. The whole rest of this radio
+    /// is big-endian or single-byte; the one exception measured so far is the
+    /// beacon objects' latitude and longitude fraction, where `12°34.5600'`
+    /// stores 5600 as `e0 15`. Kept as its own kind rather than a flag on
+    /// `Uint` so that a row cannot pick the wrong endianness by omission.
+    UintLe { width: u8 },
 }
 
 include!("thd75_settings_table.rs");
+
+fn read_uint_le(body: &[u8], at: usize, width: u8) -> u32 {
+    let mut v: u32 = 0;
+    for i in (0..width as usize).rev() {
+        v = (v << 8) | body[at + i] as u32;
+    }
+    v
+}
 
 fn read_uint(body: &[u8], at: usize, width: u8) -> u32 {
     let mut v: u32 = 0;
@@ -70,6 +84,7 @@ fn decode_field(body: &[u8], f: &SF) -> Value {
     let at = f.byte as usize;
     match &f.kind {
         SK::Uint { width } => Value::from(read_uint(body, at, *width)),
+        SK::UintLe { width } => Value::from(read_uint_le(body, at, *width)),
         SK::Bool => Value::Bool(body[at] != 0),
         SK::BoolBit { shift } => Value::Bool((body[at] >> shift) & 1 == 1),
         SK::Enum { width, labels } => label_for(labels, read_uint(body, at, *width)),
@@ -87,7 +102,7 @@ fn decode_field(body: &[u8], f: &SF) -> Value {
 fn field_end(f: &SF) -> usize {
     let at = f.byte as usize;
     at + match &f.kind {
-        SK::Uint { width } | SK::Enum { width, .. } => *width as usize,
+        SK::Uint { width } | SK::UintLe { width } | SK::Enum { width, .. } => *width as usize,
         SK::Bool | SK::BoolBit { .. } => 1,
         SK::Text { len } => *len as usize,
     }
@@ -138,6 +153,10 @@ pub(crate) fn apply_settings(body: &mut [u8], settings: &Map<String, Value>) -> 
                 Some(n) => write_uint(body, at, *width, n),
                 None => false,
             },
+            (SK::UintLe { width }, v) => match v.as_u64() {
+                Some(n) => write_uint_le(body, at, *width, n),
+                None => false,
+            },
             (SK::Enum { width, labels }, Value::String(s)) => {
                 // The label is the normal case; a bare number is accepted so a
                 // code with no label (see `label_for`) survives a round trip.
@@ -169,6 +188,17 @@ pub(crate) fn apply_settings(body: &mut [u8], settings: &Map<String, Value>) -> 
         }
     }
     written
+}
+
+fn write_uint_le(body: &mut [u8], at: usize, width: u8, v: u64) -> bool {
+    let w = width as usize;
+    if v > (1u64 << (8 * w)) - 1 {
+        return false;
+    }
+    for i in 0..w {
+        body[at + i] = (v >> (8 * i)) as u8;
+    }
+    true
 }
 
 fn write_uint(body: &mut [u8], at: usize, width: u8, v: u64) -> bool {
@@ -345,5 +375,53 @@ mod tests {
                 codes.len()
             );
         }
+    }
+
+    /// The beacon object's position, byte for byte, as it was measured.
+    ///
+    /// `12°34.5600' N` came back from the radio as `0c 22 e0 15` — degrees,
+    /// minutes, then the fraction in units of 1/10000 minute stored
+    /// **little-endian**, which is the only little-endian value found on this
+    /// radio. The hemisphere bits share one byte and were pinned with a mixed
+    /// N+W / S+E pair, then confirmed by predicting 0x0c for N+E before
+    /// running it. `scratchpad/` is gitignored, so this test is where that
+    /// measurement lives.
+    #[test]
+    fn a_beacon_objects_position_encodes_the_way_the_radio_stores_it() {
+        let mut body = vec![0u8; 0x2000];
+        let mut s = Map::new();
+        s.insert("beacon-object-1-latitude-degrees".into(), Value::from(12));
+        s.insert("beacon-object-1-latitude-minutes".into(), Value::from(34));
+        s.insert(
+            "beacon-object-1-latitude-1-10000-minutes".into(),
+            Value::from(5600),
+        );
+        s.insert("beacon-object-1-latitude-north".into(), Value::Bool(true));
+        s.insert("beacon-object-1-longitude-east".into(), Value::Bool(true));
+        apply_settings(&mut body, &s);
+
+        assert_eq!(&body[0x1900..0x1904], &[0x0c, 0x22, 0xe0, 0x15]);
+        assert_eq!(body[0x1908], 0x0c, "N+E sets bit 3 and bit 2");
+
+        let back = decode_settings(&body);
+        assert_eq!(back["beacon-object-1-latitude-1-10000-minutes"], 5600);
+        assert_eq!(back["beacon-object-1-latitude-north"], Value::Bool(true));
+    }
+
+    /// A grid's rows must land on their own stride, and the row a "Sel" column
+    /// appears to tick is stored as ONE index outside the array — checking a
+    /// second row moves the choice rather than setting a second flag.
+    #[test]
+    fn a_grids_rows_are_strided_and_its_selector_is_a_single_index() {
+        let mut body = vec![0u8; 0x2000];
+        let mut s = Map::new();
+        s.insert("status-text-1".into(), Value::from("FIRST"));
+        s.insert("status-text-5".into(), Value::from("LAST"));
+        s.insert("selected-status-text".into(), Value::from("Status Text 3"));
+        apply_settings(&mut body, &s);
+
+        assert_eq!(&body[0x1230..0x1235], b"FIRST");
+        assert_eq!(&body[0x1230 + 4 * 0x30..0x1230 + 4 * 0x30 + 4], b"LAST");
+        assert_eq!(body[0x122f], 2, "the selector holds an index, not a bitmap");
     }
 }
