@@ -31,7 +31,35 @@ Anything that documents the radio's memory format helps a lot:
 
 - CHIRP driver (link, if one exists):
 - Vendor CPS / other programming software:
-- Any published memory maps, `.img`/codeplug dumps, or protocol notes:
+- Any published memory maps or protocol notes:
+- A codeplug / `.img` dump — **read the warning below first**:
+
+### ⚠ Before you attach a codeplug or `.img` dump
+
+**A dump taken from a radio you have actually programmed is personal data about you.**
+Depending on the model, it can contain:
+
+- **Your call sign** — stored in plain text (`mycall`, `aprs-my-callsign`,
+  `digipeat-my-callsign`, and the D-STAR call-sign fields, depending on the radio).
+- **Your DMR ID**, and the **call-sign database** if you have loaded one — that is up to
+  ~300,000 other operators' names, call signs and locations, not just yours.
+- **Your APRS beacon settings and any stored position**, which for most operators is a
+  home address to within a few metres.
+- **Every channel, zone and contact you use** — which taken together describes where you
+  live, when you travel and who you talk to.
+
+A call sign on its own already resolves through the national licence database to a mailing
+address. Combined with a stored position, a dump is more revealing than most people expect.
+
+**So please attach a dump only from a factory-reset radio**, or from one programmed with
+nothing beyond the few channels needed to show the problem. Both are just as useful for
+driver work — what a developer needs is the *format*, not your data.
+
+If the only dump that demonstrates the problem is a fully programmed one, say so in the
+issue **without attaching it**, and we will sort out another way to get it to a maintainer.
+
+Note that issue attachments are effectively permanent: an uploaded file can stay reachable
+by its URL even after the comment is edited or deleted.
 
 ## Do you own this radio?
 
