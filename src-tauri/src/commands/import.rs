@@ -1262,13 +1262,21 @@ mod tests {
 
     #[test]
     fn parses_sample_repeaterbook_json() {
-        let parsed = parse_repeaterbook_json("../sample-data/repeaterbook-full-co.json")
+        let parsed = parse_repeaterbook_json("../sample-data/repeaterbook-full-sample.json")
             .expect("parse failed");
-        assert_eq!(parsed.len(), 91);
+        // 14 records in the file; the last one carries no frequency and is skipped.
+        assert_eq!(parsed.len(), 13);
+        assert!(parsed.iter().all(|p| p.callsign != "QQ0ZZZ"));
 
         // Every record should derive a usable band and dedupe id.
         assert!(parsed.iter().all(|p| !p.band.is_empty()));
         assert!(parsed.iter().all(|p| p.repeaterbook_id.contains('|')));
+        for want in ["VHF", "220", "UHF", "900"] {
+            assert!(
+                parsed.iter().any(|p| p.band == want),
+                "no {want} record in the sample"
+            );
+        }
 
         // At least one P25 machine with a NAC should be captured.
         assert!(parsed
@@ -1276,16 +1284,29 @@ mod tests {
             .any(|p| p.p25_capable && p.p25_nac.is_some()));
         // Digital repeaters must report their protocol as the mode, not a blanket
         // "FM": a DMR machine derives "DMR", a P25 machine "P25", etc., while an
-        // analog-only machine stays "FM". (This sample has no DMR but does have
-        // P25/D-STAR; the DMR path is exercised by `derives_dmr_mode_from_flags`.)
+        // analog-only machine stays "FM". The fixture carries one machine per
+        // protocol so every arm of `derive_mode` is exercised here.
         assert!(parsed
             .iter()
             .all(|p| p.dmr_color_code.is_none() || p.mode == "DMR"));
         assert!(parsed
             .iter()
             .all(|p| !p.p25_capable || p.mode != "FM"));
-        assert!(parsed.iter().any(|p| p.mode != "FM"));
-        assert!(parsed.iter().any(|p| p.mode == "FM"));
+        for want in ["FM", "DMR", "DSTAR", "YSF", "NXDN", "P25", "M17"] {
+            assert!(
+                parsed.iter().any(|p| p.mode == want),
+                "no {want} record in the sample"
+            );
+        }
+        // A WIRES-X node is NOT a System Fusion flag: QQ0MMM is WIRES-equipped
+        // analog and must stay FM (see the note in `parse_repeaterbook_json`).
+        let wires_only = parsed
+            .iter()
+            .find(|p| p.callsign == "QQ0MMM")
+            .expect("QQ0MMM missing");
+        assert!(wires_only.wires_node.is_some());
+        assert!(!wires_only.ysf_capable);
+        assert_eq!(wires_only.mode, "FM");
         // Node numbers should be captured from the richer JSON fields.
         assert!(parsed.iter().any(|p| p.echolink_node.is_some()));
         assert!(parsed.iter().any(|p| p.allstar_node.is_some()));
