@@ -125,7 +125,34 @@ and platform-specific notes.
 
 WW8L Codeplug Magic is licensed under the **GNU General Public License v3.0** — see [LICENSE](LICENSE).
 
-Portions of the radio protocol logic are derived from [CHIRP](https://chirpmyradio.com), which is
-also GPLv3: struct layouts, tone tables, and encode/decode routines for the Baofeng and TIDRADIO
-drivers; the FT5D settings map (from `ft1d.py`); the Icom `.icf` container format (from `icf.py`);
-and the TH-D75 channel memory layout (from `thd74.py`).
+### Upstream projects this work builds on
+
+Every borrowing is also cited at its use site in the source. This section is the summary.
+
+**[CHIRP](https://chirpmyradio.com)** — GPLv3, compatible. Struct layouts, tone tables, and
+encode/decode routines for the Baofeng and TIDRADIO drivers; the FT5D settings map (from
+`ft1d.py`); the Icom `.icf` container format (from `icf.py`); and the TH-D75 channel memory layout
+(from `thd74.py`).
+
+**[qdmr](https://github.com/hmatuschek/qdmr)** — GPLv3, © Hannes Matuschek DM3MAT; compatible.
+The AnyTone AT-D890UV driver takes its call-sign database per-field length limits from qdmr's
+`d868uv_callsigndb` encoder and its contact-index semantics, both in
+`radios/anytone_atd890uv/callsign_db.rs`, plus the scan-list value table in
+`radios/anytone_atd890uv/mod.rs`.
+
+**[dmr-tools/codeplugs](https://github.com/dmr-tools/codeplugs)** — **no LICENSE file**, therefore
+all-rights-reserved by default. Its `d890uv v1.05` descriptor is the source of the 209-entry
+AnyTone settings table (`radios/anytone_atd890uv/anytone_settings_table.rs`, mechanically generated
+from it), and of the flash region map, channel-record layout, CTCSS tone-table ordering, scan-list
+record and call-sign DB layout. Byte offsets are facts and carry no copyright, and every offset
+here was validated against a golden dump from a real radio — but the generated table is a
+mechanical transform of one upstream file and is the concentrated exposure. Asking upstream to
+add an explicit licence is an open action, not something already done.
+
+**[reald/anytone-flash-tools](https://github.com/reald/anytone-flash-tools)** — bare
+**GPL-2.0-only**, with no "or any later version" grant, which cannot be combined into a GPLv3 work.
+**No code, table, or data from it is present here, and none may be added.** What was taken is a
+list of protocol facts from its `at-d878uv_protocol.md` — send `PROGRAM`, expect `QX\x06`, the
+`R`/`W` frame layout, `END` to finish — and how a device behaves on the wire is not copyrightable
+subject matter. It is credited because that is where those facts were learned, not because anything
+of its was copied.
