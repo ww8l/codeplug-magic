@@ -72,20 +72,73 @@ pub async fn is_database_backup(path: String) -> Result<bool, String> {
     Ok(inspect_backup(&path).await.is_some())
 }
 
+/// True if `candidate` names the live database file or one of its sidecars.
+/// Compared canonically where possible so `./db.sqlite3` and an absolute path
+/// to the same file both match.
+fn is_live_database(live: &Path, candidate: &Path) -> bool {
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let target = canon(candidate);
+    let base = live.to_string_lossy();
+    [base.to_string(), format!("{base}-wal"), format!("{base}-shm")]
+        .iter()
+        .any(|p| canon(Path::new(p)) == target)
+}
+
+/// Where the vacuum writes before it is renamed into place: the target's own
+/// directory, so the rename is atomic and cannot cross a filesystem boundary.
+/// The pid keeps two exports from colliding.
+fn temp_sibling(target: &Path) -> std::path::PathBuf {
+    target.with_file_name(format!(
+        "{}.{}.tmp",
+        target
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("codeplug-backup"),
+        std::process::id()
+    ))
+}
+
 /// Export the ENTIRE database to `path` as a single consistent SQLite file.
+///
+/// The vacuum goes to a sibling temp file that is renamed over the target only
+/// once it has succeeded. Writing straight to `path` meant deleting the user's
+/// existing backup first (VACUUM INTO refuses to overwrite) — a full disk or
+/// any other vacuum failure then left them with neither the old file nor a new
+/// one, and SQLite removes its own partial output.
 #[tauri::command]
 pub async fn export_database(state: State<'_, AppState>, path: String) -> Result<String, String> {
-    // VACUUM INTO refuses to overwrite; the save dialog may hand us an existing
-    // path the user chose to replace, so clear it first.
-    if Path::new(&path).exists() {
-        std::fs::remove_file(&path).map_err(|e| format!("Could not overwrite {path}: {e}"))?;
+    export_impl(&state.pool, path).await
+}
+
+async fn export_impl(pool: &sqlx::SqlitePool, path: String) -> Result<String, String> {
+    let target = Path::new(&path);
+    let live = pool.connect_options().get_filename().to_path_buf();
+    if is_live_database(&live, target) {
+        return Err(
+            "That is the database this app is running from. Choose a different file.".to_string(),
+        );
     }
+
+    let tmp = temp_sibling(target);
+    if tmp.exists() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+
     // VACUUM INTO takes a string literal, not a bind parameter; escape quotes.
-    let escaped = path.replace('\'', "''");
-    sqlx::query(&format!("VACUUM INTO '{escaped}'"))
-        .execute(&state.pool)
-        .await
-        .estr()?;
+    let escaped = tmp.to_string_lossy().replace('\'', "''");
+    let vacuumed = sqlx::query(&format!("VACUUM INTO '{escaped}'"))
+        .execute(pool)
+        .await;
+    if let Err(e) = vacuumed {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("Could not write the backup: {e}"));
+    }
+
+    // Only now is the old backup at risk, and only for as long as a rename takes.
+    if let Err(e) = std::fs::rename(&tmp, target) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("Could not save to {path}: {e}"));
+    }
     Ok(path)
 }
 
@@ -281,5 +334,79 @@ mod tests {
         pool.close().await;
         let _ = std::fs::remove_file(&db_path);
         let _ = std::fs::remove_file(&backup_path);
+    }
+
+    /// A failed export must not cost the user the backup it was replacing.
+    /// The command used to unlink the target first (VACUUM INTO refuses to
+    /// overwrite), so a vacuum that then failed left them with neither file.
+    #[tokio::test]
+    async fn a_failed_export_leaves_the_previous_backup_intact() {
+        let dir = std::env::temp_dir().join(format!("cpm_export_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("live.sqlite3");
+        let target = dir.join("codeplug-backup.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(&target);
+
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        // A first export succeeds and lands a real, recognisable backup.
+        let out = export_impl(&pool, target.to_string_lossy().to_string())
+            .await
+            .expect("first export");
+        assert_eq!(out, target.to_string_lossy());
+        assert!(inspect_backup(&out).await.is_some(), "export is one of ours");
+        let previous = std::fs::read(&target).unwrap();
+        assert!(!previous.is_empty());
+
+        // Now force the vacuum to fail: occupy its scratch path with a
+        // directory, which it cannot open as a file (and which the pre-clean
+        // `remove_file` cannot clear either).
+        let tmp = temp_sibling(&target);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let err = export_impl(&pool, target.to_string_lossy().to_string())
+            .await
+            .expect_err("the vacuum must fail with its scratch path blocked");
+        assert!(err.contains("Could not write the backup"), "unexpected error: {err}");
+
+        // The whole point: the user still has the backup they were replacing.
+        assert!(target.exists(), "the previous backup must survive a failed export");
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            previous,
+            "the previous backup must be untouched, not truncated"
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+        pool.close().await;
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Picking the live database in the save dialog used to unlink it out from
+    /// under the open pool.
+    #[tokio::test]
+    async fn refuses_to_export_over_the_live_database() {
+        let dir = std::env::temp_dir().join(format!("cpm_export_live_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("live.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        for candidate in [
+            db_path.to_string_lossy().to_string(),
+            format!("{}-wal", db_path.to_string_lossy()),
+            // The same file by a non-canonical path.
+            dir.join(".").join("live.sqlite3").to_string_lossy().to_string(),
+        ] {
+            let err = export_impl(&pool, candidate.clone())
+                .await
+                .expect_err("must refuse the live database");
+            assert!(err.contains("running from"), "unexpected error for {candidate}: {err}");
+        }
+        assert!(db_path.exists(), "the live database must still be there");
+
+        pool.close().await;
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

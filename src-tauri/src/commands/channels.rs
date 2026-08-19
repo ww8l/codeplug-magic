@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use sqlx::{Acquire, QueryBuilder};
 use tauri::State;
 
@@ -125,10 +127,15 @@ struct NominatimResult {
 }
 
 /// Build an HTTP client whose User-Agent identifies us — Nominatim's usage
-/// policy requires it.
+/// policy requires it. The version comes from the crate so a build OSM blocks
+/// for misbehaving does not take every later build down with it.
 fn geocoder_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
-        .user_agent("WW8LCodeplugMagic/1.0 (amateur-radio codeplug editor)")
+        .user_agent(concat!(
+            "WW8LCodeplugMagic/",
+            env!("CARGO_PKG_VERSION"),
+            " (amateur-radio codeplug editor)"
+        ))
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))
 }
@@ -251,6 +258,26 @@ pub async fn backfill_channel_coordinates(
 }
 
 async fn backfill_impl(pool: &sqlx::SqlitePool) -> Result<BackfillResult, String> {
+    let client = geocoder_client()?;
+    backfill_with(pool, |city, st, country| {
+        let client = client.clone();
+        async move {
+            geocode_nominatim(&client, &city, st.as_deref(), country.as_deref()).await
+        }
+    })
+    .await
+}
+
+/// The backfill itself, with the online lookup injected so a test can count how
+/// many times it is actually called.
+async fn backfill_with<L, F>(
+    pool: &sqlx::SqlitePool,
+    mut lookup: L,
+) -> Result<BackfillResult, String>
+where
+    L: FnMut(String, Option<String>, Option<String>) -> F,
+    F: std::future::Future<Output = Result<Option<GeoPoint>, String>>,
+{
     // Offline centroids from repeaters that already have coordinates.
     let centroids = fetch_centroids(pool).await?;
 
@@ -275,8 +302,16 @@ async fn backfill_impl(pool: &sqlx::SqlitePool) -> Result<BackfillResult, String
         not_found: 0,
         failed: 0,
     };
-    let client = geocoder_client()?;
     let mut did_online = false;
+
+    // Every town this run has already resolved online, and every town it has
+    // already been told does not exist. Without it a 60-repeater import for one
+    // city sent Nominatim 60 identical queries: `centroids` is read once, before
+    // the loop, so rows geocoded during the run could never feed the offline
+    // short-circuit. Nominatim's usage policy names repeated identical queries
+    // as grounds for blocking the User-Agent — which is shared by every user of
+    // the app, not just the one who started the backfill.
+    let mut seen: HashMap<(String, String), Option<(f64, f64)>> = HashMap::new();
 
     for (id, city, st, country) in targets {
         // 1) Offline centroid from the user's own data — instant, no network.
@@ -290,13 +325,33 @@ async fn backfill_impl(pool: &sqlx::SqlitePool) -> Result<BackfillResult, String
             continue;
         }
 
-        // 2) Online geocoder. Space requests ~1s apart per Nominatim's policy.
+        // 2) A town another channel in this same run already looked up.
+        let key = (
+            city.trim().to_lowercase(),
+            st.as_deref().unwrap_or("").trim().to_lowercase(),
+        );
+        if let Some(cached) = seen.get(&key) {
+            match *cached {
+                Some((lat, lon)) => {
+                    if update_coords(pool, id, lat, lon).await.is_ok() {
+                        result.from_online += 1;
+                    } else {
+                        result.failed += 1;
+                    }
+                }
+                None => result.not_found += 1,
+            }
+            continue;
+        }
+
+        // 3) Online geocoder. Space requests ~1s apart per Nominatim's policy.
         if did_online {
             tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
         }
         did_online = true;
-        match geocode_nominatim(&client, &city, st.as_deref(), country.as_deref()).await {
+        match lookup(city.clone(), st.clone(), country.clone()).await {
             Ok(Some(pt)) => {
+                seen.insert(key, Some((pt.latitude, pt.longitude)));
                 if update_coords(pool, id, pt.latitude, pt.longitude)
                     .await
                     .is_ok()
@@ -306,7 +361,12 @@ async fn backfill_impl(pool: &sqlx::SqlitePool) -> Result<BackfillResult, String
                     result.failed += 1;
                 }
             }
-            Ok(None) => result.not_found += 1,
+            Ok(None) => {
+                seen.insert(key, None);
+                result.not_found += 1;
+            }
+            // A transport error is not an answer about the town — leave it
+            // uncached so a later channel can retry it.
             Err(_) => result.failed += 1,
         }
     }
@@ -693,13 +753,37 @@ async fn duplicate_impl(pool: &sqlx::SqlitePool, id: i64) -> Result<i64, String>
     Ok(new_id)
 }
 
+/// Drop any scan-list priority pointer aimed at `id`.
+///
+/// `scan_lists.priority_channel_id` and `priority_channel_2_id` are the only
+/// channel foreign keys in the schema with no `ON DELETE` clause, so SQLite
+/// uses NO ACTION and the delete fails with `FOREIGN KEY constraint failed`.
+/// Clearing them first inside the same transaction gives `ON DELETE SET NULL`
+/// behaviour without rebuilding the table (SQLite cannot alter a constraint in
+/// place, and a rebuild inside a migration transaction cannot turn foreign keys
+/// off, which would cascade `scan_list_entries` away with the old table).
+async fn clear_priority_refs(
+    tx: &mut sqlx::SqliteConnection,
+    id: i64,
+) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE scan_lists
+            SET priority_channel_id   = CASE WHEN priority_channel_id   = ?1 THEN NULL
+                                             ELSE priority_channel_id   END,
+                priority_channel_2_id = CASE WHEN priority_channel_2_id = ?1 THEN NULL
+                                             ELSE priority_channel_2_id END
+          WHERE priority_channel_id = ?1 OR priority_channel_2_id = ?1",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    .estr()?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn delete_channel(state: State<'_, AppState>, id: i64) -> Result<(), String> {
-    sqlx::query("DELETE FROM channels WHERE id = ?1")
-        .bind(id)
-        .execute(&state.pool)
-        .await
-        .estr()?;
+    delete_impl(&state.pool, &[id]).await?;
     Ok(())
 }
 
@@ -710,13 +794,20 @@ pub async fn delete_channels(
     state: State<'_, AppState>,
     ids: Vec<i64>,
 ) -> Result<u64, String> {
+    delete_impl(&state.pool, &ids).await
+}
+
+/// Delete `ids` in one transaction, dropping any scan-list priority pointer at
+/// them first. Shared by the single and bulk commands so neither can forget.
+async fn delete_impl(pool: &sqlx::SqlitePool, ids: &[i64]) -> Result<u64, String> {
     if ids.is_empty() {
         return Ok(0);
     }
-    let mut conn = state.pool.acquire().await.estr()?;
+    let mut conn = pool.acquire().await.estr()?;
     let mut tx = conn.begin().await.estr()?;
     let mut deleted = 0u64;
-    for id in &ids {
+    for id in ids {
+        clear_priority_refs(&mut tx, *id).await?;
         deleted += sqlx::query("DELETE FROM channels WHERE id = ?1")
             .bind(id)
             .execute(&mut *tx)
@@ -974,5 +1065,139 @@ mod tests {
 
         pool.close().await;
         let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// Deleting a channel a scan list names as priority 1 or 2 used to fail
+    /// with a raw `FOREIGN KEY constraint failed` — those two columns are the
+    /// only channel FKs in the schema with no `ON DELETE`. The pointer is
+    /// cleared inside the delete's own transaction instead.
+    #[tokio::test]
+    async fn deleting_a_priority_channel_clears_the_pointer() {
+        let dir = std::env::temp_dir().join(format!("cpm_prio_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("prio.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        let a = sqlx::query("INSERT INTO channels (rx_freq, name_long) VALUES (146.94, 'A')")
+            .execute(&pool)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        let b = sqlx::query("INSERT INTO channels (rx_freq, name_long) VALUES (147.12, 'B')")
+            .execute(&pool)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        let c = sqlx::query("INSERT INTO channels (rx_freq, name_long) VALUES (145.31, 'C')")
+            .execute(&pool)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+
+        sqlx::query(
+            "INSERT INTO scan_lists (name, priority_channel_id, priority_channel_2_id)
+             VALUES ('Priority list', ?1, ?2)",
+        )
+        .bind(a)
+        .bind(b)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Single delete: priority 1 goes, priority 2 is untouched.
+        delete_impl(&pool, &[a]).await.expect("delete priority 1");
+        let (p1, p2): (Option<i64>, Option<i64>) = sqlx::query_as(
+            "SELECT priority_channel_id, priority_channel_2_id FROM scan_lists",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(p1, None, "the deleted channel's pointer must be cleared");
+        assert_eq!(p2, Some(b), "the other pointer must survive");
+
+        // Bulk delete: one offending id must not fail the whole transaction.
+        let deleted = delete_impl(&pool, &[b, c]).await.expect("bulk delete");
+        assert_eq!(deleted, 2, "both channels deleted");
+        let (p1, p2): (Option<i64>, Option<i64>) = sqlx::query_as(
+            "SELECT priority_channel_id, priority_channel_2_id FROM scan_lists",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!((p1, p2), (None, None));
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// Sixty repeaters in one town must produce one geocoder query, not sixty.
+    /// `centroids` is read once before the loop, so rows resolved during the
+    /// run could never feed the offline short-circuit — Nominatim's usage
+    /// policy names repeated identical queries as grounds for blocking, and the
+    /// User-Agent is shared by every user of the app.
+    #[tokio::test]
+    async fn backfill_asks_the_geocoder_once_per_town() {
+        let dir = std::env::temp_dir().join(format!("cpm_memo_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("memo.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        // A RepeaterBook template without Lat/Long: every row has a city and no
+        // coordinates, and nothing in the database to match against.
+        for i in 0..60 {
+            sqlx::query(
+                "INSERT INTO channels (rx_freq, city, state) VALUES (?1, 'Denver', 'CO')",
+            )
+            .bind(146.0 + f64::from(i) / 1000.0)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        // Same town, spelled differently — still one town.
+        sqlx::query("INSERT INTO channels (rx_freq, city, state) VALUES (147.0, ' denver ', 'co')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        // A town the geocoder cannot find, twice: the miss is remembered too.
+        for i in 0..2 {
+            sqlx::query("INSERT INTO channels (rx_freq, city, state) VALUES (?1, 'Nowhere', 'CO')")
+                .bind(148.0 + f64::from(i) / 1000.0)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let asked = std::cell::RefCell::new(Vec::<String>::new());
+        let res = backfill_with(&pool, |city, _st, _country| {
+            asked.borrow_mut().push(city.clone());
+            async move {
+                if city.trim().eq_ignore_ascii_case("denver") {
+                    Ok(Some(GeoPoint { latitude: 39.74, longitude: -104.99 }))
+                } else {
+                    Ok(None)
+                }
+            }
+        })
+        .await
+        .expect("backfill");
+
+        assert_eq!(asked.borrow().len(), 2, "one query per town: {:?}", asked.borrow());
+        assert_eq!(res.scanned, 63);
+        assert_eq!(res.from_online, 61, "all 61 Denver rows get coordinates");
+        assert_eq!(res.not_found, 2);
+
+        // Every Denver row was written, not just the one that made the call.
+        let filled: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM channels WHERE latitude IS NOT NULL AND longitude IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(filled, 61);
+
+        pool.close().await;
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

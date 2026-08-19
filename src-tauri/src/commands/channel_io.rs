@@ -183,6 +183,11 @@ pub async fn export_channels(
 /// Cheap probe used by the import dialog to route a `.json` file to the right
 /// importer: `true` if it parses as a Codeplug Magic channel backup, `false` otherwise
 /// (e.g. a RepeaterBook JSON export). Never errors on a parse mismatch.
+///
+/// Accepts the legacy `73plug-channels` id as well, matching `read_backup` — a
+/// probe that recognised fewer formats than the importer routed the user's own
+/// older backups to the RepeaterBook parser, which read zero channels out of
+/// them and reported success.
 #[tauri::command]
 pub async fn is_channel_backup(path: String) -> Result<bool, String> {
     let text = match std::fs::read_to_string(&path) {
@@ -193,7 +198,8 @@ pub async fn is_channel_backup(path: String) -> Result<bool, String> {
         Ok(v) => v,
         Err(_) => return Ok(false),
     };
-    Ok(v.get("format").and_then(|f| f.as_str()) == Some(BACKUP_FORMAT))
+    let format = v.get("format").and_then(|f| f.as_str());
+    Ok(format == Some(BACKUP_FORMAT) || format == Some(LEGACY_BACKUP_FORMAT))
 }
 
 #[tauri::command]
@@ -561,7 +567,7 @@ mod tests {
         let backup = build_backup(&pool, &[1, 2]).await;
         std::fs::write(&out, serde_json::to_string_pretty(&backup).unwrap()).unwrap();
         assert_eq!(backup.count, 2);
-        assert!(is_native(&out));
+        assert!(is_native(&out).await);
 
         // --- Import into a fresh library ---
         let db2 = dir.join("test2.sqlite3");
@@ -612,12 +618,35 @@ mod tests {
         let _ = std::fs::remove_file(&out);
     }
 
-    #[test]
-    fn rejects_non_native_file() {
+    /// A backup written before the format id was renamed still routes to the
+    /// native importer. It used to fail this probe, land in the RepeaterBook
+    /// parser, and import zero channels as a *success*.
+    #[tokio::test]
+    async fn probe_accepts_the_legacy_format_id() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("cpm_legacy_{}.json", std::process::id()));
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"format":"{LEGACY_BACKUP_FORMAT}","version":1,"exported_at":"x","count":0,"channels":[]}}"#
+            ),
+        )
+        .unwrap();
+        assert!(
+            is_native(&path).await,
+            "legacy backup must route to the native importer"
+        );
+        // And the importer that probe selects still reads it.
+        assert!(read_backup(path.to_str().unwrap()).is_ok());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn rejects_non_native_file() {
         let dir = std::env::temp_dir();
         let path = dir.join(format!("cpm_not_native_{}.json", std::process::id()));
         std::fs::write(&path, r#"{"records":[{"callsign":"W0X"}]}"#).unwrap();
-        assert!(!is_native(&path));
+        assert!(!is_native(&path).await);
         assert!(read_backup(path.to_str().unwrap()).is_err());
         std::fs::remove_file(&path).ok();
     }
@@ -657,9 +686,12 @@ mod tests {
         }
     }
 
-    fn is_native(path: &std::path::Path) -> bool {
-        let text = std::fs::read_to_string(path).unwrap();
-        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
-        v.get("format").and_then(|f| f.as_str()) == Some(BACKUP_FORMAT)
+    /// Runs the real probe the import dialog routes on, rather than a copy of
+    /// it — a copy would have gone on passing while the shipped probe rejected
+    /// the legacy format.
+    async fn is_native(path: &std::path::Path) -> bool {
+        is_channel_backup(path.to_string_lossy().to_string())
+            .await
+            .unwrap()
     }
 }
