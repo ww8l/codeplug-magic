@@ -24,14 +24,15 @@ card — or exported as CSV for tools that expect it.
 | **AnyTone AT-D890UV** | DMR + Analog | VHF / UHF | Direct USB — channels, zones, scan lists, settings, call-sign DB | 4000 channels; full DMR: zones, talkgroups, 308k-entry caller-ID database |
 | **Yaesu FT5D** | C4FM (System Fusion) + Analog | VHF / UHF TX, wideband RX | microSD — patches the radio's own backup file | 900 channels in 24 banks; channels, banks, and menu settings |
 | **Icom ID-52** | D-STAR + Analog | VHF / UHF TX, 108–174 / 225–479 MHz RX | microSD — patches the radio's own `.icf` file | 1000 memories in 100 groups; memories and menu settings restore in one operation |
+| **Kenwood TH-D75** | D-STAR + APRS + Analog | VHF / 1.25 m / UHF TX, 0.1–524 MHz RX | microSD — patches the radio's own `.d75` file | 1000 memories in 30 groups; memories and menu settings, including the APRS setup |
 
 Direct USB programming reads the radio's current image, applies your changes, backs up the
 original, writes, and can verify the result byte-for-byte.
 
-Cable-free radios are programmed through their own microSD card instead: the app patches the
-file the radio itself wrote — the FT5D's `BACKUP.dat`, the ID-52's `.icf` — so the radio restores
-it from its own menu with no vendor software involved. Because those files carry the radio's
-settings as well as its memories, the codeplug and the radio profile travel together.
+Cable-free radios are programmed through their own microSD card instead: the app patches the file
+the radio itself wrote — the FT5D's `BACKUP.dat`, the ID-52's `.icf`, the TH-D75's `.d75` — so the
+radio restores it from its own menu with no vendor software involved. Because those files carry
+the radio's settings as well as its memories, the codeplug and the radio profile travel together.
 
 Channels the radio can hear but not transmit on (GMRS, marine, NOAA, air band, 220) are
 programmed **receive-only** rather than dropped, and frequencies outside the receiver's real
@@ -43,12 +44,6 @@ Every radio below has an open issue tracking its support. They are added one at 
 same process each radio in the table above went through: research the published format first,
 measure anything unpublished against real hardware, build channels **and** the radio's menu
 settings together, then verify on the actual radio before shipping.
-
-**In progress**
-
-| Radio | Modes | Issue |
-|-------|-------|-------|
-| **Kenwood TH-D75** | D-STAR + APRS + Analog | [#40](https://github.com/ww8l/codeplug-magic/issues/40) |
 
 **Planned**
 
@@ -67,10 +62,6 @@ settings together, then verify on the actual radio before shipping.
 | **Yaesu FTM-300** | C4FM + Analog mobile | [#48](https://github.com/ww8l/codeplug-magic/issues/48) |
 | **Yaesu FTM-400** | C4FM + Analog mobile | [#52](https://github.com/ww8l/codeplug-magic/issues/52) |
 
-Beyond new radios, [#41](https://github.com/ww8l/codeplug-magic/issues/41) adds per-channel D-STAR
-call signs (URCALL / RPT1 / RPT2) so D-STAR repeater channels carry their own routing instead of
-deriving it.
-
 Adding a radio takes hardware to verify against, so the order these land in follows what's on the
 bench. If you own one of these and want to help measure or test it, say so on its issue — see
 [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -84,8 +75,11 @@ bench. If you own one of these and want to help measure or test it, say so on it
 - **DMR contacts** — a local mirror of the [radioid.net](https://radioid.net) DMR-ID → callsign
   database, with prioritized export and (on the D890UV) direct caller-ID database programming.
 - **Direct radio programming** over USB with backup, write, and byte-level verify.
-- **microSD programming** for radios that take a card instead of a cable (Yaesu FT5D, Icom ID-52),
-  patching the radio's own backup/settings file so its menus and memories come back together.
+- **microSD programming** for radios that take a card instead of a cable (Yaesu FT5D, Icom ID-52,
+  Kenwood TH-D75), patching the radio's own backup/settings file so its menus and memories come
+  back together.
+- **D-STAR call signs** — per-channel URCALL / RPT1 / RPT2, so a D-STAR repeater channel carries
+  its own routing; left blank, it falls back to deriving them from the repeater's call sign.
 - **Radio profiles** — every radio's menu settings are read out of the radio (or its card file),
   edited in the app, and written back alongside the channels.
 - **CSV / JSON export** for radios without a direct driver.
@@ -133,5 +127,5 @@ WW8L Codeplug Magic is licensed under the **GNU General Public License v3.0** �
 
 Portions of the radio protocol logic are derived from [CHIRP](https://chirpmyradio.com), which is
 also GPLv3: struct layouts, tone tables, and encode/decode routines for the Baofeng and TIDRADIO
-drivers; the FT5D settings map (from `ft1d.py`); and the Icom `.icf` container format (from
-`icf.py`).
+drivers; the FT5D settings map (from `ft1d.py`); the Icom `.icf` container format (from `icf.py`);
+and the TH-D75 channel memory layout (from `thd74.py`).
