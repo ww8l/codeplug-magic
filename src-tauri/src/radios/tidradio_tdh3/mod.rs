@@ -653,11 +653,12 @@ pub(crate) fn patch_image(image: &mut [u8], slots: &[SlotChannel]) {
         }
     }
 
-    for n in 1..=MAX_CHANNEL {
+    // `assigned` is indexed by 1-based channel number, so slot 0 is unused.
+    for (n, slot) in assigned.iter().enumerate().skip(1) {
         let co = CHANNEL_BASE + n * ENTRY_LEN;
         let no = NAME_BASE + (n - 1) * NAME_LEN;
         let k = n - 1; // used/scan bit index
-        if let Some(s) = assigned[n] {
+        if let Some(s) = *slot {
             image[co..co + ENTRY_LEN].copy_from_slice(&encode_channel(&s.channel));
             image[no..no + NAME_LEN].copy_from_slice(&name_bytes(&s.name));
             set_flag(image, USEDFLAGS_BASE, k, true);

@@ -543,7 +543,7 @@ fn ft5d_clone_probe() {
     // The whole point: does stripping the header and trailing byte reproduce the
     // microSD image we already decoded? Reported, never asserted -- an
     // unexpected answer is data, not a failed test.
-    if all.len() >= EXPECT_IDENT + 1 {
+    if all.len() > EXPECT_IDENT {
         let sum: u32 = all[..all.len() - 1].iter().map(|&b| b as u32).sum();
         let want = (sum & 0xFF) as u8;
         let got = all[all.len() - 1];

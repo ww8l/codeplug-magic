@@ -1,6 +1,7 @@
-//! Real zone RENAME through the shipping patch-write path (`zone_write_patches`
-//! + `run_patch_writes`): backup-before-write, whole-window RMW, single
-//! END/commit/reboot. Verify afterwards with read_windows in a fresh session.
+//! Real zone RENAME through the shipping patch-write path
+//! (`zone_write_patches` + `run_patch_writes`): backup-before-write,
+//! whole-window RMW, single END/commit/reboot. Verify afterwards with
+//! read_windows in a fresh session.
 //!
 //! Usage: cargo run --example write_zone_name -- <serial-port> <zone#> <name> <backup.bin>
 

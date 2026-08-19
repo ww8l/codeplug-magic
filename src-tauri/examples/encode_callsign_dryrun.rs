@@ -11,6 +11,19 @@ use ww8l_codeplug_magic_lib::commands::anytone_callsign_db::{
     encode_callsign_db, CallsignDbEntry, DB_BASE, LIMITS_BASE, MAP_BASE,
 };
 
+/// One `dmr_users` row as selected below: id, callsign, then the six
+/// nullable descriptive columns.
+type DmrUserRow = (
+    i64,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -26,7 +39,7 @@ async fn main() {
         .expect("open db");
 
     let limit = max_count.unwrap_or(i64::MAX);
-    let rows: Vec<(i64, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> =
+    let rows: Vec<DmrUserRow> =
         sqlx::query_as(
             "SELECT dmr_id, callsign, first_name, last_name, city, state, country, remarks
              FROM dmr_users ORDER BY dmr_id LIMIT ?",

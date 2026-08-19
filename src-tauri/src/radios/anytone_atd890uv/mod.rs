@@ -2087,7 +2087,7 @@ pub fn contact_write_patches(
 /// window write is sector-collateral-free before any real edit. Returns the
 /// original window bytes. Brick-capable; CLI/gated use only.
 pub fn run_noop_window(port: &str, base: u32) -> Result<Vec<u8>, String> {
-    if base as usize % WRITE_WINDOW != 0 {
+    if !(base as usize).is_multiple_of(WRITE_WINDOW) {
         return Err(format!("0x{base:08X} is not 0x4000-aligned"));
     }
     let mut p = open_port(port)?;
@@ -2506,7 +2506,7 @@ mod tests {
         assert_eq!(c.dmr_id, 700);
         assert_eq!(c.call_type, 1); // Group
         // An index nothing references is not in the map.
-        assert!(contacts.get(&5).is_none());
+        assert!(!contacts.contains_key(&5));
     }
 
     #[test]
@@ -2713,22 +2713,16 @@ mod tests {
         encode_channel_into_record(&mut rec, &edit).unwrap();
 
         // The set of byte offsets the DMR encoder is allowed to write.
-        let mut modeled = vec![false; CH_REC_LEN];
-        for off in CH_RX..CH_RX + 4 {
-            modeled[off] = true;
-        }
-        for off in CH_TX_OFFSET..CH_TX_OFFSET + 4 {
-            modeled[off] = true;
-        }
+        let mut modeled = [false; CH_REC_LEN];
+        modeled[CH_RX..CH_RX + 4].fill(true);
+        modeled[CH_TX_OFFSET..CH_TX_OFFSET + 4].fill(true);
         modeled[CH_MODE] = true;
         modeled[CH_COLOR_CODE] = true;
         modeled[CH_TX_COLOR_CODE] = true;
         modeled[CH_TIME_SLOT] = true;
         modeled[CH_CONTACT] = true;
         modeled[CH_CONTACT + 1] = true;
-        for off in CH_NAME..CH_NAME + CH_NAME_CHARS * 2 {
-            modeled[off] = true;
-        }
+        modeled[CH_NAME..CH_NAME + CH_NAME_CHARS * 2].fill(true);
         for (off, m) in modeled.iter().enumerate() {
             if !m {
                 assert_eq!(
@@ -2821,7 +2815,7 @@ mod tests {
 
         let d = ScanListRecordSettings::default;
         assert!(encode_scan_list_record("", &[1], &d()).is_err()); // empty name
-        assert!(encode_scan_list_record("X", &vec![0u16; SCAN_MAX_CHANNELS + 1], &d()).is_err());
+        assert!(encode_scan_list_record("X", &[0u16; SCAN_MAX_CHANNELS + 1], &d()).is_err());
         assert!(encode_scan_list_record("X", &[4096], &d()).is_err()); // channel out of range
         // Enum + priority-slot range rejections.
         assert!(encode_scan_list_record("X", &[1], &ScanListRecordSettings { priority_select: 4, ..d() }).is_err());

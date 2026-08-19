@@ -665,10 +665,10 @@ pub(crate) fn patch_image(image: &mut [u8], slots: &[SlotChannel]) {
         }
     }
 
-    for i in 0..CHANNEL_COUNT {
+    for (i, slot) in assigned.iter().enumerate() {
         let co = CHANNEL_BASE + i * ENTRY_LEN;
         let no = NAME_BASE + i * ENTRY_LEN;
-        if let Some(s) = assigned[i] {
+        if let Some(s) = *slot {
             image[co..co + ENTRY_LEN].copy_from_slice(&encode_channel(&s.channel));
             // Names: write the 7 char cells; leave the trailing 9 bytes as read
             // (matches CHIRP, which only touches name[0..7]).

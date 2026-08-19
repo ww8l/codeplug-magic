@@ -1,0 +1,27 @@
+# Dependabot keeps npm and cargo dependency alerts flowing without spending any
+# Actions minutes — the update PRs are opened by GitHub, not by a workflow run.
+# CI is pull_request-triggered, so each PR Dependabot opens DOES cost a CI run;
+# monthly batching plus an open-PR cap keeps that bounded.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      # One PR for the whole dev toolchain rather than one per package.
+      dev-dependencies:
+        dependency-type: development
+
+  - package-ecosystem: cargo
+    directory: "/src-tauri"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2

@@ -62,7 +62,7 @@ fn ft5d_baud_reality() {
     println!("\n=== is the adapter's baud rate real? ===");
     println!("port: {port}");
     println!("writing {PAYLOAD} bytes at each rate and timing the drain.\n");
-    println!("{:>8}  {:>10}  {:>10}  {}", "rate", "expected", "measured", "implied actual rate");
+    println!("{:>8}  {:>10}  {:>10}  implied actual rate", "rate", "expected", "measured");
 
     let payload = vec![0x00u8; PAYLOAD];
     let mut measured = Vec::new();
