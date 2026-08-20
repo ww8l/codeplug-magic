@@ -73,6 +73,14 @@ export interface MediaWrite {
   /// media radio is patched in place, and every one of them keeps settings this
   /// app has never heard of, so saying which is per-radio and not optional.
   preserves: string;
+  /// The same fact read the other way round, for when the file is shared (#75).
+  ///
+  /// `preserves` is the reassurance — nothing you set on the radio is lost.
+  /// This is the consequence: because the output is a patched COPY of the
+  /// operator's own file, everything personal in it is copied too. A club
+  /// codeplug posted to a mailing list carries the exporter's identity with it,
+  /// and nothing in the flow used to say so.
+  carries: string;
 }
 
 /// The `export_format` → media-write map. Keyed on the format rather than the
@@ -96,6 +104,8 @@ const MEDIA_WRITES: Record<string, MediaWrite> = {
       "It already holds a backup, so there is nothing to pick — just check it is current (the radio writes it with SD CARD menu → Backup → Memory → SD card).",
     preserves:
       "Channel lists become banks, and everything else already on the radio — APRS, GPS, WIRES-X — is left untouched. The first write saves your untouched file beside it as BACKUP.dat.orig; later writes never overwrite that pristine copy.",
+    carries:
+      "your MYCALL, your APRS call sign and SSID, and the APRS and GPS settings the radio had stored",
   },
   // The ID-52 is the second card radio, and the first whose ONE file carries
   // both halves of a codeplug: Load Setting → ALL restores the memories and
@@ -118,6 +128,8 @@ const MEDIA_WRITES: Record<string, MediaWrite> = {
       "It already holds a settings file, so there is nothing to pick — just check it is current (the radio writes one with MENU → SET → SD Card → Save Setting).",
     preserves:
       "Channel lists become memory groups, and everything else in the file — the repeater list, your call signs, GPS and Bluetooth — is carried across untouched. Writing to the card creates a NEW settings file named the way the radio names its own, built from the newest one there, so nothing you saved is modified at all.",
+    carries:
+      "your D-STAR and APRS call signs, your GPS and Bluetooth settings, and the rest of the radio's own configuration",
   },
   // The third card radio. Like the ID-52 it keeps everything in one file the
   // radio writes and reads back, and like the ID-52 the card can stay in the
@@ -140,6 +152,8 @@ const MEDIA_WRITES: Record<string, MediaWrite> = {
       "It already holds a config file, so there is nothing to pick — just check it is current (the radio writes one with Menu → Configuration → SD Card → Save Setting).",
     preserves:
       "Channel lists become memory groups, and everything else in the file — APRS, your call sign history, the repeater list and every menu setting — is carried across untouched. Writing to the card creates a NEW config file named the way the radio names its own, built from the newest one there, so nothing you saved is modified at all.",
+    carries:
+      "your APRS and D-STAR call signs, your call sign history, your Bluetooth device name, and any APRS positions stored in the radio — beacon objects are held to 1/10000 of a minute, which for a home station is a street address",
   },
 };
 

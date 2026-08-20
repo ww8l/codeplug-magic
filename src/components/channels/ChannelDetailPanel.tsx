@@ -3,6 +3,7 @@ import clsx from "clsx";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { Check, Copy, Trash2, Plus, X } from "lucide-react";
 import { api, withToast } from "../../lib/api";
+import { useOnlineGeocoding } from "../../lib/prefs";
 import type {
   Channel,
   ChannelInput,
@@ -294,8 +295,13 @@ export function ChannelDetailPanel({
   // hasn't touched these" from "the user typed their own" and avoid clobbering.
   const autoGeoRef = useRef<{ lat: number; lon: number } | null>(null);
   const [geoStatus, setGeoStatus] = useState<
-    "idle" | "looking" | "data" | "online" | "notfound" | "error"
+    "idle" | "looking" | "data" | "online" | "notfound" | "error" | "offline"
   >("idle");
+  // Typing a town is the one place data leaves this machine as a side effect
+  // (#80). Read the preference here rather than at call time so the note under
+  // the city field says what WILL happen, and so flipping the switch in
+  // Settings takes effect in a panel that is already open.
+  const [geocodeOnline] = useOnlineGeocoding();
 
   // Re-seed the form whenever the target channel changes. For "create" the
   // seedKey is the constant "new", so we also clear lastKey on close — that way
@@ -372,7 +378,13 @@ export function ChannelDetailPanel({
         if (!cancelled) apply(hit.latitude, hit.longitude, "data");
         return;
       }
-      // 2) Fall back to the online geocoder.
+      // 2) Fall back to the online geocoder — unless the operator has turned
+      //    that off, in which case the town name never leaves the machine and
+      //    they enter coordinates themselves.
+      if (!geocodeOnline) {
+        if (!cancelled) setGeoStatus("offline");
+        return;
+      }
       if (!cancelled) setGeoStatus("looking");
       try {
         const pt = await api.geocodeCity(city, st || null, country || null);
@@ -391,7 +403,7 @@ export function ChannelDetailPanel({
     // Intentionally omit form.latitude/longitude: they are read as a guard only,
     // and including them would re-fire the effect on our own fill (a loop).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, open, form.city, form.state, form.country, cities]);
+  }, [mode, open, form.city, form.state, form.country, cities, geocodeOnline]);
 
   const num = (v: string): number | null => {
     if (v.trim() === "") return null;
@@ -826,6 +838,14 @@ export function ChannelDetailPanel({
         <Section title="Location">
           <Field label="City">
             <TextInput value={form.city ?? ""} onChange={(e) => set("city", e.target.value)} />
+            {/* Said before the town name is typed, not after it has been sent
+                (#80). The wording tracks the preference, because with online
+                lookup off nothing leaves the machine at all. */}
+            <p className="mt-1 text-[10px] leading-snug text-slate-400 dark:text-slate-500">
+              {geocodeOnline
+                ? "Fills coordinates in. Towns already in your channels are matched offline; anything else sends the town name to OpenStreetMap."
+                : "Fills coordinates from towns already in your channels. Online lookup is off, so nothing is sent anywhere."}
+            </p>
           </Field>
           <Field label="County">
             <TextInput value={form.county ?? ""} onChange={(e) => set("county", e.target.value || null)} />
@@ -862,6 +882,7 @@ export function ChannelDetailPanel({
                   "text-emerald-600 dark:text-emerald-400",
                 (geoStatus === "notfound" || geoStatus === "error") &&
                   "text-amber-600 dark:text-amber-400",
+                geoStatus === "offline" && "text-slate-500 dark:text-slate-400",
                 geoStatus === "looking" && "text-slate-400",
               )}
             >
@@ -875,6 +896,8 @@ export function ChannelDetailPanel({
                 "Couldn't find that town — enter coordinates manually."}
               {geoStatus === "error" &&
                 "Geocoder unavailable — enter coordinates manually."}
+              {geoStatus === "offline" &&
+                "No repeater of yours in that town, and online lookup is off — enter coordinates manually, or turn lookup on in Settings."}
             </p>
           )}
         </Section>
