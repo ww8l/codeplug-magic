@@ -133,7 +133,7 @@ export const api = {
   isDatabaseBackup: (path: string) =>
     invoke<boolean>("is_database_backup", { path }),
   importDatabase: (path: string) =>
-    invoke<void>("import_database", { path }),
+    invoke<string>("import_database", { path }),
 
   // ---- channel lists ----
   listChannelLists: () =>

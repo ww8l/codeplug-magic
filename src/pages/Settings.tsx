@@ -66,8 +66,10 @@ export function Settings() {
 
     setBusy("restore");
     try {
-      await api.importDatabase(path);
-      toast.success("Database restored — reloading…");
+      const snapshot = await api.importDatabase(path);
+      toast.success("Database restored — reloading…", {
+        description: `Your previous data was saved to ${snapshot}`,
+      });
       // Reload the webview so every view re-queries the restored data.
       setTimeout(() => window.location.reload(), 400);
     } catch (e) {

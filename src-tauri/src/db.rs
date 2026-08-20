@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::str::FromStr;
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
 
 /// Shared application state held by Tauri and injected into every command.
 pub struct AppState {
@@ -16,13 +16,22 @@ pub const DB_FILENAME: &str = "codeplug_manager.sqlite3";
 /// library.
 pub async fn init_pool(db_path: &Path) -> Result<SqlitePool, sqlx::Error> {
     if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent).ok();
+        // Swallowing this meant a locked-down profile or a full disk surfaced
+        // later as an opaque connect failure — and, before #73, as a panic with
+        // no window (#73).
+        std::fs::create_dir_all(parent).map_err(sqlx::Error::Io)?;
     }
 
     let url = format!("sqlite://{}", db_path.to_string_lossy());
     let options = SqliteConnectOptions::from_str(&url)?
         .create_if_missing(true)
         .foreign_keys(true)
+        // sqlx 0.8 does NOT default this ("Don't set `journal_mode` unless the
+        // user requested it"), so the database ran in SQLite's DELETE mode,
+        // where a writer that outgrows its page cache takes an EXCLUSIVE lock
+        // that blocks READERS too. Every other query then waited out the busy
+        // timeout below and failed with "database is locked" (#72).
+        .journal_mode(SqliteJournalMode::Wal)
         .busy_timeout(std::time::Duration::from_secs(10));
 
     let pool = SqlitePoolOptions::new()

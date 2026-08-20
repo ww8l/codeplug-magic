@@ -130,6 +130,11 @@ struct NominatimResult {
 /// Build an HTTP client whose User-Agent identifies us — Nominatim's usage
 /// policy requires it. The version comes from the crate so a build OSM blocks
 /// for misbehaving does not take every later build down with it.
+///
+/// Timeouts for the same reason the radioid.net client has them (#78):
+/// `reqwest`'s default client has none at all, so a captive portal or a
+/// half-open connection leaves a bulk backfill hung on one town with no cancel.
+/// A backfill walks hundreds of rows, so the per-request budget is short.
 fn geocoder_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .user_agent(concat!(
@@ -137,6 +142,8 @@ fn geocoder_client() -> Result<reqwest::Client, String> {
             env!("CARGO_PKG_VERSION"),
             " (amateur-radio codeplug editor)"
         ))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))
 }

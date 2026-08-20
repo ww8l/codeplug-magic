@@ -35,8 +35,14 @@ chrono = { version = "0.4", features = ["serde"] }
 csv = "1"
 thiserror = "2"
 serialport = "4"
-reqwest = { version = "0.12", features = ["json"] }
+# `stream` is what lets the radioid.net download be capped as it arrives
+# rather than buffered whole and measured afterwards.
+reqwest = { version = "0.12", features = ["json", "stream"] }
 # Icom `.icf` files carry an MD5 over their own contents (`#CD=`); the radio
 # rejects a file whose digest does not match. Already in the tree as a
 # transitive dependency, so naming it here adds no new code to the build.
 md-5 = "0.10"
+# Streaming the radioid.net dump with a hard byte cap needs `StreamExt::next`
+# over `reqwest`'s `bytes_stream()`. reqwest already depends on it, so naming it
+# here adds no new code to the build.
+futures-util = { version = "0.3", default-features = false }
