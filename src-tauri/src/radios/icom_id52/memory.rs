@@ -494,25 +494,28 @@ fn encode(rec: &mut [u8], ec: &ExpandedChannel, name: &str) {
         return;
     }
 
-    let (tone, rpt_hz, tsql_hz) = tone_columns(ec);
-    rec[0x1C] = match tone {
+    let t = tone_columns(ec);
+    rec[0x1C] = match t.tone {
         "TONE" => SQL_TONE,
         "TSQL" => SQL_TSQL,
         "DTCS" => SQL_DTCS,
         "TONE(T)/TSQL(R)" => SQL_TONE_TSQL,
         "OFF" => SQL_OFF,
-        // The two DTCS-flavoured cross modes are still unmeasured. Rather than
-        // guess an index, degrade to the transmit tone — the fallback every
-        // radio without cross modes already gets. The common cross mode, the one
-        // above, is now exact.
+        // The DTCS-flavoured types are still unmeasured — their squelch-byte
+        // indices are not in any capture. Rather than guess one, degrade to
+        // whichever measured type keeps the TRANSMIT side right, because a
+        // memory that will not key its repeater is the failure that matters:
+        // a DTCS transmit code stays DTCS, a CTCSS transmit tone stays TONE.
+        // The `.icf` file still carries the honest code in `0x20`.
+        "DTCS(T)" | "DTCS(T)/TSQL(R)" => SQL_DTCS,
         _ => SQL_TONE,
     };
     // On a cross-tone memory these are not interchangeable: the repeater tone is
     // what the radio transmits and the TSQL tone is what it opens squelch on.
     // `tone_columns` already returns them in that order.
-    rec[0x1E] = tone_index(rpt_hz);
-    rec[0x1F] = tone_index(tsql_hz);
-    rec[0x20] = dtcs_index(c.dcs_code.as_deref());
+    rec[0x1E] = tone_index(t.rpt_hz);
+    rec[0x1F] = tone_index(t.tsql_hz);
+    rec[0x20] = dtcs_index(t.dtcs.as_deref().or(c.dcs_code.as_deref()));
     // `0x21` looked like the polarity byte for a while and is not: it is 0 in
     // every record ever captured, including six DTCS memories and the `TN-RR`
     // one that finally located the real field at `0x1D`.
@@ -1184,6 +1187,57 @@ mod tests {
         assert_eq!(r[0x1C], SQL_TONE_TSQL);
         assert_eq!(r[0x1E], 13, "103.5 Hz transmitted");
         assert_eq!(r[0x1F], 14, "107.2 Hz for squelch");
+    }
+
+    /// Issue #84: a `->Tone` channel — RepeaterBook's shape for a machine that
+    /// sends a tone and asks for none — used to take the cross-tone squelch byte
+    /// with `0x1E` set from `DEFAULT_TONE_HZ`, so the radio transmitted 88.5 Hz
+    /// on a memory with no transmit tone. It is plain tone squelch now.
+    #[test]
+    fn a_receive_only_tone_does_not_transmit_an_invented_one() {
+        let mut c = chan(1, "PROBE RXTONE", 145.115);
+        c.tone_mode = Some("Cross".into());
+        c.cross_mode = "->Tone".into();
+        c.ctcss_uplink = None;
+        c.ctcss_downlink = Some(107.2);
+        let ec = expand(c);
+
+        let r = rec(&write(&[&ec], &[]), 0).to_vec();
+        assert_eq!(r[0x1C], SQL_TSQL);
+        assert_eq!(r[0x1F], 14, "107.2 Hz for squelch");
+        assert_ne!(r[0x1E], tone_index(88.5), "88.5 Hz here is invented");
+    }
+
+    /// The DTCS cross types have no measured squelch index, so they degrade —
+    /// but toward the side that has to be right. A channel whose TRANSMIT half
+    /// is a DTCS code keeps DTCS rather than falling back to a CTCSS tone the
+    /// channel never had.
+    #[test]
+    fn an_unmeasured_dtcs_cross_type_keeps_its_transmit_code() {
+        let mut c = chan(1, "PROBE DCROSS", 146.850);
+        c.tone_mode = Some("Cross".into());
+        c.cross_mode = "DTCS->Tone".into();
+        c.dcs_code = Some("023".into());
+        c.ctcss_downlink = Some(114.8);
+        let ec = expand(c);
+
+        let r = rec(&write(&[&ec], &[]), 0).to_vec();
+        assert_eq!(r[0x1C], SQL_DTCS);
+        assert_eq!(r[0x20], dtcs_index(Some("023")));
+
+        // The mirror: a CTCSS transmit tone keeps TONE and its own frequency.
+        let mut c = chan(1, "PROBE TCROSS", 146.850);
+        c.tone_mode = Some("Cross".into());
+        c.cross_mode = "Tone->DTCS".into();
+        c.ctcss_uplink = Some(103.5);
+        c.dcs_rx_code = Some("131".into());
+        let ec = expand(c);
+
+        let r = rec(&write(&[&ec], &[]), 0).to_vec();
+        assert_eq!(r[0x1C], SQL_TONE);
+        assert_eq!(r[0x1E], 13, "103.5 Hz transmitted");
+        // The file still carries the honest receive code.
+        assert_eq!(r[0x20], dtcs_index(Some("131")));
     }
 
     /// DTCS polarity lives at `0x1D`, which spent a while looking like a spare

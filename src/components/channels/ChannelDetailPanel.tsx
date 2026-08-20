@@ -24,6 +24,9 @@ import {
   TIMESLOTS,
   TONE_MODES,
   USE_TYPES,
+  clearUnusedToneFields,
+  toneFieldsInUse,
+  toneSides,
   defaultOffset,
   deriveDuplex,
   fmtFreq,
@@ -468,10 +471,12 @@ export function ChannelDetailPanel({
     setSaving(true);
     const res =
       mode === "edit" && channel
-        ? await withToast(api.updateChannel(channel.id, form), {
+        ? await withToast(api.updateChannel(channel.id, clearUnusedToneFields(form)), {
             success: "Channel updated",
           })
-        : await withToast(api.createChannel(form), { success: "Channel added" });
+        : await withToast(api.createChannel(clearUnusedToneFields(form)), {
+            success: "Channel added",
+          });
     setSaving(false);
     if (res) {
       onSaved();
@@ -486,7 +491,7 @@ export function ChannelDetailPanel({
     if (!channel) return;
     setSaving(true);
     if (!sameInput(form, toInput(channel))) {
-      const saved = await withToast(api.updateChannel(channel.id, form), {
+      const saved = await withToast(api.updateChannel(channel.id, clearUnusedToneFields(form)), {
         error: "Could not save your changes",
       });
       if (!saved) {
@@ -540,18 +545,10 @@ export function ChannelDetailPanel({
 
   // Tone-mode driven field visibility (CHIRP universal scheme). For Cross, the
   // two sides come from cross_mode "TX->RX"; otherwise each mode implies them.
-  const tmode = form.tone_mode ?? "off";
-  let txSide = "";
-  let rxSide = "";
-  if (tmode === "Tone") {
-    txSide = "Tone";
-  } else if (tmode === "TSQL") {
-    txSide = rxSide = "Tone";
-  } else if (tmode === "DTCS") {
-    txSide = rxSide = "DTCS";
-  } else if (tmode === "Cross") {
-    [txSide, rxSide] = (form.cross_mode || "Tone->Tone").split("->");
-  }
+  // Shared with what gets saved, so a field the operator cannot see can never
+  // keep a value the radio would then be programmed with.
+  const { tmode, txSide, rxSide } = toneSides(form.tone_mode, form.cross_mode);
+  const toneInUse = toneFieldsInUse(form.tone_mode, form.cross_mode);
 
   return (
     <SlideOver
@@ -739,6 +736,27 @@ export function ChannelDetailPanel({
                 </option>
               ))}
             </Select>
+            {/* A tone the operator cleared has no field left to hang its
+                override on — the scheme itself is what changed, so it is
+                reported here instead of vanishing with the field. */}
+            <RbOverride
+              show={
+                !toneInUse.ctcss_uplink &&
+                !!channel?.ctcss_uplink_overridden &&
+                channel?.rb_ctcss_uplink != null
+              }
+              rbValue={`TX tone ${channel?.rb_ctcss_uplink?.toFixed(1) ?? ""} Hz, not used here`}
+              onAccept={() => acceptRb("ctcss_uplink")}
+            />
+            <RbOverride
+              show={
+                !toneInUse.ctcss_downlink &&
+                !!channel?.ctcss_downlink_overridden &&
+                channel?.rb_ctcss_downlink != null
+              }
+              rbValue={`RX tone ${channel?.rb_ctcss_downlink?.toFixed(1) ?? ""} Hz, not used here`}
+              onAccept={() => acceptRb("ctcss_downlink")}
+            />
           </Field>
           <Field label="TX Power">
             <Select value={form.power ?? ""} onChange={(e) => set("power", e.target.value || null)}>

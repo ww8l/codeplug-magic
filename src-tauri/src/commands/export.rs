@@ -987,7 +987,15 @@ fn render_chirp_csv(channels: &[&ExpandedChannel], model: &RadioModel) -> Result
             names[i].clone(),
             format!("{:.6}", c.rx_freq),
             duplex.to_string(),
-            format!("{:.6}", c.offset.unwrap_or(0.0).abs()),
+            // In CHIRP's memory model a "split" duplex means the Offset column
+            // holds the absolute TRANSMIT FREQUENCY, not a shift. Writing the
+            // magnitude there gave a 33 cm pair (927.5 RX / 902.5 TX) the row
+            // `split, 25.000000` — a memory that transmits on 25 MHz (#83).
+            if duplex == "split" {
+                format!("{:.6}", tx_frequency(c))
+            } else {
+                format!("{:.6}", c.offset.unwrap_or(0.0).abs())
+            },
             tone.to_string(),
             format!("{:.1}", c.ctcss_uplink.unwrap_or(88.5)),
             format!("{:.1}", c.ctcss_downlink.unwrap_or(88.5)),
@@ -1280,6 +1288,62 @@ mod tests {
         assert!(tg_csv.contains(",91,Worldwide,Group Call,None"));
 
         let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// Issue #83: CHIRP reads the Offset column of a `split` row as the
+    /// absolute TRANSMIT FREQUENCY, not a shift. Writing the magnitude there
+    /// gave a 33 cm pair (927.5 RX / 902.5 TX) the row `split, 25.000000` — a
+    /// memory that transmits on 25 MHz.
+    #[test]
+    fn a_chirp_split_row_carries_the_transmit_frequency() {
+        let split = ExpandedChannel {
+            channel: Channel {
+                name_long: Some("33cm".into()),
+                rx_freq: 927.5,
+                tx_freq: Some(902.5),
+                duplex: Some("split".into()),
+                offset: Some(25.0),
+                ..Default::default()
+            },
+            ..expanded("33cm", "33cm", None)
+        };
+        // A cross-band pair, which stays a split at any sane threshold.
+        let cross = ExpandedChannel {
+            channel: Channel {
+                name_long: Some("XBAND".into()),
+                rx_freq: 446.0,
+                tx_freq: Some(147.0),
+                duplex: Some("split".into()),
+                offset: Some(299.0),
+                ..Default::default()
+            },
+            ..expanded("XBAND", "XBAND", None)
+        };
+        // An ordinary shift still carries the shift.
+        let shift = ExpandedChannel {
+            channel: Channel {
+                name_long: Some("2m".into()),
+                rx_freq: 146.94,
+                tx_freq: Some(146.34),
+                duplex: Some("-".into()),
+                offset: Some(0.6),
+                ..Default::default()
+            },
+            ..expanded("2m", "2m", None)
+        };
+        let refs: Vec<&ExpandedChannel> = vec![&split, &cross, &shift];
+        let csv = render_chirp_csv(&refs, &model_with(16)).unwrap();
+        let mut lines = csv.lines().skip(1);
+
+        let row = lines.next().unwrap();
+        assert!(
+            row.contains("split,902.500000"),
+            "split row must carry the TX frequency, got: {row}"
+        );
+        let row = lines.next().unwrap();
+        assert!(row.contains("split,147.000000"), "got: {row}");
+        let row = lines.next().unwrap();
+        assert!(row.contains("-,0.600000"), "got: {row}");
     }
 
     /// A radio model with just the fields the name/exclusion rules read.

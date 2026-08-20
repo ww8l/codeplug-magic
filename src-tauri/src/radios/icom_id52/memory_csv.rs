@@ -224,7 +224,7 @@ pub(crate) fn render_csv(
         // squelch of either kind — leaves both sets empty.
         let dv = mode == "DV";
         let analog = matches!(mode, "FM" | "FM-N");
-        let (tone, rpt_tone, tsql_tone) = tone_columns(ec);
+        let t = tone_columns(ec);
         let (your, rpt1, rpt2) = call_signs(ec, dv);
         let blank = String::new();
 
@@ -241,19 +241,22 @@ pub(crate) fn render_csv(
             // The channel database has no per-channel scan skip, so nothing is
             // skipped. Same gap the FT5D writer has, and for the same reason.
             "OFF".to_string(),
-            if analog { tone.into() } else { blank.clone() },
+            if analog { t.tone.into() } else { blank.clone() },
             if analog {
-                format!("{rpt_tone:.1}Hz")
+                format!("{:.1}Hz", t.rpt_hz)
             } else {
                 blank.clone()
             },
             if analog {
-                format!("{tsql_tone:.1}Hz")
+                format!("{:.1}Hz", t.tsql_hz)
             } else {
                 blank.clone()
             },
             if analog {
-                c.dcs_code.clone().unwrap_or_else(|| DEFAULT_DTCS.into())
+                t.dtcs
+                    .clone()
+                    .or_else(|| c.dcs_code.clone())
+                    .unwrap_or_else(|| DEFAULT_DTCS.into())
             } else {
                 blank.clone()
             },
@@ -343,52 +346,96 @@ pub(super) fn mode_of(ec: &ExpandedChannel) -> &'static str {
     }
 }
 
-/// `TONE`, `Repeater Tone` and `TSQL Frequency` together, because on this radio
-/// they are one decision: the TONE column says which of the two frequency
-/// columns the radio actually uses, and both are written on every row.
+/// What one memory's squelch columns say: the `TONE` column and the three
+/// values it selects between.
+pub(super) struct ToneColumns {
+    /// The radio's own spelling of the squelch type (Advanced Manual pp. 15-8/
+    /// 15-9). Also the key the `.icf` encoder maps to a squelch byte.
+    pub tone: &'static str,
+    /// `Repeater Tone` — what the radio transmits.
+    pub rpt_hz: f64,
+    /// `TSQL Frequency` — what it opens squelch on.
+    pub tsql_hz: f64,
+    /// `DTCS Code`, when this squelch type uses one. The radio has a single
+    /// code column, so a channel carrying two different codes has to pick the
+    /// side the chosen type actually reads.
+    pub dtcs: Option<String>,
+}
+
+/// `TONE`, `Repeater Tone`, `TSQL Frequency` and `DTCS Code` together, because
+/// on this radio they are one decision: the TONE column says which of the other
+/// columns the radio actually uses, and all of them are written on every row.
 ///
 /// The ID-52 has real cross-tone modes (Advanced Manual pp. 15-8/15-9), so a
 /// repeater with different uplink and downlink tones is programmed exactly as
 /// stored — no need for the "keep the TX tone, drop the RX tone" fallback the
 /// radios without cross modes get.
-pub(super) fn tone_columns(ec: &ExpandedChannel) -> (&'static str, f64, f64) {
+///
+/// Issue #84: the cross arm used to fall through to `TONE(T)/TSQL(R)` for
+/// everything except the two `Tone`/`DTCS` pairs, on the belief that it was the
+/// only cross mode the importer produced. It is not — `derive_tone_mode`
+/// returns `->Tone` for every RepeaterBook record with a downlink tone and no
+/// PL, and a D890 download yields `->Tone`, `DTCS->DTCS`, `DTCS->` and
+/// `->DTCS`. On a `->Tone` channel `up` is `None`, so the Repeater Tone column
+/// got `DEFAULT_TONE_HZ` — programming the radio to transmit 88.5 Hz on a
+/// channel that explicitly has no transmit tone.
+///
+/// Where the radio has no equal (it carries ONE DTCS code, and has no
+/// receive-only DTCS type), the mapping keeps whatever the TRANSMIT side needs:
+/// a channel that does not key its repeater is the failure that matters, and a
+/// squelch that is tighter than asked for is audible the moment it happens.
+pub(super) fn tone_columns(ec: &ExpandedChannel) -> ToneColumns {
     let c = &ec.channel;
     let up = c.ctcss_uplink;
     let down = c.ctcss_downlink;
-    let tone = match c.tone_mode.as_deref() {
-        Some(m) if m.eq_ignore_ascii_case("tone") => "TONE",
-        Some(m) if m.eq_ignore_ascii_case("tsql") => "TSQL",
-        Some(m) if m.eq_ignore_ascii_case("dtcs") => "DTCS",
-        Some(m) if m.eq_ignore_ascii_case("cross") => match c.cross_mode.as_str() {
-            "Tone->DTCS" => "TONE(T)/DTCS(R)",
-            "DTCS->Tone" => "DTCS(T)/TSQL(R)",
-            // The only cross mode the importer actually produces: a TX tone and
-            // a different RX tone squelch.
-            _ => "TONE(T)/TSQL(R)",
-        },
-        _ => "OFF",
-    };
+    let dcs_tx = c.dcs_code.clone();
+    let dcs_rx = c.dcs_rx_code.clone();
     // Which of the two frequency columns the radio reads depends on the TONE
     // column, and the other one is a leftover it ignores — the real export is
     // full of rows carrying an unrelated 88.5 Hz next to a live tone. So the
-    // live one is placed deliberately and the spare gets the radio's default:
-    // `TONE` transmits the Repeater Tone, `TSQL` uses the TSQL Frequency both
-    // ways, and cross mode is the only one that reads both.
-    let (rpt, tsql) = match tone {
-        "TONE" => (up, down),
-        "TSQL" => {
+    // live one is placed deliberately and the spare gets the radio's default.
+    let (tone, rpt, tsql, dtcs) = match c.tone_mode.as_deref() {
+        Some(m) if m.eq_ignore_ascii_case("tone") => ("TONE", up, None, None),
+        Some(m) if m.eq_ignore_ascii_case("tsql") => {
             let t = down.or(up);
-            (t, t)
+            ("TSQL", t, t, None)
         }
-        // DTCS carries its code in its own column; neither tone is read.
-        "DTCS" => (None, None),
-        _ => (up, down),
+        Some(m) if m.eq_ignore_ascii_case("dtcs") => {
+            ("DTCS", None, None, dcs_tx.clone().or(dcs_rx.clone()))
+        }
+        Some(m) if m.eq_ignore_ascii_case("cross") => match c.cross_mode.trim() {
+            // TX tone, different RX tone squelch. The common one, and exact.
+            "Tone->Tone" => ("TONE(T)/TSQL(R)", up, down, None),
+            // RX tone squelch, no TX tone. TSQL is the closest the radio has;
+            // it also transmits the tone, which a machine that asks for none
+            // does not mind — inventing an unrelated 88.5 Hz did.
+            "->Tone" => {
+                let t = down.or(up);
+                ("TSQL", t, t, None)
+            }
+            // TX tone, receive open — plain TONE is exactly that.
+            "Tone->" => ("TONE", up, None, None),
+            "Tone->DTCS" => ("TONE(T)/DTCS(R)", up, None, dcs_rx.clone().or(dcs_tx.clone())),
+            "DTCS->Tone" => ("DTCS(T)/TSQL(R)", None, down, dcs_tx.clone()),
+            // One code column: the transmit code is the one that has to be right.
+            "DTCS->DTCS" => ("DTCS", None, None, dcs_tx.clone().or(dcs_rx.clone())),
+            // TX code, receive open. The radio spells this one out.
+            "DTCS->" => ("DTCS(T)", None, None, dcs_tx.clone()),
+            // No receive-only DTCS type; DTCS adds a transmit code the machine
+            // does not ask for, which is harmless on a carrier-access input.
+            "->DTCS" => ("DTCS", None, None, dcs_rx.clone().or(dcs_tx.clone())),
+            // Every shape `CROSS_MODES` in the UI offers is above; anything
+            // else is squelch off, not a tone-emitting default.
+            _ => ("OFF", up, down, None),
+        },
+        _ => ("OFF", up, down, None),
     };
-    (
+    ToneColumns {
         tone,
-        rpt.unwrap_or(DEFAULT_TONE_HZ),
-        tsql.unwrap_or(DEFAULT_TONE_HZ),
-    )
+        rpt_hz: rpt.unwrap_or(DEFAULT_TONE_HZ),
+        tsql_hz: tsql.unwrap_or(DEFAULT_TONE_HZ),
+        dtcs,
+    }
 }
 
 /// `DTCS Polarity`. The database stores CHIRP's two-letter form.
@@ -692,6 +739,77 @@ mod tests {
         assert_eq!(r[TONE], "TONE(T)/TSQL(R)");
         assert_eq!(r[RPT_TONE], "103.5Hz");
         assert_eq!(r[TSQL_TONE], "107.2Hz");
+    }
+
+    /// Issue #84: every cross mode the library can hold has to map to something
+    /// the radio recognises, and none of them may invent a tone.
+    ///
+    /// `->Tone` is the one that bites: `derive_tone_mode` returns it for every
+    /// RepeaterBook record with a downlink tone and no PL, and it used to fall
+    /// through to `TONE(T)/TSQL(R)` — where `up` is `None`, so the Repeater Tone
+    /// column got `DEFAULT_TONE_HZ` and the radio transmitted 88.5 Hz on a
+    /// channel that explicitly has no transmit tone.
+    #[test]
+    fn every_cross_mode_maps_to_a_squelch_type_the_radio_has() {
+        let row = |cross: &str, up, down, dcs_tx: Option<&str>, dcs_rx: Option<&str>| {
+            let mut c = chan(1, "X", 147.000);
+            c.tone_mode = Some("Cross".into());
+            c.cross_mode = cross.into();
+            c.ctcss_uplink = up;
+            c.ctcss_downlink = down;
+            c.dcs_code = dcs_tx.map(Into::into);
+            c.dcs_rx_code = dcs_rx.map(Into::into);
+            let ec = expand(c);
+            rows(&render_csv(&[&ec], &[], &model()).unwrap()).remove(0)
+        };
+
+        // RX tone squelch, no TX tone: TSQL on the downlink tone, both columns.
+        let r = row("->Tone", None, Some(107.2), None, None);
+        assert_eq!(r[TONE], "TSQL");
+        assert_eq!(r[RPT_TONE], "107.2Hz", "88.5 Hz here is a fabricated tone");
+        assert_eq!(r[TSQL_TONE], "107.2Hz");
+
+        // The DTCS-bearing shapes a D890 download produces.
+        let r = row("DTCS->DTCS", None, None, Some("023"), Some("131"));
+        assert_eq!(r[TONE], "DTCS");
+        assert_eq!(r[DTCS], "023", "one code column: the transmit code wins");
+
+        let r = row("DTCS->", None, None, Some("054"), None);
+        assert_eq!(r[TONE], "DTCS(T)");
+        assert_eq!(r[DTCS], "054");
+
+        let r = row("->DTCS", None, None, None, Some("311"));
+        assert_eq!(r[TONE], "DTCS");
+        assert_eq!(r[DTCS], "311");
+
+        // The two mixed pairs read their code off the DTCS side.
+        let r = row("Tone->DTCS", Some(103.5), None, None, Some("445"));
+        assert_eq!(r[TONE], "TONE(T)/DTCS(R)");
+        assert_eq!(r[RPT_TONE], "103.5Hz");
+        assert_eq!(r[DTCS], "445");
+
+        let r = row("DTCS->Tone", None, Some(114.8), Some("606"), None);
+        assert_eq!(r[TONE], "DTCS(T)/TSQL(R)");
+        assert_eq!(r[TSQL_TONE], "114.8Hz");
+        assert_eq!(r[DTCS], "606");
+
+        // TX tone, receive open.
+        let r = row("Tone->", Some(103.5), None, None, None);
+        assert_eq!(r[TONE], "TONE");
+        assert_eq!(r[RPT_TONE], "103.5Hz");
+
+        // Anything unrecognised is squelch off, not a tone-emitting default.
+        let r = row("Nonsense->Nonsense", None, None, None, None);
+        assert_eq!(r[TONE], "OFF");
+
+        // Every shape the channel editor can produce is handled by name.
+        for cross in [
+            "Tone->Tone", "Tone->DTCS", "DTCS->Tone", "DTCS->DTCS", "->Tone", "->DTCS",
+            "DTCS->", "Tone->",
+        ] {
+            let r = row(cross, Some(100.0), Some(100.0), Some("023"), Some("023"));
+            assert_ne!(r[TONE], "OFF", "{cross} falls through to OFF");
+        }
     }
 
     /// D-STAR is the reason half these columns exist. The port letter comes from
