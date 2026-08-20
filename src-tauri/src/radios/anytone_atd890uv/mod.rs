@@ -383,6 +383,109 @@ pub struct AnytoneDumpDiff {
     pub b_hex: String,
 }
 
+/// Name the D890UV region a 0x4000 write-window falls in, or `None` if this app
+/// never writes there.
+///
+/// Every window listed here is one the program (`program::run_program`) or
+/// settings (`settings::run_settings_program`) session actually reads, backs up
+/// and writes — the two paths that produce the `[addr][len][data]` backup files
+/// `restore_anytone_backup` replays. It is deliberately NOT "the D890UV flash
+/// map": the call-sign DB banks at 0x0700_0000+ are writable on the radio but
+/// take no backup (`run_patch_writes_direct` sets an empty `backup_path`), so a
+/// backup file claiming to hold them did not come from us.
+///
+/// Addresses are derived from the region constants above rather than restated,
+/// so a map correction moves the guard with it, and a guard test enumerates both
+/// write paths' real bases to prove none of them is refused.
+pub(crate) fn writable_window_name(addr: u32) -> Option<&'static str> {
+    let win = WRITE_WINDOW as u32;
+    if !(addr as usize).is_multiple_of(WRITE_WINDOW) {
+        return None;
+    }
+    // A run of `n` consecutive windows starting at `base`.
+    let run = |base: u32, n: u32| addr >= base && addr < base + n * win;
+
+    // Channel banks: ONE 0x4000 window at the head of each 0x80000 bank, so the
+    // 0x7C000 gap after each bank is not writable.
+    if addr >= CHANNEL_BASE {
+        let off = addr - CHANNEL_BASE;
+        if off % BANK_STEP == 0 && off / BANK_STEP < NUM_BANKS as u32 {
+            return Some("channel bank");
+        }
+    }
+    // Record arrays, sized by their own record caps.
+    let zone_list_windows =
+        (MAX_ZONES * ZONE_LIST_STEP as usize).div_ceil(WRITE_WINDOW) as u32;
+    if run(ZONE_LIST_BASE, zone_list_windows) {
+        return Some("zone member lists");
+    }
+    let scan_windows =
+        (MAX_SCAN_LISTS * SCAN_LIST_STEP as usize).div_ceil(WRITE_WINDOW) as u32;
+    if run(SCAN_LIST_BASE, scan_windows) {
+        return Some("scan lists");
+    }
+    let contact_windows = (MAX_CONTACTS_READ * CONTACT_REC_LEN).div_ceil(WRITE_WINDOW) as u32;
+    if run(CONTACT_BASE, contact_windows) {
+        return Some("DMR contacts");
+    }
+    // Single windows. The four present-bitmaps (channels, zones, radio IDs,
+    // scan lists) all live in one.
+    if addr == CHANNEL_BITMAP_BASE & !(win - 1) {
+        return Some("present bitmaps");
+    }
+    if addr == ZONE_NAME_BASE {
+        return Some("zone names");
+    }
+    // Every window the settings path reads/writes, taken from its own map so
+    // adding a settings region cannot leave the guard behind.
+    if settings::SETTINGS_WINDOWS
+        .iter()
+        .any(|&(base, _)| base & !(win - 1) == addr)
+    {
+        return Some("radio settings");
+    }
+    if addr == CONTACT_INDEX_BASE {
+        return Some("contact index table");
+    }
+    if addr == CONTACT_BITMAP_BASE {
+        return Some("contact present bitmap");
+    }
+    None
+}
+
+/// Reject a backup whose blocks are not whole 0x4000 windows this app writes.
+///
+/// The restore path replays raw addresses straight into flash, so the file is
+/// as dangerous as the addresses in it. Alignment alone was the only previous
+/// check, which accepted any aligned address in the radio's whole 32-bit space —
+/// including the bootloader and calibration regions we have never mapped.
+///
+/// This does not (and cannot) prove the file came from THIS radio; the ident
+/// handshake in [`try_enter_program_and_ident`] is what refuses a non-D890 on
+/// the port. What it proves is that the file describes windows this app knows
+/// how to write.
+pub(crate) fn check_restore_blocks(blocks: &[(u32, Vec<u8>)]) -> Result<(), String> {
+    for (addr, data) in blocks {
+        if !(*addr as usize).is_multiple_of(WRITE_WINDOW) || data.len() % WRITE_WINDOW != 0 {
+            return Err(format!(
+                "block 0x{addr:08X}+0x{:X} is not 0x4000-aligned — not a program backup",
+                data.len()
+            ));
+        }
+        for w in 0..data.len() / WRITE_WINDOW {
+            let a = addr + (w * WRITE_WINDOW) as u32;
+            if writable_window_name(a).is_none() {
+                return Err(format!(
+                    "block 0x{a:08X} is not a region this app ever writes on a D890UV — \
+                     refusing to restore it. Pick a backup written by Codeplug Magic's \
+                     Program or Write-settings step."
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Parse a self-describing dump into `(addr, data)` blocks.
 pub(crate) fn parse_dump(bytes: &[u8]) -> Result<Vec<(u32, Vec<u8>)>, String> {
     let mut blocks = Vec::new();
@@ -2262,6 +2365,76 @@ mod tests {
         assert!(validate_read_header(0x0250_0000, 0x20, &good).is_err());
         // Truncated header.
         assert!(validate_read_header(0x0250_0000, 0x10, &good[..4]).is_err());
+    }
+
+    /// The guard has to accept every window the two backup-producing write
+    /// paths actually touch, or a legitimate restore is refused at the worst
+    /// possible moment. Enumerate their real bases rather than a sample.
+    #[test]
+    fn no_window_this_app_writes_is_rejected() {
+        let mut bases: Vec<u32> = Vec::new();
+        // program::run_program
+        for bank in 0..NUM_BANKS {
+            bases.push(CHANNEL_BASE + (bank as u32) * BANK_STEP);
+        }
+        bases.push(ZONE_NAME_BASE);
+        bases.push(ZONE_BITMAP_BASE & !(WRITE_WINDOW as u32 - 1));
+        for w in 0..(MAX_ZONES * ZONE_LIST_STEP as usize).div_ceil(WRITE_WINDOW) {
+            bases.push(ZONE_LIST_BASE + (w * WRITE_WINDOW) as u32);
+        }
+        for w in 0..(MAX_SCAN_LISTS * SCAN_LIST_STEP as usize).div_ceil(WRITE_WINDOW) {
+            bases.push(SCAN_LIST_BASE + (w * WRITE_WINDOW) as u32);
+        }
+        for w in 0..(MAX_CONTACTS_READ * CONTACT_REC_LEN).div_ceil(WRITE_WINDOW) {
+            bases.push(CONTACT_BASE + (w * WRITE_WINDOW) as u32);
+        }
+        bases.push(CONTACT_INDEX_BASE);
+        bases.push(CONTACT_BITMAP_BASE);
+        // settings::run_settings_program reads/writes the window each settings
+        // region falls in.
+        for &(base, _) in settings::SETTINGS_WINDOWS {
+            bases.push(base & !(WRITE_WINDOW as u32 - 1));
+        }
+        for base in bases {
+            assert!(
+                writable_window_name(base).is_some(),
+                "0x{base:08X} is written by this app but the restore guard rejects it"
+            );
+        }
+    }
+
+    /// …and reject the addresses that made the old alignment-only check unsafe.
+    #[test]
+    fn restore_refuses_windows_outside_the_map() {
+        let win = WRITE_WINDOW;
+        // Address 0 (bootloader on every AnyTone) — 0x4000-aligned, so the old
+        // check passed it straight through to write_block.
+        assert!(check_restore_blocks(&[(0x0000_0000, vec![0u8; win])]).is_err());
+        // The 0x7C000 dead gap after channel bank 0.
+        assert!(check_restore_blocks(&[(CHANNEL_BASE + WRITE_WINDOW as u32, vec![0u8; win])]).is_err());
+        // The head of the LAST channel bank is in; the gap after it is not.
+        let last_bank = CHANNEL_BASE + (NUM_BANKS as u32 - 1) * BANK_STEP;
+        assert_eq!(writable_window_name(last_bank), Some("channel bank"));
+        assert!(check_restore_blocks(&[(last_bank + WRITE_WINDOW as u32, vec![0u8; win])]).is_err());
+        // The channel banks end exactly where the zone lists begin, so the
+        // address one bank past the last one is legal — as zone lists, not as a
+        // 33rd channel bank.
+        assert_eq!(
+            writable_window_name(CHANNEL_BASE + NUM_BANKS as u32 * BANK_STEP),
+            Some("zone member lists")
+        );
+        // The call-sign DB banks: writable on the radio, but no path that writes
+        // them ever produces a backup, so a "backup" naming them is not ours.
+        assert!(check_restore_blocks(&[(callsign_db::DB_BASE, vec![0u8; win])]).is_err());
+        // A multi-window block that starts legal and runs off the end of the
+        // contact array — the per-window loop is what catches this.
+        let contact_windows = (MAX_CONTACTS_READ * CONTACT_REC_LEN).div_ceil(WRITE_WINDOW);
+        let last = CONTACT_BASE + ((contact_windows - 1) * WRITE_WINDOW) as u32;
+        assert!(check_restore_blocks(&[(last, vec![0u8; win])]).is_ok());
+        assert!(check_restore_blocks(&[(last, vec![0u8; win * 2])]).is_err());
+        // Still rejects misalignment, with the original wording.
+        let e = check_restore_blocks(&[(CHANNEL_BASE + 0x10, vec![0u8; win])]).unwrap_err();
+        assert!(e.contains("not 0x4000-aligned"), "{e}");
     }
 
     #[test]

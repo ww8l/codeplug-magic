@@ -37,3 +37,10 @@ scratchpad/
 .claude/settings.json
 # internal cross-session dev journal, stays local
 PROJECT_STATE.md
+
+# Database backups. `Back up database…` defaults to writing one here, and one
+# got swept into a commit by `git add -A` — 43 MB holding 312,284 radioid.net
+# records and the operator's own profiles. Never again from this directory.
+sample-data/*.sqlite3
+sample-data/*.sqlite3-*
+sample-data/*.db
