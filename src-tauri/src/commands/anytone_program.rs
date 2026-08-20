@@ -99,6 +99,9 @@ pub async fn verify_anytone_program(
         .map_err(|e| format!("could not read {expected_path}: {e}"))?;
     let expected = parse_dump(&bytes).map_err(|e| format!("{expected_path}: {e}"))?;
     tauri::async_runtime::spawn_blocking(move || {
+        // One radio operation per port: this guard lives for the whole blocking
+        // session and releases on the way out, panic included. (#67)
+        let _port_guard = crate::radios::port_lock::claim(&port)?;
         let mut p = open_port(&port)?;
         let _ident = enter_program_and_ident(&mut *p)?;
         let mut actual = Vec::with_capacity(expected.len());
@@ -191,6 +194,9 @@ pub async fn restore_anytone_backup(
     }
     check_restore_blocks(&blocks).map_err(|e| format!("{backup_path}: {e}"))?;
     tauri::async_runtime::spawn_blocking(move || {
+        // One radio operation per port: this guard lives for the whole blocking
+        // session and releases on the way out, panic included. (#67)
+        let _port_guard = crate::radios::port_lock::claim(&port)?;
         let mut p = open_port(&port)?;
         let _ident = enter_program_and_ident(&mut *p)?;
         let mut written = Vec::new();

@@ -532,7 +532,16 @@ pub fn run_settings_program(
     }
 
     // ---- Phase 2: write every changed window, then END once (commit+reboot).
-    let written = commit_channel_writes(&mut *p, &all_plans)?;
+    // Name the backup on the way out, or the recovery instruction has no
+    // input (#66).
+    let written = commit_channel_writes(&mut *p, &all_plans).map_err(|e| {
+        crate::radios::driver::with_restore_hint(
+            e,
+            backup_path,
+            "Rescan the port, then use \"Restore backup\" in the Program dialog — with no \
+             result to show, it is already pointed at this file.",
+        )
+    })?;
     let _ = end_session(&mut *p);
 
     Ok(AnytoneSettingsProgramResult {

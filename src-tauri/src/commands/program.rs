@@ -162,6 +162,9 @@ pub struct RadioIdent {
 pub async fn identify_radio(driver_key: String, port: String) -> Result<RadioIdent, String> {
     let driver = driver(&driver_key)?;
     tauri::async_runtime::spawn_blocking(move || {
+        // One radio operation per port: this guard lives for the whole blocking
+        // session and releases on the way out, panic included. (#67)
+        let _port_guard = crate::radios::port_lock::claim(&port)?;
         let ident = driver.identify(&port)?;
         Ok(RadioIdent {
             matched_magic: ident.matched,
@@ -221,6 +224,9 @@ pub async fn download_image(
     let backup_path = backup_dir.join(format!("{driver_key}-{stamp}.img"));
 
     tauri::async_runtime::spawn_blocking(move || {
+        // One radio operation per port: this guard lives for the whole blocking
+        // session and releases on the way out, panic included. (#67)
+        let _port_guard = crate::radios::port_lock::claim(&port)?;
         let (ident, image) = imager.download_image(&port)?;
 
         std::fs::write(&backup_path, &image)
@@ -342,6 +348,9 @@ pub async fn read_radio_settings(
     let slug = slug(&target.profile_name);
 
     tauri::async_runtime::spawn_blocking(move || {
+        // One radio operation per port: this guard lives for the whole blocking
+        // session and releases on the way out, panic included. (#67)
+        let _port_guard = crate::radios::port_lock::claim(&port)?;
         let capture = reader.read_settings(&port, &target.schema)?;
 
         // Named after the driver key, matching `download_image`'s convention, so
@@ -664,6 +673,9 @@ pub async fn write_radio_settings(
     std::fs::create_dir_all(&backup_dir).estr()?;
 
     tauri::async_runtime::spawn_blocking(move || {
+        // One radio operation per port: this guard lives for the whole blocking
+        // session and releases on the way out, panic included. (#67)
+        let _port_guard = crate::radios::port_lock::claim(&port)?;
         writer.write_settings(&port, &settings, &target.schema, &backup_dir)
     })
     .await
@@ -758,9 +770,14 @@ pub async fn write_callsign_db(
         );
     }
 
-    tauri::async_runtime::spawn_blocking(move || db_writer.write_callsign_db(&port, &records))
-        .await
-        .estr()?
+    tauri::async_runtime::spawn_blocking(move || {
+        // One radio operation per port: this guard lives for the whole blocking
+        // session and releases on the way out, panic included. (#67)
+        let _port_guard = crate::radios::port_lock::claim(&port)?;
+        db_writer.write_callsign_db(&port, &records)
+    })
+    .await
+    .estr()?
 }
 
 // ============================================================
@@ -807,6 +824,9 @@ pub async fn program_radio(
         // blocking task wholesale — the payload borrows from it in there.
         let resolved = export::resolve_codeplug_payload(&state.pool, codeplug_id).await?;
         let report = tauri::async_runtime::spawn_blocking(move || {
+            // One radio operation per port: this guard lives for the whole
+            // blocking session and releases on the way out, panic included. (#67)
+            let _port_guard = crate::radios::port_lock::claim(&port)?;
             programmer.program(&port, &resolved.payload(), &backup_dir)
         })
         .await
@@ -841,6 +861,9 @@ pub async fn program_radio(
             .estr()?;
 
         tauri::async_runtime::spawn_blocking(move || {
+            // One radio operation per port: this guard lives for the whole
+            // blocking session and releases on the way out, panic included. (#67)
+            let _port_guard = crate::radios::port_lock::claim(&port)?;
             let settings = match (&profile_settings, &schema) {
                 (Some(s), Some(schema)) => {
                     let value: serde_json::Value = serde_json::from_str(s)
@@ -930,6 +953,9 @@ pub async fn backups_dir(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub async fn restore_image(port: String, path: String) -> Result<RestoreResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        // One radio operation per port: this guard lives for the whole blocking
+        // session and releases on the way out, panic included. (#67)
+        let _port_guard = crate::radios::port_lock::claim(&port)?;
         let image = std::fs::read(&path).map_err(|e| format!("could not read {path}: {e}"))?;
         // Validate the FILE, not just the port: `radio-backups/` holds backups
         // for every radio, and this path writes whatever it is handed straight

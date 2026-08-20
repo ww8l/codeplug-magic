@@ -84,6 +84,9 @@ pub async fn download_anytone_image(
     let backup_path = backup_dir.join(format!("anytone-{stamp}.img"));
 
     tauri::async_runtime::spawn_blocking(move || {
+        // One radio operation per port: this guard lives for the whole blocking
+        // session and releases on the way out, panic included. (#67)
+        let _port_guard = crate::radios::port_lock::claim(&port)?;
         let mut p = open_port(&port)?;
         let ident = enter_program_and_ident(&mut *p)?;
 

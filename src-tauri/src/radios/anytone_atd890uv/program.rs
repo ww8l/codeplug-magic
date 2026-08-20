@@ -983,8 +983,16 @@ fn run_program(
 
     // ---- Phase 2: write every changed window, then END once (commit+reboot).
     // A write error deliberately does NOT end the session (ENDing would commit
-    // a half-written image); the message tells the user to restore.
-    let written = commit_channel_writes(&mut *p, &all_plans)?;
+    // a half-written image); the message tells the user to restore — and names
+    // the file to restore FROM (#66).
+    let written = commit_channel_writes(&mut *p, &all_plans).map_err(|e| {
+        crate::radios::driver::with_restore_hint(
+            e,
+            backup_path,
+            "Rescan the port, then use \"Restore backup\" in the Program dialog — with no \
+             result to show, it is already pointed at this file.",
+        )
+    })?;
     let _ = end_session(&mut *p);
 
     Ok(ProgramReport {

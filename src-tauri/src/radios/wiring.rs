@@ -184,3 +184,66 @@ fn every_card_format_is_wired_into_the_frontend() {
         );
     }
 }
+
+/// Every Tauri command that takes a serial `port` must claim it (#67).
+///
+/// The claim is one line and easy to leave out of a new command, and leaving it
+/// out is invisible: the command works perfectly on its own and only misbehaves
+/// when a second operation overlaps it — exactly the case nobody tests by hand.
+/// So the rule is checked mechanically instead.
+///
+/// The invariant is deliberately "takes a port", not "does radio I/O", because
+/// the second is not decidable by reading text. A command that genuinely takes
+/// a port name without talking to it can opt out with the marker named in the
+/// failure message, which makes the exception a thing someone WROTE rather than
+/// a thing they forgot.
+#[test]
+fn every_command_taking_a_port_claims_it() {
+    const OPT_OUT: &str = "no-port-lock:";
+    let dir = manifest_dir().join("src/commands");
+    let mut checked = 0;
+
+    for entry in std::fs::read_dir(&dir).expect("commands dir") {
+        let path = entry.expect("entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let src = read(&path);
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+
+        // Split on the attribute so each chunk is exactly one command body.
+        for chunk in src.split("#[tauri::command]").skip(1) {
+            let Some(sig_end) = chunk.find(')') else { continue };
+            let sig = &chunk[..sig_end];
+            let Some(name) = sig
+                .split("fn ")
+                .nth(1)
+                .and_then(|r| r.split('(').next())
+                .map(str::trim)
+            else {
+                continue;
+            };
+            if !sig.contains("port: String") {
+                continue;
+            }
+            if chunk.contains(OPT_OUT) {
+                continue;
+            }
+            assert!(
+                chunk.contains("port_lock::claim"),
+                "{file}: `{name}` takes a serial port but never calls \
+                 radios::port_lock::claim, so a second radio operation can start on that \
+                 port while it runs. Claim it as the first line inside the spawn_blocking \
+                 closure, so the guard lives for the whole session. If this command really \
+                 does not talk to the radio, say so with a `// {OPT_OUT} <why>` comment."
+            );
+            checked += 1;
+        }
+    }
+
+    assert!(
+        checked >= 10,
+        "only {checked} port-taking commands found — the parser has probably stopped \
+         matching, so fix it rather than deleting the test it feeds"
+    );
+}

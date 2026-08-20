@@ -277,23 +277,36 @@ impl ImageProgrammer for BaofengUv5r {
         //    The radio may take a moment to be ready to talk again after the
         //    full read, so settle first, then retry the identify.
         std::thread::sleep(Duration::from_secs(1));
-        reident_with_retry(&mut *p)?;
+        // From here on the radio's contents are in play, so every failure names
+        // the backup taken above — `radio-backups/` is a folder of
+        // similarly-named files and the operator has no other way to tell which
+        // one is theirs. (#66)
+        let restore_hint = |e: String| {
+            crate::radios::driver::with_restore_hint(
+                e,
+                &backup_path,
+                "Restore it with \"Restore backup…\" in the Program dialog and pick that \
+                 file. Do not program again first — a second write would overwrite the \
+                 half-written contents with a fresh backup of them.",
+            )
+        };
+        reident_with_retry(&mut *p).map_err(restore_hint)?;
         // Record every range as it goes out, and hand that same list to the
         // verifier — so what is checked is exactly what was written, and the two
         // cannot drift apart. (#62)
         let mut written: Vec<WrittenRange> = Vec::new();
         if settings_written.is_some() {
             for &range in settings::SETTINGS_MAIN_RANGES {
-                write_region(&mut *p, &image, range.0, range.1)?;
+                write_region(&mut *p, &image, range.0, range.1).map_err(restore_hint)?;
                 written.push(WrittenRange::main(range));
             }
             for &range in settings::SETTINGS_AUX_RANGES {
-                write_aux_region(&mut *p, &image, range.0, range.1)?;
+                write_aux_region(&mut *p, &image, range.0, range.1).map_err(restore_hint)?;
                 written.push(WrittenRange::aux(range));
             }
         } else {
             for &range in &[CHANNEL_ADDR, NAME_ADDR] {
-                write_region(&mut *p, &image, range.0, range.1)?;
+                write_region(&mut *p, &image, range.0, range.1).map_err(restore_hint)?;
                 written.push(WrittenRange::main(range));
             }
         }

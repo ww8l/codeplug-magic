@@ -25,6 +25,7 @@ pub(crate) mod baofeng_uv5r;
 pub(crate) mod driver;
 pub(crate) mod icom_id52;
 pub(crate) mod kenwood_thd75;
+pub(crate) mod port_lock;
 pub(crate) mod registry;
 pub(crate) mod tidradio_tdh3;
 #[cfg(test)]
