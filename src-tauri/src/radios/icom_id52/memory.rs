@@ -666,6 +666,18 @@ mod tests {
         vec![0x5A; super::super::ID52_IMAGE_LEN]
     }
 
+    /// [`blank`] with a pattern instead of one repeated marker byte.
+    ///
+    /// A uniform fill hides a stray write of that same byte, and `0x5A` is
+    /// exactly what this writer would leave behind in an untouched record. A
+    /// pattern with no repeated runs makes any byte the writer touches outside
+    /// the arrays it claims visible. (#88)
+    fn patterned() -> Vec<u8> {
+        (0..super::super::ID52_IMAGE_LEN)
+            .map(|i| (i.wrapping_mul(31) ^ 0xA5) as u8)
+            .collect()
+    }
+
     /// The image inside a fixture `.icf`: the marker byte everywhere except the
     /// settings block, which is zeroed.
     ///
@@ -944,10 +956,11 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../scratchpad/id52/id52_01_base.icf"
         );
-        let Ok(text) = std::fs::read_to_string(capture) else {
-            eprintln!("skipped: no capture at {capture}");
-            return;
-        };
+        let text = std::fs::read_to_string(capture).unwrap_or_else(|e| {
+            panic!("this test needs the capture at {capture} ({e}). It is #[ignore]d because \
+                    scratchpad/ is gitignored — running it without the file must FAIL, not \
+                    quietly pass having asserted nothing. (#89)")
+        });
         let before = IcfFile::parse(&text).expect("a real ID-52 file parses");
         let settings = crate::radios::icom_id52::settings::decode_settings(before.image());
         let before = before.image().to_vec();
@@ -1363,10 +1376,12 @@ mod tests {
     #[ignore = "needs real captures under scratchpad/id52/"]
     fn a_file_the_radio_did_not_write_is_refused_with_the_right_advice() {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../scratchpad/id52/");
-        let Ok(text) = std::fs::read_to_string(format!("{dir}id52_05_rtsprobe.icf")) else {
-            eprintln!("skipped: no third-party capture in {dir}");
-            return;
-        };
+        let text = std::fs::read_to_string(format!("{dir}id52_05_rtsprobe.icf"))
+            .unwrap_or_else(|e| {
+                panic!("this test needs id52_05_rtsprobe.icf in {dir} ({e}). It is #[ignore]d \
+                        because scratchpad/ is gitignored — running it without the file must \
+                        FAIL, not quietly pass having asserted nothing. (#89)")
+            });
         let mut icf = IcfFile::parse(&text).expect("a third-party file still parses");
         assert_eq!(icf.map_rev(), Some(1), "RT Systems declares revision 1");
 
@@ -1387,7 +1402,88 @@ mod tests {
     }
 
     /// The safety argument for patching an operator's own file: **only** the
-    /// memory pool and its tables change. Everything else — every MENU setting,
+     /// Byte indices the memory writer changed that it does NOT claim.
+    ///
+    /// The claim is the memory pool, the three bitmaps and the group/position
+    /// tables. Everything else in the file — every MENU setting, the repeater
+    /// list, the call channels, the 100 records at slots 1010-1109 that nothing
+    /// has identified — is the operator's and must come back byte for byte.
+    fn strays_outside_the_memory_pool(before: &[u8], after: &[u8]) -> Vec<usize> {
+        let allowed = |i: usize| {
+            (POOL..POOL + SLOTS * REC_LEN).contains(&i)
+                || (SKIP_BITMAP..SKIP_BITMAP + BITMAP_LEN).contains(&i)
+                || (PSKIP_BITMAP..PSKIP_BITMAP + BITMAP_LEN).contains(&i)
+                || (UNKNOWN_BITMAP..UNKNOWN_BITMAP + BITMAP_LEN).contains(&i)
+                || (GROUP_TABLE..POSMAP + GROUPS * POSMAP_LEN).contains(&i)
+        };
+        (0..before.len())
+            .filter(|&i| before[i] != after[i] && !allowed(i))
+            .collect()
+    }
+
+    /// ★ The patch-don't-generate bargain, runnable in CI on a synthetic card.
+    ///
+    /// Writing a codeplug must touch the memory pool and its tables and nothing
+    /// else. The real-capture twin below stays `#[ignore]`d — it additionally
+    /// proves this against a file the radio actually wrote, and re-reads the
+    /// result with `memdecode.py`, neither of which a synthetic body can do.
+    ///
+    /// The fixture is [`patterned`], not [`blank`]: `blank` is one repeated
+    /// `0x5A`, which is also what this writer leaves in an untouched record, so
+    /// a stray write of it would be invisible. (#88)
+    #[test]
+    fn only_the_memory_pool_changes_on_a_synthetic_card() {
+        let text = synth_icf(&patterned());
+        let mut icf = IcfFile::parse(&text).expect("a synthetic file parses");
+        let before = icf.image().to_vec();
+
+        let probes = probe_codeplug();
+        let refs: Vec<&ExpandedChannel> = probes.iter().collect();
+        let groups = vec![
+            CodeplugGroup {
+                list_id: 1,
+                list_name: "PROBE A".into(),
+                channels: probes[..4].iter().map(|e| e.channel.clone()).collect(),
+            },
+            CodeplugGroup {
+                list_id: 2,
+                list_name: "PROBE B".into(),
+                channels: probes[4..].iter().map(|e| e.channel.clone()).collect(),
+            },
+        ];
+        write_codeplug(&mut icf, &refs, &groups, &model()).expect("patch");
+
+        let after = icf.image().to_vec();
+        let strays = strays_outside_the_memory_pool(&before, &after);
+        assert!(
+            strays.is_empty(),
+            "{} bytes changed outside the memory pool, first at 0x{:06X}",
+            strays.len(),
+            strays.first().copied().unwrap_or(0)
+        );
+
+        assert_invariants(&after, probes.len());
+        assert_eq!(chain(&after, 0), vec![0, 1, 2, 3]);
+        assert_eq!(chain(&after, 1), vec![4, 5, 6]);
+
+        // The patched file must still be a file: the checksum has to follow the
+        // edit, or the radio rejects it at the door.
+        let reparsed = IcfFile::parse(&icf.render()).expect("a patched file must still verify");
+        assert_eq!(reparsed.image(), after);
+
+        // The guard has to be able to fail: one byte written past the last
+        // position-map entry is exactly the stride bug it exists for.
+        let mut sabotaged = after.clone();
+        let past_end = POSMAP + GROUPS * POSMAP_LEN;
+        sabotaged[past_end] ^= 0xFF;
+        assert_eq!(
+            strays_outside_the_memory_pool(&before, &sabotaged),
+            vec![past_end],
+            "the guard did not notice a write past the last position-map entry"
+        );
+    }
+
+   /// memory pool and its tables change. Everything else — every MENU setting,
     /// the repeater list, the call channels, the 100 records at slots 1010-1109
     /// that nothing has identified — comes back byte for byte.
     ///
@@ -1402,10 +1498,11 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../scratchpad/id52/id52_02_probe.icf"
         );
-        let Ok(text) = std::fs::read_to_string(path) else {
-            eprintln!("skipped: no capture at {path}");
-            return;
-        };
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            panic!("this test needs the capture at {path} ({e}). It is #[ignore]d because \
+                    scratchpad/ is gitignored — running it without the file must FAIL, not \
+                    quietly pass having asserted nothing. (#89)")
+        });
         let mut icf = IcfFile::parse(&text).expect("a real ID-52 file parses");
         let before = icf.image().to_vec();
 
@@ -1426,23 +1523,15 @@ mod tests {
         write_codeplug(&mut icf, &refs, &groups, &model()).expect("patch");
 
         let after = icf.image();
-        let touched: Vec<usize> = (0..before.len()).filter(|&i| before[i] != after[i]).collect();
-        let allowed = |i: usize| {
-            (POOL..POOL + SLOTS * REC_LEN).contains(&i)
-                || (SKIP_BITMAP..SKIP_BITMAP + BITMAP_LEN).contains(&i)
-                || (PSKIP_BITMAP..PSKIP_BITMAP + BITMAP_LEN).contains(&i)
-                || (UNKNOWN_BITMAP..UNKNOWN_BITMAP + BITMAP_LEN).contains(&i)
-                || (GROUP_TABLE..POSMAP + GROUPS * POSMAP_LEN).contains(&i)
-        };
-        let strays: Vec<String> = touched
-            .iter()
-            .filter(|&&i| !allowed(i))
-            .map(|&i| format!("0x{i:06X}"))
-            .collect();
+        let strays = strays_outside_the_memory_pool(&before, after);
         assert!(
             strays.is_empty(),
             "wrote outside the memory pool at {}",
-            strays.join(", ")
+            strays
+                .iter()
+                .map(|i| format!("0x{i:06X}"))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
 
         assert_invariants(after, probes.len());
@@ -1466,7 +1555,7 @@ mod tests {
         std::fs::write(out, &rendered).expect("write the candidate");
         eprintln!(
             "ok: {} bytes changed, all inside the memory pool; wrote {out}",
-            touched.len()
+            (0..before.len()).filter(|&i| before[i] != after[i]).count()
         );
     }
 
@@ -1485,13 +1574,14 @@ mod tests {
     #[ignore = "needs a real .icf and its paired .csv under scratchpad/id52/"]
     fn the_radios_own_memories_re_encode_to_the_radios_own_bytes() {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../scratchpad/id52/");
-        let (Ok(text), Ok(csv_text)) = (
-            std::fs::read_to_string(format!("{dir}id52_02_probe.icf")),
-            std::fs::read_to_string(format!("{dir}id52_01_base.csv")),
-        ) else {
-            eprintln!("skipped: no paired capture in {dir}");
-            return;
+        let need = |name: &str| {
+            std::fs::read_to_string(format!("{dir}{name}")).unwrap_or_else(|e| {
+                panic!("this test needs {name} in {dir} ({e}). It is #[ignore]d because \
+                        scratchpad/ is gitignored — running it without the file must FAIL, not \
+                        quietly pass having asserted nothing. (#89)")
+            })
         };
+        let (text, csv_text) = (need("id52_02_probe.icf"), need("id52_01_base.csv"));
         let truth = IcfFile::parse(&text).expect("parse").image().to_vec();
 
         let channels: Vec<ExpandedChannel> = csv::Reader::from_reader(csv_text.as_bytes())

@@ -537,6 +537,244 @@ mod tests {
         assert!(body[0x1520..0x1540].iter().all(|&b| b == 0));
     }
 
+    // ============================================================
+    // Synthetic no-op guards (#88) — no capture needed, so these run in CI
+    // ============================================================
+
+    /// A body filled with a pattern that has no long `0x00`/`0xff` runs.
+    ///
+    /// That makes it a HARSHER background than a real capture for the failure
+    /// these tests exist to catch: a field that writes outside the extent it
+    /// declares. On a real `.d75` most spare bytes are 0x00 or 0xff, so a stray
+    /// write of 0 or 0xff lands invisibly. Here every byte is distinct from its
+    /// neighbours, so any stray write shows up.
+    fn patterned_body() -> Vec<u8> {
+        let len = THD75_SETTINGS_FIELDS
+            .iter()
+            .map(field_end)
+            .max()
+            .expect("the table is not empty")
+            + 64;
+        (0..len).map(|i| (i.wrapping_mul(31) ^ 0xA5) as u8).collect()
+    }
+
+    /// [`patterned_body`] with an encoder-produced value in every field, so the
+    /// field extents hold values this writer can actually emit while every byte
+    /// no field claims still carries the pattern.
+    fn normalised_body() -> Vec<u8> {
+        let mut body = patterned_body();
+        for (n, f) in THD75_SETTINGS_FIELDS.iter().enumerate() {
+            if let Some((apply, _)) = probe_value(&body, f, n) {
+                let mut one = Map::new();
+                one.insert(f.key.to_string(), apply);
+                apply_settings(&mut body, &one);
+            }
+        }
+        body
+    }
+
+    /// A deterministic, in-range value for one field, and what decoding it back
+    /// must give. The two differ for an enum whose option list maps two labels
+    /// to the same raw value: `label_for` hands back the FIRST such label, so
+    /// that — not the label we asked for — is the correct expectation.
+    fn probe_value(body: &[u8], f: &SF, n: usize) -> Option<(Value, Value)> {
+        Some(match &f.kind {
+            SK::Bool | SK::BoolBit { .. } => {
+                // Flip whatever is there, so the encoder is always exercised.
+                let cur = decode_field(body, f).as_bool().unwrap_or(false);
+                let v = Value::Bool(!cur);
+                (v.clone(), v)
+            }
+            SK::Uint { width } | SK::UintLe { width } => {
+                let max = (1u64 << (8 * *width as u64)) - 1;
+                let v = Value::from((n as u64).wrapping_mul(2_654_435_761) % (max + 1));
+                (v.clone(), v)
+            }
+            SK::Enum { labels, .. } => {
+                if labels.is_empty() {
+                    return None;
+                }
+                let (raw, label) = labels[n % labels.len()];
+                (Value::from(label), label_for(labels, raw))
+            }
+            SK::Text { len } => {
+                if *len == 0 {
+                    return None;
+                }
+                // ASCII, no trailing space (the decoder trims those), shorter
+                // than the field so the padding tail is exercised too.
+                let take = (*len as usize).min(5);
+                let s: String = (0..take)
+                    .map(|i| (b'A' + ((n + i) % 26) as u8) as char)
+                    .collect();
+                let v = Value::from(s);
+                (v.clone(), v)
+            }
+        })
+    }
+
+    /// ⚠ FINDING, not a property worth keeping: on this radio a save the
+    /// operator did not make is NOT always inert. Two concrete cases, both
+    /// reproduced here:
+    ///
+    ///   * a `Bool` byte holding anything but 0 or 1 decodes as `true` and is
+    ///     rewritten as 0x01;
+    ///   * a `Text` field holding real characters followed by an `0xff` tail
+    ///     decodes with the tail cut off and is rewritten NUL-padded to the full
+    ///     width. The driver's own decoder comment says untouched APRS rows are
+    ///     "0xff, sometimes 0xff then NUL", so a partly-filled row is the
+    ///     natural in-between — and `already_empty` only covers the fully-empty
+    ///     case.
+    ///
+    /// The ID-52 does not have this: its `apply_settings` skips any field whose
+    /// stored bytes already decode to the incoming value, so the operator's own
+    /// encoding survives. Adding the same short-circuit here would fix both
+    /// cases at once.
+    ///
+    /// Whether a real `.d75` ever holds either byte pattern is a question only a
+    /// capture answers, which is why this pins the behaviour rather than
+    /// asserting the fix. **If you are reading this because you added the
+    /// short-circuit: delete this test** and assert the ID-52's property
+    /// instead (`a_no_op_save_leaves_non_canonical_bytes_alone`).
+    #[test]
+    fn a_no_op_save_still_rewrites_two_kinds_of_non_canonical_byte() {
+        let mut body = normalised_body();
+
+        let text = THD75_SETTINGS_FIELDS
+            .iter()
+            .find(|f| matches!(f.kind, SK::Text { len } if len >= 4))
+            .expect("a text field");
+        let SK::Text { len } = text.kind else {
+            unreachable!()
+        };
+        let at = text.byte as usize;
+        body[at] = b'W';
+        body[at + 1] = b'8';
+        for b in body[at + 2..at + len as usize].iter_mut() {
+            *b = 0xff;
+        }
+
+        let flag = THD75_SETTINGS_FIELDS
+            .iter()
+            .find(|f| matches!(f.kind, SK::Bool))
+            .expect("a bool field");
+        body[flag.byte as usize] = 0x5A;
+
+        let before = body.clone();
+        let decoded = decode_settings(&body);
+        apply_settings(&mut body, &decoded.as_object().expect("an object").clone());
+
+        assert_eq!(
+            body[flag.byte as usize], 0x01,
+            "{}: a non-0/1 flag byte is normalised on a save nobody asked for",
+            flag.key
+        );
+        assert!(
+            body[at + 2..at + len as usize].iter().all(|&b| b == 0),
+            "{}: the 0xff tail is NUL-filled on a save nobody asked for",
+            text.key
+        );
+
+        // And nothing ELSE moves — the two cases above are the whole of it, so
+        // a third one appearing is a regression this test will catch.
+        let moved: Vec<usize> = (0..before.len())
+            .filter(|&i| before[i] != body[i])
+            .filter(|&i| i != flag.byte as usize && !(at..at + len as usize).contains(&i))
+            .collect();
+        assert!(
+            moved.is_empty(),
+            "a third non-inert case appeared, first at {:#06x} — {}",
+            moved[0],
+            THD75_SETTINGS_FIELDS
+                .iter()
+                .find(|f| moved[0] >= f.byte as usize && moved[0] < field_end(f))
+                .map_or("<no field claims it>", |f| f.key)
+        );
+    }
+
+    /// Every field must encode as the exact inverse of its decode, and must
+    /// write NOTHING outside the extent `field_end` declares for it.
+    ///
+    /// The second half is the one that matters and the one a read-back test
+    /// cannot see: get a stride or a width wrong and the writer silently
+    /// clobbers whatever lives next door, while every test that checks the
+    /// bytes the writer got right still passes.
+    ///
+    /// ⚠ What this does NOT prove: that these encodings match what the RADIO
+    /// writes. Only a real capture can say that, which is what the `#[ignore]`d
+    /// `a_profile_read_from_a_capture_writes_it_back_unchanged` above is for.
+    /// This proves the table is self-consistent and stays in its lane.
+    #[test]
+    fn every_field_round_trips_and_stays_inside_its_own_extent() {
+        let mut body = patterned_body();
+        let mut exercised = 0;
+
+        for (n, f) in THD75_SETTINGS_FIELDS.iter().enumerate() {
+            let Some((apply, expect)) = probe_value(&body, f, n) else {
+                continue;
+            };
+            let before = body.clone();
+
+            let mut one = Map::new();
+            one.insert(f.key.to_string(), apply.clone());
+            let written = apply_settings(&mut body, &one);
+            assert_eq!(written, 1, "{} was not accepted (sent {apply})", f.key);
+
+            let got = decode_field(&body, f);
+            assert_eq!(got, expect, "{} did not survive a round trip", f.key);
+
+            let (lo, hi) = (f.byte as usize, field_end(f));
+            for (i, (a, b)) in before.iter().zip(&body).enumerate() {
+                assert!(
+                    a == b || (lo..hi).contains(&i),
+                    "{} claims bytes {lo:#06x}..{hi:#06x} but writing it changed \
+                     {i:#06x} ({a:#04x} -> {b:#04x})",
+                    f.key
+                );
+            }
+            exercised += 1;
+        }
+
+        assert!(exercised > 300, "only {exercised} fields exercised");
+    }
+
+    /// Saving a profile you did not edit must move zero bytes.
+    ///
+    /// This is the whole bargain of a card radio: the app patches the operator's
+    /// OWN file, so a save they did not ask for has to be inert. The FT5D
+    /// regression that sent a real radio back to its first-boot call-sign prompt
+    /// was exactly this — `apply` padding a value nobody edited differently from
+    /// the way the radio wrote it.
+    ///
+    /// Run against a body whose every field has already been through `apply`, so
+    /// the values are ones this encoder can actually produce, while every byte
+    /// no field claims still carries the pattern.
+    #[test]
+    fn a_profile_nobody_edited_writes_zero_bytes() {
+        let mut body = normalised_body();
+        let before = body.clone();
+        let decoded = decode_settings(&body);
+        let settings = decoded.as_object().expect("an object").clone();
+        let applied = apply_settings(&mut body, &settings);
+        assert_eq!(
+            applied,
+            settings.len(),
+            "every decoded field should be accepted on the way back"
+        );
+
+        let moved: Vec<usize> = (0..before.len()).filter(|&i| before[i] != body[i]).collect();
+        assert!(
+            moved.is_empty(),
+            "{} bytes changed on a no-op save, first at {:#06x} — {}",
+            moved.len(),
+            moved.first().copied().unwrap_or(0),
+            THD75_SETTINGS_FIELDS
+                .iter()
+                .find(|f| moved[0] >= f.byte as usize && moved[0] < field_end(f))
+                .map_or("<no field claims it>", |f| f.key)
+        );
+    }
+
     /// Apply a whole saved profile back onto the capture it was read from, and
     /// assert the body comes out BYTE-IDENTICAL.
     ///

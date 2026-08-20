@@ -475,10 +475,11 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../scratchpad/id52/id52_01_base.icf"
         );
-        let Ok(text) = std::fs::read_to_string(path) else {
-            eprintln!("skipped: no capture at {path}");
-            return;
-        };
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            panic!("this test needs the capture at {path} ({e}). It is #[ignore]d because \
+                    scratchpad/ is gitignored — running it without the file must FAIL, not \
+                    quietly pass having asserted nothing. (#89)")
+        });
 
         let icf = IcfFile::parse(&text).expect("a real ID-52 file must parse");
         assert_eq!(icf.model_id(), super::super::ID52_MODEL_ID);

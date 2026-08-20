@@ -744,6 +744,95 @@ mod tests {
     /// cargo test --lib patches_the_real_backup -- --ignored --nocapture
     /// python3 scratchpad/ft5d/verify_patched.py
     /// ```
+    /// The seven images whose fate on a real FT5D is known, recorded as the only
+    /// three numbers that matter about each one.
+    ///
+    /// `image_sum` is a plain byte sum, so the CONTENT of these dumps is
+    /// irrelevant to the rule — only their sums are. Recording
+    /// `(computed_sum, stored_checksum, radio_verdict)` keeps the hardware fact
+    /// while leaving the personal dumps in the gitignored scratchpad where they
+    /// belong, which is what lets the test below run in CI. (#89)
+    ///
+    /// Measured 2026-08-19 from `scratchpad/ft5d/diag/`; regenerate with the
+    /// `#[ignore]`d test below if the dumps ever change.
+    const CHECKSUM_FACTS: &[(&str, u32, u32, bool)] = &[
+        ("01_radio_original.dat", 0x01C3_8C04, 0x01C3_8C04, true),
+        ("04_rt_good.dat", 0x01C3_C5EB, 0x01C3_C5EB, true),
+        ("06_rt_fewer.dat", 0x01CF_06CE, 0x01CF_06CE, true),
+        ("T1_rt_plus_one_name.dat", 0x01C3_C561, 0x01C3_C561, true),
+        ("05_ours_cksum.dat", 0x01CE_E8EE, 0x01C3_E8EE, false),
+        ("H1_ours_memory_and_flags.dat", 0x01CF_025A, 0x01C3_025A, false),
+        ("H4_wipe_only.dat", 0x01CF_9452, 0x01C3_9452, false),
+    ];
+
+    /// A valid-shaped FT5D image whose contents sum to exactly `target` and
+    /// whose stored checksum field holds exactly `stored`.
+    fn image_with_sum(target: u32, stored: u32) -> Vec<u8> {
+        let mut img = vec![0u8; IMAGE_LEN];
+        img[MODEL_OFF..MODEL_OFF + MODEL_PREFIX.len()].copy_from_slice(MODEL_PREFIX);
+        let mut need = target - image_sum(&img);
+        let mut i = CKSUM_AT;
+        while need > 0 && i > MODEL_OFF + MODEL_PREFIX.len() {
+            i -= 1;
+            let add = need.min(0xFF) as u8;
+            img[i] = add;
+            need -= add as u32;
+        }
+        assert_eq!(need, 0, "a sum of {target:#010X} does not fit in this image");
+        img[CKSUM_AT..CKSUM_AT + CKSUM_LEN].copy_from_slice(&stored.to_be_bytes());
+        assert_eq!(image_sum(&img), target);
+        img
+    }
+
+    /// ★ The rule that a real radio factory-reset itself to teach us, now
+    /// runnable without the dumps.
+    ///
+    /// A 16-bit reading of the checksum fitted every image the radio ACCEPTED,
+    /// which is why it shipped. The rejections are what disprove it — and the
+    /// numbers say something sharper than "16 bits is wrong": all three
+    /// rejected images agree with their stored checksum in the low 16 bits, so
+    /// a 16-bit check separates NOTHING. It would have called every one of the
+    /// seven good.
+    ///
+    /// That second assertion is the one with teeth. Any future rule that cannot
+    /// tell these two groups apart is the bug we already shipped, and a rule
+    /// that only looks at the acceptances cannot tell.
+    #[test]
+    fn the_checksum_rule_separates_accepted_from_reset_and_a_16_bit_one_cannot() {
+        let mut agreed_in_low_word = 0;
+
+        for &(name, sum, stored, accepted) in CHECKSUM_FACTS {
+            assert_eq!(
+                sum == stored,
+                accepted,
+                "{name}: the radio {} it, but 32-bit agreement says {}",
+                if accepted { "accepted" } else { "reset on" },
+                sum == stored
+            );
+
+            // Wire the recorded numbers to the real code path.
+            let img = image_with_sum(sum, stored);
+            assert_eq!(stored_checksum(&img), stored, "{name}");
+            assert_eq!(
+                validate_backup(&img).is_ok(),
+                accepted,
+                "{name}: validate_backup disagrees with the radio"
+            );
+
+            if sum & 0xFFFF == stored & 0xFFFF {
+                agreed_in_low_word += 1;
+            }
+        }
+
+        assert_eq!(
+            agreed_in_low_word,
+            CHECKSUM_FACTS.len(),
+            "the low 16 bits agree on every one of these images — if that has \
+             stopped being true, this test's whole point has moved and the \
+             comment above needs rewriting, not the assertion"
+        );
+    }
+
     /// The checksum rule, checked against every image whose fate on real
     /// hardware we know. The rejected ones matter as much as the accepted ones:
     /// a 16-bit reading also matched all four acceptances, and only the
@@ -753,17 +842,12 @@ mod tests {
     #[ignore = "needs scratchpad/ft5d/diag/, dumps of a personal radio"]
     fn checksum_separates_images_the_radio_accepted_from_the_ones_it_reset_on() {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../scratchpad/ft5d/diag");
-        let cases = [
-            ("01_radio_original.dat", true),
-            ("04_rt_good.dat", true),
-            ("06_rt_fewer.dat", true),
-            ("T1_rt_plus_one_name.dat", true),
-            ("05_ours_cksum.dat", false),
-            ("H1_ours_memory_and_flags.dat", false),
-            ("H4_wipe_only.dat", false),
-        ];
-        for (name, accepted) in cases {
+        for &(name, sum, stored, accepted) in CHECKSUM_FACTS {
             let img = std::fs::read(format!("{dir}/{name}")).expect(name);
+            // Keep CHECKSUM_FACTS honest: it is what the CI test runs on, so a
+            // dump that changed must move the numbers, not be silently ignored.
+            assert_eq!(image_sum(&img), sum, "{name}: recorded sum is stale");
+            assert_eq!(stored_checksum(&img), stored, "{name}: recorded checksum is stale");
             let agrees = stored_checksum(&img) == image_sum(&img);
             assert_eq!(
                 agrees, accepted,
@@ -817,10 +901,11 @@ mod tests {
     fn patches_the_real_backup() {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../scratchpad/ft5d");
         let src = format!("{dir}/ft5d_01_real.dat");
-        let Ok(template) = std::fs::read(&src) else {
-            eprintln!("skipped: {src} not present");
-            return;
-        };
+        let template = std::fs::read(&src).unwrap_or_else(|e| {
+            panic!("this test needs {src} ({e}). It is #[ignore]d because scratchpad/ is \
+                    gitignored — running it without the file must FAIL, not quietly pass \
+                    having asserted nothing. (#89)")
+        });
 
         let mut repeater = chan(1, "W0UPS", 447.275);
         repeater.duplex = Some("-".into());

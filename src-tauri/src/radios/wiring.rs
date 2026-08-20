@@ -184,3 +184,56 @@ fn every_card_format_is_wired_into_the_frontend() {
         );
     }
 }
+
+/// The profile form must decide "is this a card radio?" from how the radio is
+/// PROGRAMMED, never from whether a settings reader happens to be wired yet.
+///
+/// That flag is what passes `defaults=false` into `seedValues`, which is the
+/// single thing standing between a card radio and a form full of this app's
+/// guesses — and the guess gets patched into the file the radio itself wrote.
+///
+/// The test above deliberately `continue`s past a driver with no
+/// `decode_settings`, because a card radio whose settings are unmeasured
+/// legitimately has no reader. That is exactly the state this one covers: it is
+/// the normal intermediate state of every new-radio branch, and while
+/// `isCardRadio` was keyed on `CARD_SETTINGS_READERS` it was also the state that
+/// seeded ~300 defaults. Keying on the media-write map instead makes the flag
+/// true from the moment the radio is programmed from a card, reader or not.
+///
+/// Read as text for the same reason as its neighbour — there is no test runner
+/// on the frontend. (#90)
+#[test]
+fn the_profile_form_calls_a_card_radio_by_how_it_is_programmed() {
+    let root = manifest_dir().join("..");
+    let editor = read(&root.join("src/components/profiles/ProfileEditor.tsx"));
+
+    let decl = editor
+        .lines()
+        .find(|l| l.trim_start().starts_with("const isCardRadio"))
+        .unwrap_or_else(|| {
+            panic!(
+                "no `const isCardRadio` in ProfileEditor.tsx. It is what passes defaults=false \
+                 into seedValues — if it was renamed, repoint this guard rather than deleting it."
+            )
+        });
+    assert!(
+        decl.contains("mediaWriteForFormat"),
+        "isCardRadio is derived from `{}`. It must come from mediaWriteForFormat (how the radio \
+         is programmed), not from CARD_SETTINGS_READERS (whether a decoder is wired yet) — \
+         otherwise a card radio with a settings schema and no decoder seeds every field with a \
+         schema default and Save patches this app's guesses into the operator's own file.",
+        decl.trim()
+    );
+    assert!(
+        !decl.contains("CARD_SETTINGS_READERS") && !decl.contains("cardReader"),
+        "isCardRadio is derived from the settings-reader map: `{}`",
+        decl.trim()
+    );
+
+    // And the flag has to still be the thing that suppresses the defaults.
+    assert!(
+        editor.contains("!isCardRadio"),
+        "ProfileEditor.tsx no longer passes !isCardRadio as seedValues' `defaults` argument — the \
+         flag this test guards is not reaching the seeding decision."
+    );
+}
