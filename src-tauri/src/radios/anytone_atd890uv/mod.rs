@@ -409,7 +409,7 @@ pub(crate) fn writable_window_name(addr: u32) -> Option<&'static str> {
     // 0x7C000 gap after each bank is not writable.
     if addr >= CHANNEL_BASE {
         let off = addr - CHANNEL_BASE;
-        if off % BANK_STEP == 0 && off / BANK_STEP < NUM_BANKS as u32 {
+        if off.is_multiple_of(BANK_STEP) && off / BANK_STEP < NUM_BANKS as u32 {
             return Some("channel bank");
         }
     }
