@@ -10,7 +10,9 @@ import type {
   Codeplug,
   CodeplugInput,
   CodeplugSummary,
+  BackupPruneResult,
   CodeplugWritten,
+  RadioBackupsSummary,
   DashboardStats,
   GeoPoint,
   ExportPreview,
@@ -370,6 +372,12 @@ export const api = {
   restoreImage: (port: string, path: string) =>
     invoke<RestoreResult>("restore_image", { port, path }),
   backupsDir: () => invoke<string>("backups_dir"),
+  // What is in radio-backups/, and the operator-initiated prune. Nothing here
+  // deletes on its own — see the Rust module for why (#77).
+  radioBackupsSummary: (keep?: number) =>
+    invoke<RadioBackupsSummary>("radio_backups_summary", { keep: keep ?? null }),
+  pruneRadioBackups: (keep: number) =>
+    invoke<BackupPruneResult>("prune_radio_backups", { keep }),
 
   // ---- direct radio programming (AnyTone AT-D890UV, Stage 1: read-only) ----
   downloadAnytoneImage: (port: string) =>

@@ -829,3 +829,34 @@ export interface MemoryCard {
   /// A pristine `.orig` from an earlier write already sits beside it.
   has_original: boolean;
 }
+
+/// One radio's worth of files in `radio-backups/`, from `radio_backups_summary`.
+export interface RadioBackupGroup {
+  /// The filename token they share — a driver key on newer paths, a short radio
+  /// name on the ones that predate them.
+  key: string;
+  label: string;
+  files: number;
+  bytes: number;
+  /// Newest backup in the group as `YYYY-MM-DD`, or null if the file carries no
+  /// readable time.
+  newest: string | null;
+  /// What a prune to `keep` per radio would remove from this group.
+  prunable_files: number;
+  prunable_bytes: number;
+}
+
+/// The whole folder. Reported so the operator can see what has accumulated;
+/// nothing is ever deleted without them asking (#77).
+export interface RadioBackupsSummary {
+  dir: string;
+  files: number;
+  bytes: number;
+  groups: RadioBackupGroup[];
+  keep: number;
+}
+
+export interface BackupPruneResult {
+  files_deleted: number;
+  bytes_freed: number;
+}

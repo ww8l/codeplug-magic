@@ -144,7 +144,9 @@ pub fn run() {
             commands::program::program_radio,
             // direct radio programming (UV-5R)
             commands::program::restore_image,
-            commands::program::backups_dir,
+            commands::radio_backups::backups_dir,
+            commands::radio_backups::radio_backups_summary,
+            commands::radio_backups::prune_radio_backups,
             // direct radio programming (AnyTone AT-D890UV) — Stage 1: read-only
             commands::anytone::download_anytone_image,
             // radio download → library import (channels / zones→lists / contacts→TGs)
