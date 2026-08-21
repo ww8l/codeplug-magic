@@ -1156,21 +1156,32 @@ mod tests {
         }
     }
 
-    /// ⚠ FINDING, pinned rather than fixed (#89): `build_channel_bank_plans`
-    /// stops at the FIRST fully-empty bank past the plan, so stale records in
-    /// any bank beyond it are neither cleared nor counted.
+    /// `build_channel_bank_plans` stops at the FIRST fully-empty bank past the
+    /// plan, so stale records in any bank beyond it keep their bytes and are
+    /// not counted as cleared.
     ///
-    /// The stop rule reasons that the radio allocates channels sequentially, so
-    /// an empty bank means there is nothing further to clear. That holds for a
-    /// radio only ever written by this app. What it assumes about a radio that
-    /// has also been written by AnyTone's CPS, or edited from the front panel,
-    /// is not something any test or hardware session here has established.
+    /// s114 pinned this as an open finding. It is not a correctness problem,
+    /// and the reason is the last assertion here: the channel present-bitmap is
+    /// rewritten WHOLE on every program — `run_program` pushes a
+    /// `CHANNEL_BITMAP_BASE` patch built by `present_bitmap(plan.len(), …)`
+    /// unconditionally — so the bit gating a stale record is cleared even when
+    /// its bytes survive, and the radio does not show it. Writing records
+    /// without that bitmap is what once made 59 channels appear as 29; the
+    /// bitmap is the thing the radio actually reads.
     ///
-    /// This is the first test to run that loop at all — it needs a radio to
-    /// answer bank reads, which is what [`FakePort`] now provides. It asserts
-    /// the CURRENT behaviour, including the under-count, so the cost is visible
-    /// and a change to the rule shows up as a failing test rather than a silent
-    /// difference in what reaches flash.
+    /// What the stop rule really costs is the `cleared.slots` COUNT, which the
+    /// program report shows. Scanning to the end regardless would fix the count
+    /// at the price of reading all 32 banks — 2 MB over the cable on every
+    /// program — to erase bytes the radio already ignores. Not worth it.
+    ///
+    /// ⚠ One bounded caveat: the bitmap covers `MAX_CHANNELS_BITMAP` (4000)
+    /// slots while the banks hold 32 × 128 = 4096. A stale record in slots
+    /// 4001-4096 would be gated by no bit at all. The D890UV has 4000 memories,
+    /// so nothing this app writes can land there — but nothing here has
+    /// established what AnyTone's own CPS does with that tail.
+    ///
+    /// This is also the first test to run that loop at all: it needs a radio to
+    /// answer bank reads, which is what [`FakePort`] provides.
     #[test]
     fn a_hole_in_the_bank_allocation_leaves_the_banks_past_it_alone() {
         use crate::radios::fake_port::{FakeAnytone, FakePort};
@@ -1208,6 +1219,19 @@ mod tests {
 
         // And it is still there, untouched, after the plan is built.
         assert_eq!(p.radio.peek(bank2, CH_REC_LEN), stale);
+
+        // …but the radio cannot see it. The whole channel present-bitmap goes
+        // out on every program, so the bit for that slot is cleared regardless
+        // of which banks were read. Slot 0-based 256 is bank 2, slot 1.
+        let stale_slot0 = 2 * CH_PER_BANK;
+        let bitmap = present_bitmap(plan.len(), CHANNEL_BITMAP_BYTES);
+        assert_eq!(
+            bitmap[stale_slot0 / 8] & (1 << (stale_slot0 % 8)),
+            0,
+            "the stale record's present bit must be cleared even though its bytes stay"
+        );
+        // The one planned channel is present, so the bitmap is not simply empty.
+        assert_eq!(bitmap[0] & 1, 1);
     }
 
     fn contact(index: u16, tg_number: u32, name: &str) -> PlannedContact {
