@@ -209,7 +209,7 @@ export function ProgramRadioDialog({
       setDownload(null);
       setProgram(null);
       setIdent(null);
-      const res = await api.restoreImage(port, picked);
+      const res = await api.restoreImage(driverKey, port, picked);
       const { toast } = await import("sonner");
       toast.success(
         `Restored ${res.bytes.toLocaleString()} bytes to the radio. Power-cycle it to check.`,
@@ -369,22 +369,26 @@ export function ProgramRadioDialog({
               )}
               {/* Backup/restore are whole-image operations, so they exist only
                   on clone radios. A driver that programs from the database
-                  (the AnyTone) takes its own backups inside the program run. */}
+                  (the AnyTone) takes its own backups inside the program run.
+                  The two are separate capabilities: taking a backup does not
+                  mean the driver can put one back, and this button used to
+                  appear for any clone radio while the command behind it spoke
+                  UV-5R only. */}
               {showCable && caps?.program_image && (
-                <>
-                  <Button onClick={doDownload} disabled={!port || busy !== null}>
-                    {busy === "download" ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
-                    Download backup
-                  </Button>
-                  <Button
-                    onClick={doRestore}
-                    disabled={!port || busy !== null}
-                    title="Flash a previously-saved backup .img back to the radio"
-                  >
-                    {busy === "restore" ? <Spinner className="h-3.5 w-3.5" /> : <Undo2 size={14} />}
-                    Restore backup…
-                  </Button>
-                </>
+                <Button onClick={doDownload} disabled={!port || busy !== null}>
+                  {busy === "download" ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
+                  Download backup
+                </Button>
+              )}
+              {showCable && caps?.restore_image && (
+                <Button
+                  onClick={doRestore}
+                  disabled={!port || busy !== null}
+                  title="Flash a previously-saved backup .img back to the radio"
+                >
+                  {busy === "restore" ? <Spinner className="h-3.5 w-3.5" /> : <Undo2 size={14} />}
+                  Restore backup…
+                </Button>
               )}
               <div className="ml-auto flex flex-wrap items-center gap-2">
                 {media && (

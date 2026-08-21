@@ -124,6 +124,9 @@ pub(crate) trait RadioDriver: Send + Sync {
     fn as_image_programmer(&self) -> Option<&dyn ImageProgrammer> {
         None
     }
+    fn as_image_restorer(&self) -> Option<&dyn ImageRestorer> {
+        None
+    }
     fn as_settings_reader(&self) -> Option<&dyn SettingsReader> {
         None
     }
@@ -478,6 +481,34 @@ pub struct CallsignDbReport {
     pub note: String,
 }
 
+/// Radios that can take one of their own backups and put it back.
+///
+/// Separate from [`ImageProgrammer`] on purpose. Every clone radio can *take* a
+/// backup, and until this trait existed the Program dialog offered "Restore
+/// backup…" to all of them — while `restore_image` spoke UV-5R and nothing
+/// else, so a TD-H3 owner got a button that could only ever answer "the
+/// connected radio did not identify as a UV-5R". That is the one moment
+/// recovery matters. A capability the UI can read has to come from a driver
+/// that actually implements the write, which is what this is.
+///
+/// `Send + Sync` for the same `spawn_blocking` reason as the others.
+pub(crate) trait ImageRestorer: Send + Sync {
+    /// Whether `image` is one of THIS radio's backups, before a byte of it is
+    /// uploaded. Pure — no radio — so it is unit-testable and runs first.
+    ///
+    /// `radio-backups/` holds images for every radio the app talks to, and the
+    /// picker opens there. Checks SHAPE, not which unit the image came from:
+    /// restoring a backup taken from another radio of the same model is a
+    /// normal thing to do, and this is the path reached for after a bad write.
+    fn check_restore_image(&self, image: &[u8]) -> Result<(), String>;
+
+    /// Write a whole backup image back, in ONE session — handshake included.
+    /// Not composed from `identify` + `upload_image` by the caller: the clone
+    /// protocols hand the ident straight to the block writer, and a proven
+    /// one-session flow must not become two to satisfy a trait shape.
+    fn restore_image(&self, port: &str, image: &[u8]) -> Result<(), String>;
+}
+
 /// Radios with an on-board DMR contacts / call-sign database (AnyTone D890UV).
 /// `Send + Sync` for the same `spawn_blocking` reason as the other capabilities.
 pub(crate) trait CallsignDbWriter: Send + Sync {
@@ -541,6 +572,9 @@ pub(crate) trait DriverDiagnostics {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct DriverCapabilities {
     pub program_image: bool,
+    /// Can put one of its own backups back on the radio — NOT implied by
+    /// `program_image`, which only means a backup can be taken.
+    pub restore_image: bool,
     pub read_settings: bool,
     pub write_settings: bool,
     pub write_channels: bool,
@@ -557,6 +591,7 @@ impl DriverCapabilities {
     pub(crate) fn of(driver: &dyn RadioDriver) -> Self {
         Self {
             program_image: driver.as_image_programmer().is_some(),
+            restore_image: driver.as_image_restorer().is_some(),
             read_settings: driver.as_settings_reader().is_some(),
             write_settings: driver.as_settings_writer().is_some(),
             write_channels: driver.as_channel_writer().is_some(),

@@ -30,7 +30,7 @@ use crate::error::MapErrString;
 use crate::models::{Channel, RadioModel};
 use crate::radios::driver::{
     CodeplugProgramReport, DecodedChannelSample, ImageProgramRequest, ImageProgrammer,
-    RadioDriver, RadioIdentity,
+    ImageRestorer, RadioDriver, RadioIdentity,
 };
 
 const BAUD: u32 = 9600;
@@ -68,8 +68,9 @@ const IDENT_TERMINATOR: u8 = 0xDD;
 ///
 /// `restore_image` already proves a UV-5R is on the CABLE; this proves the FILE
 /// is one too. They are independent, and `radio-backups/` holds images for every
-/// radio this app talks to — a TD-H3 backup is 0x2008 bytes and carries its own
-/// 0xDD-terminated ident, so length is what separates them.
+/// radio this app talks to — a TD-H3 backup is 0x2008 bytes, so length is what
+/// separates them. (Its ident is not 0xDD-terminated, contra CHIRP's comment:
+/// every real TD-H3 backup to hand ends `ff ff`. Only the length is load-bearing.)
 ///
 /// Deliberately checks SHAPE, not which unit the image came from: uploading a
 /// backup taken from another UV-5R of the same family is a normal thing to do,
@@ -154,11 +155,33 @@ impl RadioDriver for BaofengUv5r {
         Some(self)
     }
 
+    fn as_image_restorer(&self) -> Option<&dyn ImageRestorer> {
+        Some(self)
+    }
+
     /// Read only: the UV-5R has no standalone settings-write path — its profile
     /// settings are encoded into the image `program_codeplug` uploads, never
     /// pushed on their own. Hence [`SettingsReader`] without [`SettingsWriter`].
     fn as_settings_reader(&self) -> Option<&dyn crate::radios::driver::SettingsReader> {
         Some(self)
+    }
+}
+
+impl ImageRestorer for BaofengUv5r {
+    fn check_restore_image(&self, image: &[u8]) -> Result<(), String> {
+        check_restore_image(image)
+    }
+
+    /// Hardware-proven flow, moved here verbatim from `restore_image`: one
+    /// port, one handshake, one upload. The magic check stays — the file having
+    /// the right shape does not make the radio on the cable a UV-5R.
+    fn restore_image(&self, port: &str, image: &[u8]) -> Result<(), String> {
+        let mut p = open_port(port)?;
+        let (magic, _ident) = ident_radio(&mut *p)?;
+        if !magic.starts_with("UV5R") {
+            return Err("the connected radio did not identify as a UV-5R".into());
+        }
+        upload_full_image(&mut *p, image)
     }
 }
 
@@ -1162,8 +1185,9 @@ mod tests {
         assert!(check_restore_image(&ident(vec![0u8; MIN_IMAGE_LEN])).is_ok());
         assert!(check_restore_image(&ident(vec![0u8; FULL_IMAGE_LEN])).is_ok());
 
-        // A TD-H3 backup: 0x2008 bytes, and its ident is 0xDD-terminated too, so
-        // length is the only thing that separates them.
+        // A TD-H3 backup: 0x2008 bytes. Length is what separates the two — its
+        // ident is NOT 0xDD-terminated (all 36 on the machine this was checked
+        // on end `ff ff`), so 0xDD alone would not have caught it either way.
         let tdh3 = ident(vec![0u8; 0x2008]);
         let e = check_restore_image(&tdh3).unwrap_err();
         assert!(e.contains("8200 bytes"), "{e}");

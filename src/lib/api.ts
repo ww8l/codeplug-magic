@@ -367,8 +367,8 @@ export const api = {
     }),
 
   // ---- direct radio programming (UV-5R) ----
-  restoreImage: (port: string, path: string) =>
-    invoke<RestoreResult>("restore_image", { port, path }),
+  restoreImage: (driverKey: string, port: string, path: string) =>
+    invoke<RestoreResult>("restore_image", { driverKey, port, path }),
   backupsDir: () => invoke<string>("backups_dir"),
 
   // ---- direct radio programming (AnyTone AT-D890UV, Stage 1: read-only) ----

@@ -181,6 +181,9 @@ export interface RadioModel {
 /// (`driver_capabilities`). Gate UI on this rather than on model names.
 export interface DriverCapabilities {
   program_image: boolean;
+  /// Can put one of its own backups back on the radio. NOT implied by
+  /// `program_image`, which only means a backup can be taken.
+  restore_image: boolean;
   read_settings: boolean;
   write_settings: boolean;
   write_channels: boolean;
