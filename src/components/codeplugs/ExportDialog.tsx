@@ -82,6 +82,10 @@ export function ExportDialog({
             ? `Exported ${count} channel${plural} to ${base}_Channels.csv + ${base}_TalkGroups.csv`
             : `Exported ${count} channel${plural} to ${fileName}`,
       );
+      // Settings the export left behind because they are outside the range the
+      // schema declares. Separate from the success line: the file was written,
+      // and this says what is not in it (#87).
+      if (written.note) toast.warning(written.note, { duration: 12000 });
       onExported();
       onClose();
     }

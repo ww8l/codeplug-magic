@@ -176,23 +176,6 @@ function ScanSettingsFields({
     </select>
   );
 
-  // Seconds <-> 0.1-s units. Empty/NaN clamps to 0.
-  const secInput = (
-    units: number,
-    onChange: (units: number) => void,
-  ) => (
-    <TextInput
-      type="number"
-      min={0}
-      step={0.1}
-      value={units / 10}
-      onChange={(e) => {
-        const s = parseFloat(e.target.value);
-        onChange(Number.isFinite(s) ? Math.max(0, Math.round(s * 10)) : 0);
-      }}
-    />
-  );
-
   return (
     <div className="mt-1 flex flex-col gap-3 border-t border-slate-200 pt-3 dark:border-slate-700">
       <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
@@ -236,19 +219,31 @@ function ScanSettingsFields({
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1">
           <span className={fieldLabel}>Look-back Time A (s)</span>
-          {secInput(settings.look_back_a, (u) => patch({ look_back_a: u }))}
+          <SecondsInput
+            units={settings.look_back_a}
+            onChange={(u) => patch({ look_back_a: u })}
+          />
         </label>
         <label className="flex flex-col gap-1">
           <span className={fieldLabel}>Look-back Time B (s)</span>
-          {secInput(settings.look_back_b, (u) => patch({ look_back_b: u }))}
+          <SecondsInput
+            units={settings.look_back_b}
+            onChange={(u) => patch({ look_back_b: u })}
+          />
         </label>
         <label className="flex flex-col gap-1">
           <span className={fieldLabel}>Dropout Delay (s)</span>
-          {secInput(settings.dropout_delay, (u) => patch({ dropout_delay: u }))}
+          <SecondsInput
+            units={settings.dropout_delay}
+            onChange={(u) => patch({ dropout_delay: u })}
+          />
         </label>
         <label className="flex flex-col gap-1">
           <span className={fieldLabel}>Dwell Time (s)</span>
-          {secInput(settings.dwell_time, (u) => patch({ dwell_time: u }))}
+          <SecondsInput
+            units={settings.dwell_time}
+            onChange={(u) => patch({ dwell_time: u })}
+          />
         </label>
       </div>
 
@@ -267,5 +262,53 @@ function ScanSettingsFields({
         </select>
       </label>
     </div>
+  );
+}
+
+/**
+ * A scan timer in seconds, stored in tenths.
+ *
+ * It keeps the text being typed rather than re-deriving it from the number on
+ * every keystroke, and it is a text box rather than `type="number"`. Both
+ * matter for one reason: a number input reports a half-typed decimal — "3." —
+ * as the empty string, so the old field collapsed to 0 the instant the point
+ * was pressed and "3.5" was entered as 5.0 seconds (#87).
+ *
+ * Non-numeric text leaves the stored value alone instead of zeroing it, so
+ * clearing the box to retype does not overwrite the setting on the way past.
+ */
+function SecondsInput({
+  units,
+  onChange,
+}: {
+  units: number;
+  onChange: (units: number) => void;
+}) {
+  const [text, setText] = useState(String(units / 10));
+  // Follow the value when it changes from somewhere else (a different list
+  // opened), without fighting what is being typed: a draft that already means
+  // this number is left exactly as the operator wrote it.
+  const [lastUnits, setLastUnits] = useState(units);
+  if (units !== lastUnits) {
+    setLastUnits(units);
+    setText(String(units / 10));
+  }
+
+  return (
+    <TextInput
+      inputMode="decimal"
+      value={text}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setText(raw);
+        const s = parseFloat(raw);
+        if (Number.isFinite(s)) {
+          const next = Math.max(0, Math.round(s * 10));
+          setLastUnits(next);
+          onChange(next);
+        }
+      }}
+      onBlur={() => setText(String(units / 10))}
+    />
   );
 }

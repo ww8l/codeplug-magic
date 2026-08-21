@@ -155,15 +155,46 @@ function sameInput(a: ChannelInput, b: ChannelInput): boolean {
   return true;
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({
+  label,
+  error,
+  children,
+}: {
+  label: string;
+  error?: string;
+  children: ReactNode;
+}) {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
         {label}
       </span>
       {children}
+      {error && (
+        <span className="text-[11px] text-rose-600 dark:text-rose-400">{error}</span>
+      )}
     </label>
   );
+}
+
+/**
+ * Why a per-channel number will not fit the field the radio keeps it in, or
+ * null.
+ *
+ * These end up as one byte, or part of one, in a channel record. Nothing
+ * checked them: a colour code of 99 was accepted here, stored, and quietly
+ * programmed as 15 — the report said the channel was written and never said it
+ * had been changed (#87). The backend refuses the same values now; this is what
+ * says so next to the field.
+ */
+function fieldRangeError(
+  value: number | null | undefined,
+  lo: number,
+  hi: number,
+): string | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  if (!Number.isInteger(value)) return "Whole numbers only.";
+  return value < lo || value > hi ? `Must be between ${lo} and ${hi}.` : null;
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -459,10 +490,29 @@ export function ChannelDetailPanel({
 
   const duplexShifts = form.duplex === "+" || form.duplex === "-";
 
+  // Only the numbers that land in a fixed-width field of a channel record, and
+  // only for the mode that reads them: a channel keeps the values of a mode it
+  // has left, and blocking a save over a field this form no longer draws would
+  // strand the row. `validate_channel_input` draws the same line.
+  const colorCodeError =
+    form.mode === "DMR" ? fieldRangeError(form.dmr_color_code, 0, 15) : null;
+  const canError =
+    form.mode === "M17" ? fieldRangeError(form.m17_can, 0, 15) : null;
+
   const save = async () => {
     if (!form.rx_freq || form.rx_freq <= 0) {
       const { toast } = await import("sonner");
       toast.error("RX frequency is required.");
+      return;
+    }
+    const outOfRange = colorCodeError
+      ? `Color code: ${colorCodeError}`
+      : canError
+        ? `CAN: ${canError}`
+        : null;
+    if (outOfRange) {
+      const { toast } = await import("sonner");
+      toast.error(outOfRange);
       return;
     }
     setSaving(true);
@@ -912,7 +962,7 @@ export function ChannelDetailPanel({
             </Select>
           </Field>
           {form.mode === "DMR" && (
-            <Field label="Color Code">
+            <Field label="Color Code" error={colorCodeError ?? undefined}>
               <TextInput
                 value={form.dmr_color_code != null ? String(form.dmr_color_code) : ""}
                 placeholder="0–15"
@@ -930,7 +980,7 @@ export function ChannelDetailPanel({
             </Field>
           )}
           {form.mode === "M17" && (
-            <Field label="CAN">
+            <Field label="CAN" error={canError ?? undefined}>
               <TextInput
                 value={form.m17_can != null ? String(form.m17_can) : ""}
                 placeholder="0–15"

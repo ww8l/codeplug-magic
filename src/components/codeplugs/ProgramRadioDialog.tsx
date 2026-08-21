@@ -192,6 +192,12 @@ export function ProgramRadioDialog({
       // what the operator has to find on the radio's own Load screen.
       const written = await api.generateCodeplug(codeplugId, to);
       setMediaWritten({ count: written.channels, path: written.path });
+      // Settings left out of the file because they are outside the range the
+      // schema declares — the card was still written (#87).
+      if (written.note) {
+        const { toast } = await import("sonner");
+        toast.warning(written.note, { duration: 12000 });
+      }
     });
   };
 

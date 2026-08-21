@@ -657,17 +657,29 @@ pub async fn write_radio_settings(
         "This profile has no saved settings to apply. Open it under Radios, run \
          \"Download from radio\", and save first.",
     )?;
-    let settings: serde_json::Value = serde_json::from_str(&saved)
+    let mut settings: serde_json::Value = serde_json::from_str(&saved)
         .map_err(|e| format!("saved profile settings are not valid JSON: {e}"))?;
+    // A value outside the range its schema declares would be cast down to a
+    // byte by whichever encoder this driver uses and land on the radio as a
+    // different setting entirely, so it is dropped here rather than written
+    // (#87). The report says which, so a field that stayed behind is visible.
+    let dropped = crate::radios::settings_bounds::strip_out_of_range(&target.schema, &mut settings);
 
     let backup_dir = app.path().app_data_dir().estr()?.join("radio-backups");
     std::fs::create_dir_all(&backup_dir).estr()?;
 
-    tauri::async_runtime::spawn_blocking(move || {
+    let mut report = tauri::async_runtime::spawn_blocking(move || {
         writer.write_settings(&port, &settings, &target.schema, &backup_dir)
     })
     .await
-    .estr()?
+    .estr()??;
+    if let Some(line) = crate::radios::settings_bounds::note_line(&dropped) {
+        report.note = Some(match report.note {
+            Some(existing) => format!("{existing} {line}"),
+            None => line,
+        });
+    }
+    Ok(report)
 }
 
 /// Push the DMR **call-sign database** (caller-ID / "UserDB") to a radio that
@@ -840,26 +852,36 @@ pub async fn program_radio(
             .await
             .estr()?;
 
-        tauri::async_runtime::spawn_blocking(move || {
-            let settings = match (&profile_settings, &schema) {
-                (Some(s), Some(schema)) => {
-                    let value: serde_json::Value = serde_json::from_str(s)
-                        .map_err(|e| format!("saved profile settings are not valid JSON: {e}"))?;
-                    Some((value, schema.as_str()))
-                }
-                _ => None,
-            };
+        // Resolved out here so a value the schema says the radio cannot take is
+        // dropped before the port is opened — the encoder past this point casts
+        // straight down to a byte, which is how 300 was programmed as 44 (#87).
+        let mut dropped: Vec<String> = Vec::new();
+        let settings: Option<(serde_json::Value, String)> = match (&profile_settings, &schema) {
+            (Some(s), Some(schema)) => {
+                let mut value: serde_json::Value = serde_json::from_str(s)
+                    .map_err(|e| format!("saved profile settings are not valid JSON: {e}"))?;
+                dropped = crate::radios::settings_bounds::strip_out_of_range(schema, &mut value);
+                Some((value, schema.clone()))
+            }
+            _ => None,
+        };
+
+        let mut report = tauri::async_runtime::spawn_blocking(move || {
             let req = ImageProgramRequest {
                 model: &model,
                 channels: &slots,
-                settings: settings.as_ref().map(|(v, s)| (v, *s)),
+                settings: settings.as_ref().map(|(v, s)| (v, s.as_str())),
                 backup_dir: &backup_dir,
                 label: &label,
             };
             imager.program_codeplug(&port, &req)
         })
         .await
-        .estr()??
+        .estr()??;
+        report
+            .warnings
+            .extend(crate::radios::settings_bounds::note_line(&dropped));
+        report
     } else {
         return Err(format!(
             "{} cannot be programmed over the cable",

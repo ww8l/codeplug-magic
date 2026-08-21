@@ -184,3 +184,76 @@ fn every_card_format_is_wired_into_the_frontend() {
         );
     }
 }
+
+/// Split a source file's production half into one chunk per top-level `fn`,
+/// each chunk running from its signature to the next one.
+fn top_level_fns(src: &str) -> Vec<(String, String)> {
+    let src = production_half(src);
+    let mut starts: Vec<usize> = Vec::new();
+    for (nl, _) in src.match_indices('\n') {
+        let rest = &src[nl + 1..];
+        if ["fn ", "pub fn ", "async fn ", "pub async fn "]
+            .iter()
+            .any(|kw| rest.starts_with(kw))
+        {
+            starts.push(nl + 1);
+        }
+    }
+    let mut out = Vec::new();
+    for (n, &from) in starts.iter().enumerate() {
+        let to = starts.get(n + 1).copied().unwrap_or(src.len());
+        let body = &src[from..to];
+        let name = body
+            .split("fn ")
+            .nth(1)
+            .and_then(|s| s.split(['(', '<']).next())
+            .unwrap_or("?")
+            .to_string();
+        out.push((name, body.to_string()));
+    }
+    out
+}
+
+/// Anything that hands a profile's settings to a driver checks their range
+/// first.
+///
+/// The schema's `min`/`max` were decoration for the whole life of the project:
+/// the form rendered them as HTML attributes, which flag an out-of-range value
+/// without preventing one, and each driver's encoder cast whatever arrived
+/// straight down to a byte — a UV-5R backlight timeout of 300 reached the radio
+/// as byte 44 (#87). The check is one call, `settings_bounds::check_settings_bounds`,
+/// and it has to run in front of *every* path, not the two someone remembered.
+///
+/// Crude on purpose, like the rest of this file: it reads the source for the
+/// three shapes that carry settings to a radio — an `ImageProgramRequest`, an
+/// `ExportRequest`, and a direct `write_settings` — and requires the same
+/// function to mention the check. A fourth path added later is caught the day
+/// it is written rather than the day it programs somebody's radio.
+#[test]
+fn every_path_that_sends_settings_to_a_radio_checks_their_range_first() {
+    const CARRIES_SETTINGS: [&str; 3] = ["ImageProgramRequest {", "ExportRequest {", ".write_settings("];
+    let mut checked = 0;
+    for file in ["src/commands/program.rs", "src/commands/export.rs"] {
+        let path = manifest_dir().join(file);
+        for (name, body) in top_level_fns(&read(&path)) {
+            let Some(marker) = CARRIES_SETTINGS.iter().find(|m| body.contains(**m)) else {
+                continue;
+            };
+            checked += 1;
+            assert!(
+                body.contains("strip_out_of_range"),
+                "{file}: {name} carries settings to a radio (`{marker}`) but never calls \
+                 strip_out_of_range. \
+                 Every value it carries is about to be cast down to a byte by a driver's \
+                 encoder, so an out-of-range one lands on the radio as a different setting \
+                 and nothing reports it."
+            );
+        }
+    }
+    assert_eq!(
+        checked, 3,
+        "expected the three settings-carrying paths (settings write, codeplug program, card \
+         export) — found {checked}. If a path moved, point this test at it rather than \
+         leaving it passing vacuously"
+    );
+}

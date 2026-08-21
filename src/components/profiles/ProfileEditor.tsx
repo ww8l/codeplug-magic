@@ -5,6 +5,7 @@ import {
 } from "@tauri-apps/plugin-dialog";
 import { Trash2, Save, DownloadCloud, RefreshCw, HardDrive } from "lucide-react";
 import clsx from "clsx";
+import { toast } from "sonner";
 import { api, withToast } from "../../lib/api";
 import {
   mediaWriteForFormat,
@@ -26,6 +27,7 @@ import {
   parseSchema,
   parseSettings,
   seedValues,
+  settingsRangeErrors,
   settingsTabs,
   type SettingsValues,
 } from "../../lib/profiles";
@@ -569,10 +571,12 @@ function Capabilities({ model }: { model: RadioModel }) {
 function SettingsGrid({
   fields,
   values,
+  errors,
   onChange,
 }: {
   fields: SettingField[];
   values: SettingsValues;
+  errors: Record<string, string>;
   onChange: (key: string, v: string | number | boolean) => void;
 }) {
   return (
@@ -590,6 +594,7 @@ function SettingsGrid({
             key={f.key}
             field={f}
             value={values[f.key] ?? ""}
+            error={errors[f.key]}
             onChange={(v) => onChange(f.key, v)}
           />
         ),
@@ -601,10 +606,12 @@ function SettingsGrid({
 function SettingsField({
   field,
   value,
+  error,
   onChange,
 }: {
   field: SettingField;
   value: string | number | boolean;
+  error?: string;
   onChange: (v: string | number | boolean) => void;
 }) {
   if (field.type === "boolean") {
@@ -648,6 +655,8 @@ function SettingsField({
         type="number"
         min={field.min}
         max={field.max}
+        aria-invalid={error ? true : undefined}
+        className={error ? "border-rose-500 dark:border-rose-500" : undefined}
         value={value === "" ? "" : String(value)}
         onChange={(e) => {
           const n = e.target.value === "" ? "" : Number(e.target.value);
@@ -673,6 +682,11 @@ function SettingsField({
         )}
       </span>
       {control}
+      {/* The range is already in the label; this says what to do about it, and
+          is what stops the value being saved at all (#87). */}
+      {error && (
+        <span className="text-[11px] text-rose-600 dark:text-rose-400">{error}</span>
+      )}
     </label>
   );
 }
@@ -711,6 +725,11 @@ export function ProfileEditor({
   const [name, setName] = useState(profile.display_name);
   const [notes, setNotes] = useState(profile.notes ?? "");
   const [values, setValues] = useState<SettingsValues>({});
+  // What the form started from — the profile as stored, plus anything later
+  // read off the radio or its card. A value that is out of range in HERE came
+  // from a radio rather than from the operator, and blocking the save over it
+  // would strand a profile they never typed into (see below).
+  const [baseline, setBaseline] = useState<SettingsValues>({});
   const [lastId, setLastId] = useState<number | null>(null);
   if (profile.id !== lastId) {
     setName(profile.display_name);
@@ -718,13 +737,13 @@ export function ProfileEditor({
     // A card radio's settings are patched into the operator's own file, so this
     // form must not invent values for fields they have never set — see
     // `seedValues`. Read them off the card first, or leave them alone.
-    setValues(
-      seedValues(
-        fields,
-        parseSettings(profile.non_channel_settings),
-        !isCardRadio,
-      ),
+    const seeded = seedValues(
+      fields,
+      parseSettings(profile.non_channel_settings),
+      !isCardRadio,
     );
+    setValues(seeded);
+    setBaseline(seeded);
     setLastId(profile.id);
     setTab("settings");
     setSubTab(null);
@@ -733,8 +752,50 @@ export function ProfileEditor({
   const setValue = (key: string, v: string | number | boolean) =>
     setValues((s) => ({ ...s, [key]: v }));
 
+  // Values that came off the radio (or its card) are the new starting point,
+  // not an edit — a radio is allowed to hold a value this app's schema does not
+  // describe, and it must stay saveable.
+  const loadFromRadio = (loaded: SettingsValues) => {
+    setValues((v) => ({ ...v, ...loaded }));
+    setBaseline((b) => ({ ...b, ...loaded }));
+  };
+
+  // Values the schema says the radio cannot take. Kept live rather than
+  // computed on save so the message appears as the operator types, and so the
+  // sub-tab holding an offending field can be marked (#87).
+  const rangeErrors = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const [key, message] of Object.entries(
+      settingsRangeErrors(fields, values),
+    )) {
+      // A value that was already in the profile is one the radio gave us, and
+      // it is not going to be programmed — say that, rather than issuing an
+      // instruction about a field the operator never touched.
+      out[key] =
+        values[key] === baseline[key]
+          ? `${message} This one is not written to the radio.`
+          : message;
+    }
+    return out;
+  }, [fields, values, baseline]);
+
   const save = async () => {
     if (!name.trim()) return;
+    // Saving an out-of-range value is how it reached the radio: the encoder
+    // casts it down to a byte, so 300 in a 0–24 field was programmed as 44
+    // (#87). Only a value the operator TYPED blocks the save, and it can be
+    // pointed at — including on a sub-tab that is not on screen. One that was
+    // already in the profile is marked but saveable: it came off a radio, and
+    // the write paths drop it with a note rather than programming it.
+    const firstBad = fields.find(
+      (f) => rangeErrors[f.key] && values[f.key] !== baseline[f.key],
+    );
+    if (firstBad) {
+      const tab = subTabs?.find((t) => t.fields.some((f) => f.key === firstBad.key));
+      if (tab) setSubTab(tab.key);
+      toast.error(`${firstBad.label}: ${rangeErrors[firstBad.key]}`);
+      return;
+    }
     setSaving(true);
     const updated = await withToast(
       api.updateRadioProfile(profile.id, {
@@ -824,7 +885,7 @@ export function ProfileEditor({
                 profileId={profile.id}
                 modelLabel={model.display_name}
                 read={api.readRadioSettings}
-                onLoaded={(s) => setValues((v) => ({ ...v, ...s }))}
+                onLoaded={loadFromRadio}
               />
             )}
             {/* A card radio's settings come off its microSD rather than a
@@ -836,7 +897,7 @@ export function ProfileEditor({
               <CardSettingsBar
                 format={model.export_format}
                 read={cardReader}
-                onLoaded={(s) => setValues((v) => ({ ...v, ...s }))}
+                onLoaded={loadFromRadio}
               />
             )}
             {/* Stays keyed to the AnyTone on purpose: this bar drives
@@ -868,12 +929,21 @@ export function ProfileEditor({
                       )}
                     >
                       {t.label}
+                      {t.fields.some((f) => rangeErrors[f.key]) && (
+                        <span
+                          className="ml-1 text-rose-500 dark:text-rose-400"
+                          title="A setting on this tab is outside the range the radio accepts"
+                        >
+                          ●
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
                 <SettingsGrid
                   fields={openSubTab.fields}
                   values={values}
+                  errors={rangeErrors}
                   onChange={setValue}
                 />
               </div>
@@ -881,6 +951,7 @@ export function ProfileEditor({
               <SettingsGrid
                 fields={fields}
                 values={values}
+                errors={rangeErrors}
                 onChange={setValue}
               />
             )}

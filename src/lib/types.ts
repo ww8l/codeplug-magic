@@ -816,6 +816,9 @@ export type ChannelBackupPreview = ImportPreview;
 export interface CodeplugWritten {
   channels: number;
   path: string;
+  /// Settings the export did NOT write because they sit outside the range the
+  /// model's schema declares — null when there is nothing to say (#87).
+  note: string | null;
 }
 
 /// A mounted memory card already holding a file the radio wrote for itself,
