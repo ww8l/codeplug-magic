@@ -180,8 +180,12 @@ impl ImageRestorer for TidradioTdh3 {
     /// program path uses on every TD-H3 write, handed the radio's own bytes
     /// rather than a patched copy. Nothing new is spoken to the radio.
     ///
-    /// ⚠ NOT YET RUN ON A RADIO. The parts are proven; this particular
-    /// composition is not.
+    /// ★ Hardware-proven 2026-08-21 on a real TD-H3 (ident `P31183`). Not by a
+    /// download/restore/download round-trip, which cannot fail: a restore that
+    /// wrote nothing also ends with the radio's own bytes. Proven by making the
+    /// radio hold something else first — a codeplug program cleared two
+    /// channels (50 bytes), the restore put them back byte-identical, and both
+    /// reappeared on the radio's own screen.
     fn restore_image(&self, port: &str, image: &[u8]) -> Result<(), String> {
         self.upload_image(port, image)
     }
@@ -285,15 +289,16 @@ impl ImageProgrammer for TidradioTdh3 {
         // 3. Re-identify (the radio settles after a full read) and upload the
         //    whole main range, then exit programming mode.
         std::thread::sleep(Duration::from_secs(1));
-        // Name the backup on every failure from here on — this radio has no
-        // in-app restore, so the file IS the recovery and the operator has to
-        // be told which one it is. (#66)
+        // Name the backup on every failure from here on: the operator is being
+        // sent to the Restore button and `radio-backups/` is a folder of
+        // similarly-named files, so the message has to say WHICH one. (#66)
         let restore_hint = |e: String| {
             crate::radios::driver::with_restore_hint(
                 e,
                 &backup_path,
-                "Keep that file. This radio has no Restore action in the app yet, so it is \
-                 the only copy of what was on the radio before this write.",
+                "Keep that file. Put it back with \"Restore backup…\" in this dialog, \
+                 which uploads it over the same cable — it is the only copy of what was \
+                 on the radio before this write.",
             )
         };
         reident(&mut *p).map_err(restore_hint)?;

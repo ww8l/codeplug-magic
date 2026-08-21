@@ -205,9 +205,11 @@ pub(crate) trait ImageProgrammer: Send + Sync {
 /// similarly-named files. (#66)
 ///
 /// `how` is per-radio because the affordance is: the AnyTone dialog has a
-/// Restore button already pointed at this file, the UV-5R's picks a file, and
-/// the TD-H3 has no in-app restore at all — which the operator needs told
-/// rather than left to discover.
+/// Restore button already pointed at this file, and the UV-5R's and the TD-H3's
+/// each pick one. (This last read "the TD-H3 has no in-app restore at all"
+/// until it grew one — a recovery message that misdescribes the recovery is
+/// worse than none, so check it whenever a driver gains or loses
+/// [`ImageRestorer`].)
 pub(crate) fn with_restore_hint(
     e: impl std::fmt::Display,
     backup: &Path,
