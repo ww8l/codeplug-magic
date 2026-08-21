@@ -829,3 +829,14 @@ export interface MemoryCard {
   /// A pristine `.orig` from an earlier write already sits beside it.
   has_original: boolean;
 }
+
+/// Result of downloading the BrandMeister talkgroup list. The list is not
+/// bundled with the app — it is fetched when the operator asks, so nothing of
+/// BrandMeister's is redistributed.
+export interface TalkgroupRefreshSummary {
+  fetched: number;
+  /// Rows inserted. Talkgroups already in the library are left alone, so this
+  /// is smaller than `fetched` on every run after the first.
+  added: number;
+  total: number;
+}

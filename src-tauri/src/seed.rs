@@ -166,45 +166,6 @@ pub const ID52_SETTINGS_SCHEMA: &str = include_str!("id52_settings_schema.json")
 /// the two halves still describe the same fields.
 pub const THD75_SETTINGS_SCHEMA: &str = include_str!("thd75_settings_schema.json");
 
-/// The full official Brandmeister talkgroup list, embedded at compile time as a
-/// `{ "<tg_number>": "<name>" }` JSON map (from api.brandmeister.network,
-/// snapshot 2026-06-18). ~1,750 entries; refresh by re-downloading the file.
-const BRANDMEISTER_TALKGROUPS: &str = include_str!("../data/brandmeister-talkgroups.json");
-
-/// Seed the entire Brandmeister talkgroup library. Idempotent on
-/// (network, tg_number); existing rows (including user edits) are left
-/// untouched. All entries are Brandmeister group calls; source is 'seed'.
-/// Done in one transaction since it inserts ~1,750 rows.
-pub async fn seed_talkgroups(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    let map: std::collections::HashMap<String, String> =
-        serde_json::from_str(BRANDMEISTER_TALKGROUPS)
-            .expect("bundled brandmeister-talkgroups.json is valid");
-
-    let mut tx = pool.begin().await?;
-    for (number, name) in &map {
-        let Ok(tg_number) = number.parse::<i64>() else {
-            continue;
-        };
-        // Override unhelpful canonical names. BM lists 9990 (the echo/parrot
-        // test) as "None"; give it a meaningful label. Applied here (not in the
-        // data file) so it survives re-downloading the list.
-        let name = match tg_number {
-            9990 => "Parrot (Echo Test)",
-            _ => name.as_str(),
-        };
-        sqlx::query(
-            "INSERT INTO talkgroups (tg_number, name, network, call_type, source)
-             VALUES (?1, ?2, 'Brandmeister', 'Group', 'seed')
-             ON CONFLICT(network, tg_number) DO NOTHING",
-        )
-        .bind(tg_number)
-        .bind(name)
-        .execute(&mut *tx)
-        .await?;
-    }
-    tx.commit().await?;
-    Ok(())
-}
 
 fn models() -> Vec<ModelSeed> {
     vec![

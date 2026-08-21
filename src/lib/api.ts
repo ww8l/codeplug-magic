@@ -11,6 +11,7 @@ import type {
   CodeplugInput,
   CodeplugSummary,
   CodeplugWritten,
+  TalkgroupRefreshSummary,
   DashboardStats,
   GeoPoint,
   ExportPreview,
@@ -209,6 +210,10 @@ export const api = {
     invoke<TalkgroupImportPreview>("preview_talkgroup_import", { path, network }),
   importTalkgroups: (path: string, network: string) =>
     invoke<ImportSummary>("import_talkgroups", { path, network }),
+  // Downloads the BrandMeister list on demand. Nothing is bundled: the app
+  // ships no talkgroups at all, and a new install starts empty.
+  refreshBrandmeisterTalkgroups: () =>
+    invoke<TalkgroupRefreshSummary>("refresh_brandmeister_talkgroups"),
   exportTalkgroups: (path: string) =>
     invoke<number>("export_talkgroups", { path }),
   isTalkgroupBackup: (path: string) =>

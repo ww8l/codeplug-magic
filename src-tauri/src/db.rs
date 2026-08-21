@@ -41,7 +41,6 @@ pub async fn init_pool(db_path: &Path) -> Result<SqlitePool, sqlx::Error> {
 
     sqlx::migrate!("./migrations").run(&pool).await?;
     crate::seed::seed_radio_models(&pool).await?;
-    crate::seed::seed_talkgroups(&pool).await?;
 
     Ok(pool)
 }
@@ -92,25 +91,17 @@ mod tests {
             .unwrap();
         assert_eq!(count2.0, 6, "seeding should be idempotent");
 
-        // The full Brandmeister talkgroup list should be seeded (~1,750 rows),
-        // and re-seeding is idempotent.
+        // A new database starts with NO talkgroups. The BrandMeister list used
+        // to be compiled in and seeded here; it is downloaded on request now,
+        // so this app ships none of somebody else's directory.
         let tg_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM talkgroups")
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert!(
-            tg_count.0 > 1000,
-            "expected the full Brandmeister TG list (>1000), got {}",
-            tg_count.0
-        );
-        crate::seed::seed_talkgroups(&pool).await.unwrap();
-        let tg_count2: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM talkgroups")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
         assert_eq!(
-            tg_count2.0, tg_count.0,
-            "talkgroup seeding should be idempotent"
+            tg_count.0, 0,
+            "a fresh database must hold no talkgroups, got {}",
+            tg_count.0
         );
 
         // The UV-5R schema JSON (derived from the CHIRP driver) should be valid
