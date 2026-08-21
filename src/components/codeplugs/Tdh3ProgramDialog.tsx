@@ -21,7 +21,7 @@ import type {
   Tdh3DecodedChannel,
   CodeplugProgramReport,
 } from "../../lib/types";
-import { Modal } from "../overlays";
+import { FooterClose, Modal } from "../overlays";
 import { Button, Spinner, Select } from "../ui";
 import { Tdh3RadioOptions } from "./Tdh3RadioOptions";
 import {
@@ -32,6 +32,11 @@ import {
 
 // TD-H3 holds 199 programmable channels (memory_bounds 1..199).
 const TDH3_CAPACITY = 199;
+
+// Shown on every exit the dialog refuses while a radio operation is running —
+// the ✕ and the footer Close both.
+const LOCKED_HINT =
+  "Closing now would hide the write, not stop it — the radio is still being written to.";
 
 /**
  * Direct TIDRADIO TD-H3 programming over the radio's built-in USB-C port.
@@ -175,7 +180,7 @@ export function Tdh3ProgramDialog({
       // written while the operator looks at an ordinary page — no spinner, no
       // "keep the radio on", no backup path. (#65)
       dismissible={busy === null}
-      lockedHint="Closing now would hide the write, not stop it — the radio is still being written to."
+      lockedHint={LOCKED_HINT}
     >
       <div className="flex flex-col">
         {/* Banner */}
@@ -396,9 +401,14 @@ export function Tdh3ProgramDialog({
         )}
 
         <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
-          <Button variant="ghost" onClick={onClose}>
-            Close
-          </Button>
+          {/* Gated exactly like the ✕: the overlay cannot reach a button
+              the dialog draws itself, and this one stayed live through a
+              write. (#65) */}
+          <FooterClose
+            onClose={onClose}
+            dismissible={busy === null}
+            lockedHint={LOCKED_HINT}
+          />
         </div>
       </div>
     </Modal>
