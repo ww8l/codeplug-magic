@@ -15,3 +15,4 @@ pub mod profiles;
 pub mod program;
 pub mod standard_lists;
 pub mod talkgroups;
+pub mod write_paths;

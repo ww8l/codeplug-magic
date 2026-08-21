@@ -725,7 +725,14 @@ pub async fn generate_codeplug(
         .and_then(crate::radios::registry::exporter_for_format)
     {
         Some(exporter) => {
+            // Checked on the RESOLVED name, not the one the UI sent: a card
+            // exporter handed a folder names its own file, and what matters is
+            // that the file it settled on is the kind it writes (#91).
             let target = exporter.resolve_target(&path)?;
+            crate::commands::write_paths::check_write_target(
+                &target,
+                exporter.target_extensions(),
+            )?;
             let req = crate::radios::driver::ExportRequest {
                 channels: &included,
                 groups: &groups,
@@ -736,6 +743,7 @@ pub async fn generate_codeplug(
             target
         }
         None => {
+            crate::commands::write_paths::check_write_target(&path, &["csv"])?;
             let csv = render_chirp_csv(&included, &model)?;
             std::fs::write(&path, csv).map_err(|e| format!("Could not write file: {e}"))?;
             path

@@ -120,6 +120,7 @@ pub async fn export_channels(
     if ids.is_empty() {
         return Err("No channels selected to export.".to_string());
     }
+    crate::commands::write_paths::check_write_target(&path, &["json"])?;
 
     let mut channels = Vec::with_capacity(ids.len());
     for id in &ids {

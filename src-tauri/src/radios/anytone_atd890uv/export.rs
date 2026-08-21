@@ -194,6 +194,12 @@ impl CodeplugExporter for AnytoneAtd890uv {
         "anytone_csv"
     }
 
+    /// The bundle is named from a `.csv` target: `<base>_Channels.csv` and
+    /// `<base>_TalkGroups.csv`.
+    fn target_extensions(&self) -> &'static [&'static str] {
+        &["csv"]
+    }
+
     /// Write the AnyTone dual-CSV bundle, returning the channel count written.
     /// The CPS CSV import has no column for zone membership or radio settings,
     /// so `groups` and `profile_settings` go unused here — both reach a D890

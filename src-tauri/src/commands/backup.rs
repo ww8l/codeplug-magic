@@ -75,6 +75,9 @@ pub async fn is_database_backup(path: String) -> Result<bool, String> {
 /// Export the ENTIRE database to `path` as a single consistent SQLite file.
 #[tauri::command]
 pub async fn export_database(state: State<'_, AppState>, path: String) -> Result<String, String> {
+    // The name has to be one this export produces, before anything is removed
+    // or written — this command DELETES the target first (#91).
+    crate::commands::write_paths::check_write_target(&path, &["sqlite3"])?;
     // VACUUM INTO refuses to overwrite; the save dialog may hand us an existing
     // path the user chose to replace, so clear it first.
     if Path::new(&path).exists() {
