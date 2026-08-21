@@ -206,6 +206,16 @@ pub(crate) fn apply_settings(image: &mut [u8], settings: &Map<String, Value>) ->
         // Systems may be NUL-padded — so "unchanged" has to mean "no bytes
         // touched", or a save would rewrite the tail of every string field the
         // operator never opened. The FT5D learned this by blanking a callsign.
+        //
+        // ⚠ The TH-D75 applies the same rule to TEXT ONLY, deliberately. `Bool`
+        // decodes as `byte != 0`, so a byte holding 0x5A — or 0xff, which is
+        // what an unwritten one holds — already "decodes as true", and skipping
+        // means an operator who switches that setting ON gets nothing written.
+        // Here the blanket form is kept because it is what shipped and what a
+        // real radio was programmed with, and an `.icf` written BY the radio
+        // holds canonical bytes. If an ID-52 ever turns out to hold a
+        // non-canonical flag, narrow this the same way rather than reasoning
+        // about it again.
         if decode_field(image, f) == *v {
             written += 1;
             continue;
