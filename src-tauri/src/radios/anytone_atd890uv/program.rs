@@ -1191,7 +1191,7 @@ mod tests {
         // Bank 1: erased — the hole.
         // Bank 2: a stale programmed record from some earlier write.
         let stale = vec![0x42u8; CH_REC_LEN];
-        radio.seed(CHANNEL_BASE, &vec![0x11u8; CH_REC_LEN]);
+        radio.seed(CHANNEL_BASE, &[0x11u8; CH_REC_LEN]);
         let bank2 = CHANNEL_BASE + 2 * BANK_STEP;
         radio.seed(bank2, &stale);
 
