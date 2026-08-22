@@ -83,7 +83,17 @@ mod tests {
         let mut out = Vec::new();
         for (n, &from) in starts.iter().enumerate() {
             let to = starts.get(n + 1).copied().unwrap_or(src.len());
-            let body = &src[from..to];
+            // Comments are not code. `export_database`'s doc comment explains
+            // why the vacuum goes to a temp sibling and says "VACUUM INTO"
+            // while doing so — and being ABOVE the signature it falls in the
+            // PREVIOUS function's chunk, which flagged a two-line path helper
+            // as an unchecked export.
+            let body: String = src[from..to]
+                .lines()
+                .filter(|l| !l.trim_start().starts_with("//"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let body = body.as_str();
             let name = body
                 .split("fn ")
                 .nth(1)
@@ -121,13 +131,28 @@ mod tests {
         files.sort();
         for file in files {
             let src = std::fs::read_to_string(&file).expect("readable");
-            for (name, body) in top_level_fns(&src) {
+            let fns = top_level_fns(&src);
+            for (name, body) in &fns {
                 let Some(marker) = WRITES.iter().find(|m| body.contains(**m)) else {
                     continue;
                 };
                 checked += 1;
+                // A writer may be an internal helper a command delegates to.
+                // `export_database` checks the name and hands the path to
+                // `export_impl`, which is ALSO called with paths the app chose
+                // for itself — the pre-restore snapshot is
+                // `*.sqlite3.before-restore`, which the check would rightly
+                // refuse — so the check cannot live in the helper. Credit it
+                // only when a caller in the same file both calls it and checks;
+                // a genuinely unchecked export has no such caller.
+                let covered = body.contains("check_write_target")
+                    || fns.iter().any(|(caller, cbody)| {
+                        caller != name
+                            && cbody.contains(&format!("{name}("))
+                            && cbody.contains("check_write_target")
+                    });
                 assert!(
-                    body.contains("check_write_target"),
+                    covered,
                     "{}: {name} writes to a path the operator named (`{marker}`) without \
                      calling check_write_target — so it will truncate whatever file that \
                      path points at, whatever kind of file it is.",
