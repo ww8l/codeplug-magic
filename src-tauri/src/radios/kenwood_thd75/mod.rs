@@ -119,6 +119,7 @@ mod tests {
             caps,
             DriverCapabilities {
                 program_image: false,
+                restore_image: false,
                 read_settings: false,
                 write_settings: false,
                 write_channels: false,

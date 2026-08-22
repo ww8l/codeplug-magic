@@ -3,6 +3,7 @@ import {
   RefreshCw,
   Search,
   DownloadCloud,
+  Undo2,
   Upload,
   CheckCircle2,
   XCircle,
@@ -20,17 +21,23 @@ import type {
   Tdh3DecodedChannel,
   CodeplugProgramReport,
 } from "../../lib/types";
-import { Modal } from "../overlays";
+import { FooterClose, Modal } from "../overlays";
 import { Button, Spinner, Select } from "../ui";
 import { WarningList } from "./ReportWarnings";
 import { Tdh3RadioOptions } from "./Tdh3RadioOptions";
 import {
   driverKeyOf,
+  useDriverCapabilities,
   type ProgramDialogProps,
 } from "../../lib/radioProgramming";
 
 // TD-H3 holds 199 programmable channels (memory_bounds 1..199).
 const TDH3_CAPACITY = 199;
+
+// Shown on every exit the dialog refuses while a radio operation is running —
+// the ✕ and the footer Close both.
+const LOCKED_HINT =
+  "Closing now would hide the write, not stop it — the radio is still being written to.";
 
 /**
  * Direct TIDRADIO TD-H3 programming over the radio's built-in USB-C port.
@@ -52,12 +59,18 @@ export function Tdh3ProgramDialog({
   // TD-H3 and its key resolves; `driverKeyOf` still reads it off the row
   // rather than hardcoding it (3.7).
   const driverKey = driverKeyOf(model);
+  // Restore is gated on the driver's own flag, not on "this is the TD-H3":
+  // putting a backup back is a separate capability from taking one, and the
+  // button must not appear before the driver can honour it.
+  const caps = useDriverCapabilities(driverKey || null);
   const modelName = model?.display_name ?? "this radio";
   const modelId = model?.id ?? 0;
   const [ports, setPorts] = useState<PortInfo[]>([]);
   const [port, setPort] = useState<string>("");
   const [preview, setPreview] = useState<ExportPreview | null>(null);
-  const [busy, setBusy] = useState<null | "identify" | "download" | "program">(null);
+  const [busy, setBusy] = useState<
+    null | "identify" | "download" | "program" | "restore"
+  >(null);
   const [ident, setIdent] = useState<RadioIdent | null>(null);
   const [download, setDownload] = useState<DownloadResult | null>(null);
   const [program, setProgram] = useState<CodeplugProgramReport | null>(null);
@@ -91,7 +104,7 @@ export function Tdh3ProgramDialog({
   }, [open]);
 
   const run = async (
-    kind: "identify" | "download" | "program",
+    kind: "identify" | "download" | "program" | "restore",
     fn: () => Promise<void>,
   ) => {
     setError(null);
@@ -126,6 +139,33 @@ export function Tdh3ProgramDialog({
       setProgram(await api.programRadio(codeplugId, port));
     });
 
+  // The recovery path after a bad write: hand the radio back the bytes a
+  // Download took off it. The file pick is the gate — the same one the UV-5R
+  // restore has — and the picker opens in radio-backups/, which holds images
+  // for every radio, so the driver checks the file before a byte is uploaded.
+  const doRestore = async () => {
+    const { open: pick } = await import("@tauri-apps/plugin-dialog");
+    const defaultPath = await api.backupsDir().catch(() => undefined);
+    const picked = await pick({
+      title: "Choose a backup .img to restore",
+      multiple: false,
+      defaultPath,
+      filters: [{ name: "Radio backup image", extensions: ["img"] }],
+    });
+    if (typeof picked !== "string") return;
+    await run("restore", async () => {
+      setConfirming(false);
+      setDownload(null);
+      setProgram(null);
+      setIdent(null);
+      const res = await api.restoreImage(driverKey, port, picked);
+      const { toast } = await import("sonner");
+      toast.success(
+        `Restored ${res.bytes.toLocaleString()} bytes to the radio. Power-cycle it to check.`,
+      );
+    });
+  };
+
   const writeCount = preview?.included_count ?? 0;
   const clearCount = Math.max(0, TDH3_CAPACITY - writeCount);
   const skipped = (preview?.rows ?? []).filter((r) => !r.included);
@@ -141,7 +181,7 @@ export function Tdh3ProgramDialog({
       // written while the operator looks at an ordinary page — no spinner, no
       // "keep the radio on", no backup path. (#65)
       dismissible={busy === null}
-      lockedHint="Closing now would hide the write, not stop it — the radio is still being written to."
+      lockedHint={LOCKED_HINT}
     >
       <div className="flex flex-col">
         {/* Banner */}
@@ -215,6 +255,16 @@ export function Tdh3ProgramDialog({
             {busy === "download" ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
             Download backup
           </Button>
+          {caps?.restore_image && (
+            <Button
+              onClick={doRestore}
+              disabled={!port || busy !== null}
+              title="Flash a previously-saved backup .img back to the radio"
+            >
+              {busy === "restore" ? <Spinner className="h-3.5 w-3.5" /> : <Undo2 size={14} />}
+              Restore backup…
+            </Button>
+          )}
           <div className="ml-auto">
             <Button
               variant="primary"
@@ -280,7 +330,15 @@ export function Tdh3ProgramDialog({
           </div>
         )}
 
-        {/* Progress note while programming */}
+        {/* Progress note while writing */}
+        {busy === "restore" && (
+          <div className="mx-5 mb-4 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
+            <Spinner className="h-3.5 w-3.5" />
+            Writing the backup back to the radio… keep the radio on and the
+            cable connected.
+          </div>
+        )}
+
         {busy === "program" && (
           <div className="mx-5 mb-4 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
             <Spinner className="h-3.5 w-3.5" />
@@ -345,9 +403,14 @@ export function Tdh3ProgramDialog({
         )}
 
         <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
-          <Button variant="ghost" onClick={onClose}>
-            Close
-          </Button>
+          {/* Gated exactly like the ✕: the overlay cannot reach a button
+              the dialog draws itself, and this one stayed live through a
+              write. (#65) */}
+          <FooterClose
+            onClose={onClose}
+            dismissible={busy === null}
+            lockedHint={LOCKED_HINT}
+          />
         </div>
       </div>
     </Modal>

@@ -23,7 +23,7 @@ import type {
   CodeplugProgramReport,
   RadioIdent,
 } from "../../lib/types";
-import { Modal } from "../overlays";
+import { FooterClose, Modal } from "../overlays";
 import { WarningList } from "./ReportWarnings";
 import { Button, Spinner, Select } from "../ui";
 import {
@@ -33,6 +33,11 @@ import {
   useDriverCapabilities,
   type ProgramDialogProps,
 } from "../../lib/radioProgramming";
+
+// Shown on every exit the dialog refuses while a radio operation is running —
+// the ✕ and the footer Close both.
+const LOCKED_HINT =
+  "Closing now would hide the write, not stop it — the radio is still being written to.";
 
 /**
  * The generic, capability-driven program dialog — the default any radio gets
@@ -216,7 +221,7 @@ export function ProgramRadioDialog({
       setDownload(null);
       setProgram(null);
       setIdent(null);
-      const res = await api.restoreImage(port, picked);
+      const res = await api.restoreImage(driverKey, port, picked);
       const { toast } = await import("sonner");
       toast.success(
         `Restored ${res.bytes.toLocaleString()} bytes to the radio. Power-cycle it to check.`,
@@ -244,7 +249,7 @@ export function ProgramRadioDialog({
       // written while the operator looks at an ordinary page — no spinner, no
       // "keep the radio on", no backup path. (#65)
       dismissible={busy === null}
-      lockedHint="Closing now would hide the write, not stop it — the radio is still being written to."
+      lockedHint={LOCKED_HINT}
     >
       <div className="flex flex-col">
         {!isSupported ? (
@@ -376,22 +381,26 @@ export function ProgramRadioDialog({
               )}
               {/* Backup/restore are whole-image operations, so they exist only
                   on clone radios. A driver that programs from the database
-                  (the AnyTone) takes its own backups inside the program run. */}
+                  (the AnyTone) takes its own backups inside the program run.
+                  The two are separate capabilities: taking a backup does not
+                  mean the driver can put one back, and this button used to
+                  appear for any clone radio while the command behind it spoke
+                  UV-5R only. */}
               {showCable && caps?.program_image && (
-                <>
-                  <Button onClick={doDownload} disabled={!port || busy !== null}>
-                    {busy === "download" ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
-                    Download backup
-                  </Button>
-                  <Button
-                    onClick={doRestore}
-                    disabled={!port || busy !== null}
-                    title="Flash a previously-saved backup .img back to the radio"
-                  >
-                    {busy === "restore" ? <Spinner className="h-3.5 w-3.5" /> : <Undo2 size={14} />}
-                    Restore backup…
-                  </Button>
-                </>
+                <Button onClick={doDownload} disabled={!port || busy !== null}>
+                  {busy === "download" ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
+                  Download backup
+                </Button>
+              )}
+              {showCable && caps?.restore_image && (
+                <Button
+                  onClick={doRestore}
+                  disabled={!port || busy !== null}
+                  title="Flash a previously-saved backup .img back to the radio"
+                >
+                  {busy === "restore" ? <Spinner className="h-3.5 w-3.5" /> : <Undo2 size={14} />}
+                  Restore backup…
+                </Button>
               )}
               <div className="ml-auto flex flex-wrap items-center gap-2">
                 {media && (
@@ -569,9 +578,14 @@ export function ProgramRadioDialog({
         )}
 
         <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
-          <Button variant="ghost" onClick={onClose}>
-            Close
-          </Button>
+          {/* Gated exactly like the ✕: the overlay cannot reach a button
+              the dialog draws itself, and this one stayed live through a
+              write. (#65) */}
+          <FooterClose
+            onClose={onClose}
+            dismissible={busy === null}
+            lockedHint={LOCKED_HINT}
+          />
         </div>
       </div>
     </Modal>

@@ -36,8 +36,8 @@ use crate::commands::export::SlotChannel;
 use crate::error::MapErrString;
 use crate::models::{Channel, RadioModel};
 use crate::radios::driver::{
-    CodeplugProgramReport, DecodedChannelSample, ImageProgramRequest, ImageProgrammer, RadioDriver,
-    RadioIdentity, SettingsReader, SettingsWriter,
+    CodeplugProgramReport, DecodedChannelSample, ImageProgramRequest, ImageProgrammer,
+    ImageRestorer, RadioDriver, RadioIdentity, SettingsReader, SettingsWriter,
 };
 
 const BAUD: u32 = 38400;
@@ -122,12 +122,72 @@ impl RadioDriver for TidradioTdh3 {
         Some(self)
     }
 
+    fn as_image_restorer(&self) -> Option<&dyn ImageRestorer> {
+        Some(self)
+    }
+
     fn as_settings_reader(&self) -> Option<&dyn SettingsReader> {
         Some(self)
     }
 
     fn as_settings_writer(&self) -> Option<&dyn SettingsWriter> {
         Some(self)
+    }
+}
+
+/// Length of a TD-H3 backup: the 8-byte ident prefix plus the whole 0x2000 of
+/// memory `download` walks (`MEMSIZE` 0x1FEF rounded up to the 0x20 block).
+/// Every backup this app has taken is exactly this long, and `upload` writes
+/// exactly this much back.
+const BACKUP_LEN: usize = MIN_IMAGE_LEN;
+
+impl ImageRestorer for TidradioTdh3 {
+    /// Reject a file that is not a TD-H3 image before uploading a byte of it.
+    ///
+    /// Length is what separates the formats in `radio-backups/`: a TD-H3 backup
+    /// is 0x2008 bytes, a UV-5R one 0x1808 or 0x1948. The ident prefix is only
+    /// checked for being *printable*, not for a particular string — the 36
+    /// TD-H3 backups on the machine this was written on carry two different
+    /// idents ("P31183" and "P31185"), so a fixed string would refuse somebody
+    /// else's radio. That check exists to refuse a file of the right length
+    /// that is not an image at all.
+    ///
+    /// ⚠ CHIRP's `tdh8.py` says the ident is 0xDD-terminated and `do_ident`
+    /// repeats it, but not one of those 36 files has 0xDD in byte 7 — they end
+    /// `ff ff`. Do not add that check without a radio that proves it.
+    fn check_restore_image(&self, image: &[u8]) -> Result<(), String> {
+        if image.len() != BACKUP_LEN {
+            return Err(format!(
+                "this file is {} bytes — a TD-H3 backup is {BACKUP_LEN}. Pick a .img taken \
+                 from a TD-H3 (radio-backups/ also holds images for other radios, which \
+                 must not be written to this one).",
+                image.len()
+            ));
+        }
+        if !image[..6].iter().all(|b| b.is_ascii_graphic()) {
+            return Err(
+                "this file does not start with a radio ident — it is the right size for a \
+                 TD-H3 backup but is not one."
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+
+    /// Put the image back exactly as `download` took it.
+    ///
+    /// This is `upload_image`: the same handshake-then-`upload` session the
+    /// program path uses on every TD-H3 write, handed the radio's own bytes
+    /// rather than a patched copy. Nothing new is spoken to the radio.
+    ///
+    /// ★ Hardware-proven 2026-08-21 on a real TD-H3 (ident `P31183`). Not by a
+    /// download/restore/download round-trip, which cannot fail: a restore that
+    /// wrote nothing also ends with the radio's own bytes. Proven by making the
+    /// radio hold something else first — a codeplug program cleared two
+    /// channels (50 bytes), the restore put them back byte-identical, and both
+    /// reappeared on the radio's own screen.
+    fn restore_image(&self, port: &str, image: &[u8]) -> Result<(), String> {
+        self.upload_image(port, image)
     }
 }
 
@@ -229,15 +289,16 @@ impl ImageProgrammer for TidradioTdh3 {
         // 3. Re-identify (the radio settles after a full read) and upload the
         //    whole main range, then exit programming mode.
         std::thread::sleep(Duration::from_secs(1));
-        // Name the backup on every failure from here on — this radio has no
-        // in-app restore, so the file IS the recovery and the operator has to
-        // be told which one it is. (#66)
+        // Name the backup on every failure from here on: the operator is being
+        // sent to the Restore button and `radio-backups/` is a folder of
+        // similarly-named files, so the message has to say WHICH one. (#66)
         let restore_hint = |e: String| {
             crate::radios::driver::with_restore_hint(
                 e,
                 &backup_path,
-                "Keep that file. This radio has no Restore action in the app yet, so it is \
-                 the only copy of what was on the radio before this write.",
+                "Keep that file. Put it back with \"Restore backup…\" in this dialog, \
+                 which uploads it over the same cable — it is the only copy of what was \
+                 on the radio before this write.",
             )
         };
         reident(&mut *p).map_err(restore_hint)?;
@@ -889,6 +950,10 @@ mod tests {
     fn capabilities_derive_image_and_settings_programmer() {
         let caps = DriverCapabilities::of(&DRIVER);
         assert!(caps.program_image);
+        // Taking a backup and putting one back are separate capabilities, and
+        // the TD-H3 now has both — the dialog offered the second for a year
+        // while the command behind it only spoke UV-5R.
+        assert!(caps.restore_image);
         assert!(caps.read_settings);
         assert!(caps.write_settings);
         assert!(!caps.write_channels);
@@ -897,6 +962,58 @@ mod tests {
         assert!(!caps.diagnostics);
         assert_eq!(DRIVER.key(), "tidradio_tdh3");
         assert_eq!(DRIVER.baud(), 38400);
+    }
+
+    /// The header of a real TD-H3 backup: `P31183` then two 0xFF. Taken from
+    /// the 36 this app has written on the machine where restore was added; a
+    /// second unit reported `P31185`, which is why the check does not pin the
+    /// string.
+    fn real_tdh3_header(len: usize) -> Vec<u8> {
+        let mut v = vec![0u8; len];
+        if len >= 8 {
+            v[..8].copy_from_slice(&[0x50, 0x33, 0x31, 0x31, 0x38, 0x33, 0xff, 0xff]);
+        }
+        v
+    }
+
+    /// The file check that runs before a byte of a restore is uploaded. The
+    /// case that matters is the neighbouring format: `radio-backups/` holds
+    /// UV-5R images too, and the picker opens there.
+    #[test]
+    fn restore_refuses_a_file_that_is_not_a_tdh3_image() {
+        assert!(DRIVER.check_restore_image(&real_tdh3_header(BACKUP_LEN)).is_ok());
+
+        // A UV-5R backup, in both the shapes that radio produces.
+        for len in [0x1808usize, 0x1948] {
+            let mut uv5r = vec![0u8; len];
+            uv5r[..8].copy_from_slice(&[0xaa, 0x42, 0x46, 0x42, 0x32, 0x35, 0x31, 0xdd]);
+            let e = DRIVER.check_restore_image(&uv5r).unwrap_err();
+            assert!(e.contains("a TD-H3 backup is 8200"), "{e}");
+        }
+
+        // Near misses on length, including the one byte either side.
+        for len in [0usize, 16, BACKUP_LEN - 1, BACKUP_LEN + 1, 0x20000] {
+            assert!(
+                DRIVER.check_restore_image(&real_tdh3_header(len)).is_err(),
+                "{len} should be refused"
+            );
+        }
+
+        // Right length, but not an image: no printable ident.
+        let e = DRIVER
+            .check_restore_image(&vec![0u8; BACKUP_LEN])
+            .unwrap_err();
+        assert!(e.contains("does not start with a radio ident"), "{e}");
+    }
+
+    /// Whatever `download` produces, `check_restore_image` must accept — the
+    /// two are the same length by construction, and this pins that they stay so.
+    #[test]
+    fn a_freshly_downloaded_image_is_restorable() {
+        // download() = 8 ident bytes + every 0x20 block up to MEMSIZE.
+        let blocks = (MEMSIZE as usize).div_ceil(BLOCK as usize) * BLOCK as usize;
+        assert_eq!(8 + blocks, BACKUP_LEN);
+        assert!(DRIVER.check_restore_image(&real_tdh3_header(8 + blocks)).is_ok());
     }
 
     #[test]

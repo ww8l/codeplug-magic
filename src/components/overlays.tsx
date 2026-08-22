@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
 import clsx from "clsx";
+import { Button } from "./ui";
 
 /**
  * Close on Escape, but only while `enabled`.
@@ -24,10 +25,15 @@ function useEscape(onClose: () => void, enabled: boolean) {
 
 /// Props every overlay shares for refusing to be dismissed.
 interface Dismissal {
-  /// `false` closes off all three exits at once — Escape, the backdrop and the
-  /// ✕. Default `true`. Set it from the dialog's own busy state, never
-  /// unconditionally: an overlay nobody can leave is a trap if the work it is
-  /// waiting on never finishes.
+  /// `false` closes off all three exits the overlay itself owns — Escape, the
+  /// backdrop and the ✕. Default `true`. Set it from the dialog's own busy
+  /// state, never unconditionally: an overlay nobody can leave is a trap if the
+  /// work it is waiting on never finishes.
+  ///
+  /// ⚠ It cannot reach a Close button the dialog draws in its OWN footer. Every
+  /// program dialog had one wired straight to `onClose`, and it stayed live
+  /// through a write — found on a real TD-H3, restoring, by clicking it. Use
+  /// [`FooterClose`] for those, with the same flag.
   dismissible?: boolean;
   /// Why it cannot be dismissed, shown on the disabled ✕. The overlay does not
   /// know what it is running, so the caller says it.
@@ -134,6 +140,39 @@ export function SlideOver({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * A dialog's own footer Close button, refusing the same way the ✕ does.
+ *
+ * The overlay can gate Escape, the backdrop and its ✕, and nothing more — a
+ * button the dialog renders inside `children` is out of its reach. All three
+ * program dialogs drew one calling `onClose` unconditionally, so the widest
+ * target on the screen was the one exit #65 left open: clicking it mid-restore
+ * unmounted the dialog while the TD-H3 was still being written, and the write
+ * announced itself into an ordinary page.
+ *
+ * The disabled button is wrapped rather than given a `title`, because `Button`
+ * carries `disabled:pointer-events-none` — the tooltip on the control itself
+ * would never fire.
+ */
+export function FooterClose({
+  onClose,
+  dismissible = true,
+  lockedHint,
+}: { onClose: () => void } & Dismissal) {
+  const button = (
+    <Button variant="ghost" onClick={onClose} disabled={!dismissible}>
+      Close
+    </Button>
+  );
+  return dismissible ? (
+    button
+  ) : (
+    <span title={lockedHint} aria-label={lockedHint} className="cursor-not-allowed">
+      {button}
+    </span>
   );
 }
 
