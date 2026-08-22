@@ -9,6 +9,7 @@ pub mod codeplugs;
 pub mod dashboard;
 pub mod dmr_users;
 pub mod export;
+pub mod http;
 pub mod import;
 pub mod lists;
 pub mod profiles;

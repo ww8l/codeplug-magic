@@ -8,6 +8,7 @@ import {
   Search,
   Upload,
   Download,
+  CloudDownload,
   Users,
   ArrowUp,
   ArrowDown,
@@ -43,6 +44,7 @@ export function Talkgroups() {
   const [editing, setEditing] = useState<Talkgroup | null>(null);
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   // Load the full library; search/filter/sort are applied client-side so the
   // filter dropdowns can reflect every value present in the data.
@@ -132,6 +134,29 @@ export function Talkgroups() {
     }
   };
 
+  // Pull the BrandMeister list from BrandMeister. It is deliberately NOT
+  // bundled with the app: shipping somebody else's directory inside the binary
+  // and seeding it into every new database made this app a redistributor of it,
+  // which is the same objection that took the radioid.net records out of the
+  // repository. Existing talkgroups — renamed, or imported from a CSV — are
+  // never touched; this only fills gaps.
+  const downloadBrandmeister = async () => {
+    setDownloading(true);
+    const res = await withToast(api.refreshBrandmeisterTalkgroups(), {
+      error: "Could not download the BrandMeister list",
+    });
+    setDownloading(false);
+    if (res !== undefined) {
+      const { toast } = await import("sonner");
+      toast.success(
+        res.added === 0
+          ? `Already had all ${res.fetched} BrandMeister talkgroups`
+          : `Added ${res.added} talkgroup${res.added === 1 ? "" : "s"} of ${res.fetched} from BrandMeister`,
+      );
+      await load();
+    }
+  };
+
   const handleDelete = async (tg: Talkgroup) => {
     const ok = await confirmDialog(
       `Delete talkgroup “${tg.name}” (${tg.tg_number})? It will also be removed from any repeaters it's assigned to.`,
@@ -156,6 +181,14 @@ export function Talkgroups() {
         }
         actions={
           <>
+            <Button onClick={downloadBrandmeister} disabled={downloading}>
+              {downloading ? (
+                <Spinner className="h-3.5 w-3.5" />
+              ) : (
+                <CloudDownload size={14} />
+              )}
+              BrandMeister
+            </Button>
             <Button onClick={() => setImporting(true)}>
               <Upload size={14} /> Import
             </Button>
@@ -214,11 +247,25 @@ export function Talkgroups() {
           <EmptyState
             icon={<Radio size={40} strokeWidth={1.5} />}
             title="No talkgroups yet"
-            description="Create talkgroups here, then assign them to DMR repeaters from the repeater detail panel."
+            description="Download the BrandMeister list to start with the public talkgroups, or import a CSV — then assign them to DMR repeaters from the repeater detail panel."
             action={
-              <Button variant="primary" onClick={() => setCreating(true)}>
-                <Plus size={14} /> New Talkgroup
-              </Button>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Button
+                  variant="primary"
+                  onClick={downloadBrandmeister}
+                  disabled={downloading}
+                >
+                  {downloading ? (
+                    <Spinner className="h-3.5 w-3.5" />
+                  ) : (
+                    <CloudDownload size={14} />
+                  )}
+                  Download from BrandMeister
+                </Button>
+                <Button onClick={() => setCreating(true)}>
+                  <Plus size={14} /> New Talkgroup
+                </Button>
+              </div>
             }
           />
         </div>

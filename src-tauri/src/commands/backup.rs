@@ -511,16 +511,19 @@ async fn import_impl(pool: &sqlx::SqlitePool, path: String) -> Result<String, St
 
     result.map_err(|e| format!("{e} Your data before the restore is saved at {snapshot_str}."))?;
 
-    // The backup's radio catalogue and talkgroup library replaced ours, so a
-    // model added since the backup is gone until the next launch re-seeds it —
-    // and there is no launch here, only a webview reload. Seeding is an
-    // idempotent upsert, so running it now is the same thing, sooner.
+    // The backup's radio catalogue replaced ours, so a model added since the
+    // backup is gone until the next launch re-seeds it — and there is no launch
+    // here, only a webview reload. Seeding is an idempotent upsert, so running
+    // it now is the same thing, sooner.
+    //
+    // Talkgroups are NOT re-seeded, because they are no longer seeded at all:
+    // the BrandMeister list is downloaded when the operator asks for it. A
+    // restore therefore gives back exactly the talkgroup library the backup
+    // held, which is the honest answer — this app has no list of its own to
+    // put back.
     crate::seed::seed_radio_models(pool)
         .await
         .map_err(|e| format!("Restored, but the radio library could not be refreshed: {e}"))?;
-    crate::seed::seed_talkgroups(pool)
-        .await
-        .map_err(|e| format!("Restored, but the talkgroup library could not be refreshed: {e}"))?;
 
     Ok(snapshot_str)
 }

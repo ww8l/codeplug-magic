@@ -154,16 +154,7 @@ async fn upsert_dmr_users(
 async fn fetch_radioid_dump() -> Result<RadioIdDump, String> {
     use futures_util::StreamExt;
 
-    let client = reqwest::Client::builder()
-        .user_agent(concat!(
-            "WW8LCodeplugMagic/",
-            env!("CARGO_PKG_VERSION"),
-            " (amateur-radio codeplug editor)"
-        ))
-        .connect_timeout(DUMP_CONNECT_TIMEOUT)
-        .timeout(DUMP_TIMEOUT)
-        .build()
-        .map_err(|e| format!("HTTP client error: {e}"))?;
+    let client = crate::commands::http::client(DUMP_CONNECT_TIMEOUT, DUMP_TIMEOUT)?;
 
     let resp = client
         .get(USERS_JSON_URL)

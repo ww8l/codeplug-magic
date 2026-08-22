@@ -168,6 +168,7 @@ pub fn run() {
             commands::talkgroups::preview_talkgroup_import,
             commands::talkgroups::import_talkgroups,
             commands::talkgroups::export_talkgroups,
+            commands::talkgroups::refresh_brandmeister_talkgroups,
             commands::talkgroups::is_talkgroup_backup,
             commands::talkgroups::preview_talkgroup_backup,
             commands::talkgroups::import_talkgroup_backup,

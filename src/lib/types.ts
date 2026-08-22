@@ -181,6 +181,9 @@ export interface RadioModel {
 /// (`driver_capabilities`). Gate UI on this rather than on model names.
 export interface DriverCapabilities {
   program_image: boolean;
+  /// Can put one of its own backups back on the radio. NOT implied by
+  /// `program_image`, which only means a backup can be taken.
+  restore_image: boolean;
   read_settings: boolean;
   write_settings: boolean;
   write_channels: boolean;
@@ -832,6 +835,9 @@ export interface BackupTable {
 export interface CodeplugWritten {
   channels: number;
   path: string;
+  /// Settings the export did NOT write because they sit outside the range the
+  /// model's schema declares — null when there is nothing to say (#87).
+  note: string | null;
 }
 
 /// A mounted memory card already holding a file the radio wrote for itself,
@@ -875,4 +881,15 @@ export interface RadioBackupsSummary {
 export interface BackupPruneResult {
   files_deleted: number;
   bytes_freed: number;
+}
+
+/// Result of downloading the BrandMeister talkgroup list. The list is not
+/// bundled with the app — it is fetched when the operator asks, so nothing of
+/// BrandMeister's is redistributed.
+export interface TalkgroupRefreshSummary {
+  fetched: number;
+  /// Rows inserted. Talkgroups already in the library are left alone, so this
+  /// is smaller than `fetched` on every run after the first.
+  added: number;
+  total: number;
 }
