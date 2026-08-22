@@ -71,6 +71,8 @@ pub struct BackupPreviewRow {
     tone_mode: String,
     ctcss_uplink: Option<f64>,
     ctcss_downlink: Option<f64>,
+    dcs_code: Option<String>,
+    dcs_rx_code: Option<String>,
     dmr_color_code: Option<i64>,
     dstar_capable: bool,
     ysf_capable: bool,
@@ -92,10 +94,6 @@ pub struct BackupPreviewRow {
     latitude: Option<f64>,
     longitude: Option<f64>,
     notes: Option<String>,
-    ares: bool,
-    races: bool,
-    skywarn: bool,
-    canwarn: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -299,7 +297,7 @@ async fn insert_backup(
                 power, dmr_color_code, dmr_timeslot, dmr_talkgroup, dstar_capable,
                 ysf_capable, nxdn_capable, p25_capable, p25_nac, m17_capable,
                 m17_can, tetra_capable, allstar_node, echolink_node, irlp_node,
-                wires_node, ares, races, skywarn, canwarn, use_type,
+                wires_node, use_type,
                 operational_status, service_type, city, county, state, country,
                 latitude, longitude, notes, source, repeaterbook_id,
                 rb_ctcss_uplink, rb_ctcss_downlink, rb_operational_status,
@@ -310,18 +308,14 @@ async fn insert_backup(
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6,
                 ?7, ?8, ?9, ?10, ?11, ?12,
-                ?13, ?14, ?15, ?16, ?17,
-                ?18, ?19, ?20, ?21, ?22,
-                ?23, ?24, ?25, ?26, ?27,
-                ?28, ?29, ?30, ?31, ?32,
-                ?33, ?34, ?35, ?36, ?37, ?38,
-                ?39, ?40, ?41, ?42, ?43, ?44,
-                ?45, ?46, ?47, ?48, ?49,
-                ?50, ?51, ?52,
-                ?53, ?54, ?55,
-                ?56, ?57, ?58,
-                ?59, ?60,
-                ?61, ?62, ?63
+                ?13, ?14, ?15, ?16, ?17, ?18,
+                ?19, ?20, ?21, ?22, ?23, ?24,
+                ?25, ?26, ?27, ?28, ?29, ?30,
+                ?31, ?32, ?33, ?34, ?35, ?36,
+                ?37, ?38, ?39, ?40, ?41, ?42,
+                ?43, ?44, ?45, ?46, ?47, ?48,
+                ?49, ?50, ?51, ?52, ?53, ?54,
+                ?55, ?56, ?57, ?58, ?59
             )
             "#,
         )
@@ -358,10 +352,6 @@ async fn insert_backup(
         .bind(&c.echolink_node)
         .bind(&c.irlp_node)
         .bind(&c.wires_node)
-        .bind(c.ares)
-        .bind(c.races)
-        .bind(c.skywarn)
-        .bind(c.canwarn)
         .bind(&c.use_type)
         .bind(&c.operational_status)
         .bind(&c.service_type)
@@ -457,6 +447,8 @@ fn preview_row(c: &Channel) -> BackupPreviewRow {
         tone_mode: c.tone_mode.clone().unwrap_or_default(),
         ctcss_uplink: c.ctcss_uplink,
         ctcss_downlink: c.ctcss_downlink,
+        dcs_code: c.dcs_code.clone(),
+        dcs_rx_code: c.dcs_rx_code.clone(),
         dmr_color_code: c.dmr_color_code,
         dstar_capable: c.dstar_capable,
         ysf_capable: c.ysf_capable,
@@ -478,10 +470,6 @@ fn preview_row(c: &Channel) -> BackupPreviewRow {
         latitude: c.latitude,
         longitude: c.longitude,
         notes: c.notes.clone(),
-        ares: c.ares,
-        races: c.races,
-        skywarn: c.skywarn,
-        canwarn: c.canwarn,
     }
 }
 

@@ -38,6 +38,8 @@ const COLUMNS: Col[] = [
   { label: "Tone", render: (r) => r.tone_mode },
   { label: "CTCSS↑", mono: true, render: (r) => tone(r.ctcss_uplink) },
   { label: "CTCSS↓", mono: true, render: (r) => tone(r.ctcss_downlink) },
+  { label: "DCS↑", mono: true, render: (r) => r.dcs_code ?? "" },
+  { label: "DCS↓", mono: true, render: (r) => r.dcs_rx_code ?? "" },
   { label: "DMR CC", center: true, render: (r) => (r.dmr_color_code != null ? r.dmr_color_code : "") },
   { label: "D-STAR", center: true, render: (r) => yn(r.dstar_capable) },
   { label: "YSF", center: true, render: (r) => yn(r.ysf_capable) },
@@ -58,10 +60,6 @@ const COLUMNS: Col[] = [
   { label: "Country", render: (r) => r.country ?? "" },
   { label: "Lat", mono: true, render: (r) => (r.latitude != null ? r.latitude.toFixed(4) : "") },
   { label: "Lon", mono: true, render: (r) => (r.longitude != null ? r.longitude.toFixed(4) : "") },
-  { label: "ARES", center: true, render: (r) => yn(r.ares) },
-  { label: "RACES", center: true, render: (r) => yn(r.races) },
-  { label: "SKYWARN", center: true, render: (r) => yn(r.skywarn) },
-  { label: "CANWARN", center: true, render: (r) => yn(r.canwarn) },
   { label: "Notes", render: (r) => r.notes ?? "" },
 ];
 

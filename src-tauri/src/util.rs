@@ -121,13 +121,17 @@ pub fn gen_name_short(callsign: &str) -> String {
 
 /// Does this stored tone scheme squelch on DCS?
 ///
-/// RepeaterBook carries CTCSS only, so a DCS scheme can only be the operator's
-/// own edit — they looked the machine up and it uses DCS. `derive_tone_mode`
-/// can never return one (it only ever produces off/Tone/TSQL/Cross from a CTCSS
-/// pair), so re-deriving it on a re-import would replace DCS with "off" or with
-/// CTCSS and leave `dcs_code` orphaned. Every encoder gates on `tone_mode`, so
-/// the channel would then program with no squelch tone at all and would not key
-/// the repeater (issue #71).
+/// `derive_tone_mode` can never return a DCS scheme — it only ever produces
+/// off/Tone/TSQL/Cross from a CTCSS pair — so re-deriving one on a re-import
+/// would replace DCS with "off" or with CTCSS and leave `dcs_code` orphaned.
+/// Every encoder gates on `tone_mode`, so the channel would then program with
+/// no squelch tone at all and would not key the repeater (issue #71).
+///
+/// This used to be justified by "RepeaterBook carries CTCSS only, so a DCS
+/// scheme can only be the operator's own edit". That is no longer true: the
+/// free-tier CSV's tone columns carry values like `D073`. Callers must decide
+/// whether the fresh export can describe DCS before consulting this — see
+/// `merge_existing`, which checks `SourceColumns::dcs` first.
 ///
 /// Keyed on the tone scheme rather than on `dcs_code` being present, because a
 /// leftover code under a CTCSS scheme is inert and must not freeze it.

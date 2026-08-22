@@ -5,6 +5,7 @@ use serde_json::Value;
 use sqlx::{Acquire, SqlitePool};
 use tauri::State;
 
+use super::rb_regions;
 use super::anytone::{
     AnytoneDecodedChannel, AnytoneDecodedContact, AnytoneDecodedZone, AnytoneSubTone,
 };
@@ -15,6 +16,27 @@ use crate::util::{
     derive_band, derive_duplex, derive_tone_mode, differs_from_rb_f64, differs_from_rb_str,
     gen_name_long, gen_name_short, keeps_dcs, repair_truncated_tx, truncate,
 };
+
+/// Which optional columns the export a record came from actually carries.
+///
+/// `Option::None` is ambiguous on its own and the two readings need opposite
+/// handling on a re-import: in a column the export *has*, None means
+/// RepeaterBook reports nothing there and the stored value should follow it
+/// down; in a column the export does not have, None means we know nothing and
+/// whatever is stored must survive untouched.
+///
+/// Only the premium JSON carries link node numbers, and only the wide CSV
+/// carries Operational Status, so every export is missing something here.
+#[derive(Debug, Clone, Copy)]
+struct SourceColumns {
+    /// allstar_node, echolink_node, irlp_node, wires_node.
+    link_nodes: bool,
+    operational_status: bool,
+    /// Whether the tone columns can express DCS. Only the free-tier CSV can;
+    /// for the other two a stored DCS scheme can only be an operator's edit,
+    /// which is the assumption `keeps_dcs` was written on.
+    dcs: bool,
+}
 
 /// A single RepeaterBook record (from CSV or JSON) parsed and mapped into our
 /// schema, ready to be inserted or previewed. Serialized directly to the import
@@ -36,6 +58,12 @@ pub struct ParsedChannel {
     cross_mode: String,
     ctcss_uplink: Option<f64>,
     ctcss_downlink: Option<f64>,
+    /// TX DCS code, 3-digit octal (migration 0008). Only the standard CSV
+    /// supplies these — the "Full Data" JSON has no DCS field at all.
+    dcs_code: Option<String>,
+    /// RX DCS code, 3-digit octal. `None` with `dcs_code` set means the same
+    /// code both ways, which is stored as tone_mode `DTCS`.
+    dcs_rx_code: Option<String>,
     dmr_color_code: Option<i64>,
     dstar_capable: bool,
     ysf_capable: bool,
@@ -57,10 +85,9 @@ pub struct ParsedChannel {
     latitude: Option<f64>,
     longitude: Option<f64>,
     notes: Option<String>,
-    ares: bool,
-    races: bool,
-    skywarn: bool,
-    canwarn: bool,
+    /// Not part of the preview: this describes the *export*, not the channel.
+    #[serde(skip)]
+    covers: SourceColumns,
 }
 
 /// The full parsed result shown before confirming an import. `rows` is capped
@@ -129,6 +156,14 @@ struct ExistingChannel {
     notes_overridden: bool,
     tone_mode: Option<String>,
     cross_mode: String,
+    dcs_code: Option<String>,
+    dcs_rx_code: Option<String>,
+    /// What RepeaterBook last said. A stored code that differs from its
+    /// snapshot is the operator's edit; one that matches came from an import
+    /// and is ours to refresh. NULL pre-dates migration 0019 and reads as
+    /// "differs", which preserves whatever is stored.
+    rb_dcs_code: Option<String>,
+    rb_dcs_rx_code: Option<String>,
 }
 
 
@@ -176,7 +211,8 @@ async fn insert_parsed(
             "SELECT id, ctcss_uplink, ctcss_downlink, operational_status, notes, \
              ctcss_uplink_overridden, ctcss_downlink_overridden, \
              operational_status_overridden, notes_overridden, \
-             tone_mode, cross_mode \
+             tone_mode, cross_mode, dcs_code, dcs_rx_code, \
+             rb_dcs_code, rb_dcs_rx_code \
              FROM channels WHERE repeaterbook_id = ?1",
         )
         .bind(&p.repeaterbook_id)
@@ -194,25 +230,29 @@ async fn insert_parsed(
             INSERT INTO channels (
                 rb_name, name_long, name_short, callsign, rx_freq, tx_freq,
                 offset, duplex, band, mode, tone_mode, ctcss_uplink,
-                ctcss_downlink, dmr_color_code, dstar_capable, ysf_capable,
+                ctcss_downlink, dcs_code, dcs_rx_code,
+                rb_dcs_code, rb_dcs_rx_code,
+                dmr_color_code, dstar_capable, ysf_capable,
                 nxdn_capable, p25_capable, p25_nac, m17_capable, tetra_capable,
                 allstar_node, echolink_node, irlp_node, wires_node,
                 use_type, operational_status, service_type,
                 city, county, state, country, latitude, longitude, notes,
-                ares, races, skywarn, canwarn, source, repeaterbook_id,
+                source, repeaterbook_id,
                 rb_ctcss_uplink, rb_ctcss_downlink, rb_operational_status,
                 rb_notes, cross_mode, last_rb_update
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6,
                 ?7, ?8, ?9, ?10, ?11, ?12,
-                ?13, ?14, ?15, ?16,
-                ?17, ?18, ?19, ?20, ?21,
-                ?22, ?23, ?24, ?25,
-                ?26, ?27, 'Amateur',
-                ?28, ?29, ?30, ?31, ?32, ?33, ?34,
-                ?35, ?36, ?37, ?38, 'repeaterbook', ?39,
-                ?40, ?41, ?42,
-                ?43, ?44, CURRENT_TIMESTAMP
+                ?13, ?14, ?15,
+                ?43, ?44,
+                ?16, ?17, ?18,
+                ?19, ?20, ?21, ?22, ?23,
+                ?24, ?25, ?26, ?27,
+                ?28, ?29, 'Amateur',
+                ?30, ?31, ?32, ?33, ?34, ?35, ?36,
+                'repeaterbook', ?37,
+                ?38, ?39, ?40,
+                ?41, ?42, CURRENT_TIMESTAMP
             )
             "#,
         )
@@ -229,6 +269,8 @@ async fn insert_parsed(
         .bind(&p.tone_mode)
         .bind(p.ctcss_uplink)
         .bind(p.ctcss_downlink)
+        .bind(&p.dcs_code)
+        .bind(&p.dcs_rx_code)
         .bind(p.dmr_color_code)
         .bind(p.dstar_capable)
         .bind(p.ysf_capable)
@@ -250,16 +292,16 @@ async fn insert_parsed(
         .bind(p.latitude)
         .bind(p.longitude)
         .bind(&p.notes)
-        .bind(p.ares)
-        .bind(p.races)
-        .bind(p.skywarn)
-        .bind(p.canwarn)
         .bind(&p.repeaterbook_id)
         .bind(p.ctcss_uplink) // rb_ctcss_uplink snapshot
         .bind(p.ctcss_downlink) // rb_ctcss_downlink snapshot
         .bind(&p.operational_status) // rb_operational_status snapshot
         .bind(&p.notes) // rb_notes snapshot
         .bind(&p.cross_mode)
+        // rb_dcs_* snapshots: what this export said, so a later import can tell
+        // an operator's edit from one of ours.
+        .bind(&p.dcs_code) // ?43
+        .bind(&p.dcs_rx_code) // ?44
         .execute(&mut *tx)
         .await
         .estr()?;
@@ -275,18 +317,24 @@ async fn insert_parsed(
 ///
 /// Merge policy:
 ///   * RB-authoritative technical facts (mode + every digital-mode flag,
-///     tx_freq/offset/duplex/band, nodes, EmComm flags, city/county/country) are
-///     refreshed from RB — this is what corrects a stale/mis-flagged mode.
+///     tx_freq/offset/duplex/band, city/county/country) are refreshed from RB —
+///     this is what corrects a stale/mis-flagged mode.
 ///   * The four user-overridable fields (uplink/downlink tone, operational
 ///     status, notes) keep the user's value when overridden; otherwise they
 ///     adopt the fresh RB value. Their `rb_*` snapshots always advance and the
 ///     override flags are recomputed. `tone_mode`/`cross_mode` are re-derived
 ///     from the merged tone pair so they stay consistent with a kept override —
 ///     except on a DCS scheme, which is kept verbatim (see [`keeps_dcs`]).
-///   * User-facing names (`name_long`, `name_short`), DMR slot/talkgroup, DCS,
-///     and power are NOT touched — those are the operator's to curate.
-///   * `latitude`/`longitude` use COALESCE so an RB record without coordinates
-///     never wipes coordinates the user set or the geocoder filled in.
+///   * User-facing names (`name_long`, `name_short`), DMR slot/talkgroup and
+///     power are NOT touched — those are the operator's to curate.
+///   * DCS is the operator's to curate *once they have curated it*. The
+///     free-tier CSV supplies DCS, so a stored code is compared against its
+///     `rb_dcs_*` snapshot: matching means an import wrote it and a fresh
+///     export may refresh it, differing means the operator typed it and it
+///     stays. Only an export that can express DCS gets a say.
+///   * `latitude`/`longitude` use COALESCE, and the link nodes and
+///     `operational_status` are gated on `SourceColumns`, so an export that
+///     has no such column never wipes what another export established.
 ///
 /// `callsign`, `rx_freq`, and `state` are part of the dedupe id, so a matched
 /// row necessarily agrees on them; they are intentionally left as-is.
@@ -302,19 +350,51 @@ async fn merge_existing(
         ex.ctcss_downlink,
         p.ctcss_downlink,
     );
-    let (operational_status, rb_status, status_over) = merge_tracked_str(
-        ex.operational_status_overridden,
-        ex.operational_status.clone(),
-        p.operational_status.clone(),
-    );
+    // An export with no Status column says nothing about status, so it must not
+    // drive the tracked triple: merge_tracked_str would read its None as "RB
+    // reports nothing", blank the field AND its rb_ snapshot, and reset the
+    // override flag — losing the baseline that decides future overrides. Both
+    // real exports lack the column, so this is the common path, not the corner.
+    let (operational_status, rb_status, status_over) = if p.covers.operational_status {
+        merge_tracked_str(
+            ex.operational_status_overridden,
+            ex.operational_status.clone(),
+            p.operational_status.clone(),
+        )
+    } else {
+        (
+            ex.operational_status.clone(),
+            None, // ignored by the CASE below; the stored snapshot is kept
+            ex.operational_status_overridden,
+        )
+    };
     let (notes, rb_notes, notes_over) =
         merge_tracked_str(ex.notes_overridden, ex.notes.clone(), p.notes.clone());
     let has_overrides = up_over || dn_over || status_over || notes_over;
 
-    // Re-derive the tone scheme from the merged (possibly overridden) tone pair —
-    // unless the operator put the channel on DCS, which RepeaterBook cannot
-    // describe and re-deriving would silently destroy.
-    let (tone_mode, cross_mode) = if keeps_dcs(ex.tone_mode.as_deref(), &ex.cross_mode) {
+    // Is the stored DCS the operator's, or one an import wrote? Comparing
+    // against the snapshot is the same test the tracked tone fields use. A row
+    // predating migration 0019 has NULL snapshots and so reads as the
+    // operator's, which preserves whatever it holds.
+    let dcs_curated = ex.dcs_code != ex.rb_dcs_code || ex.dcs_rx_code != ex.rb_dcs_rx_code;
+
+    // An export whose tone columns can express DCS describes the machine's
+    // squelch completely: what it omits is genuinely absent, not merely
+    // unknown. So its scheme is adopted whole — including moving a channel OFF
+    // DCS when RepeaterBook now lists CTCSS, which is the case that otherwise
+    // sticks forever and programs a tone the repeater no longer uses.
+    //
+    // Not adopted when the operator has curated the tones or the DCS codes
+    // themselves; their edit wins, exactly as it does for CTCSS.
+    let adopt_rb_dcs = p.covers.dcs && !dcs_curated && !up_over && !dn_over;
+
+    let (tone_mode, cross_mode) = if adopt_rb_dcs {
+        (p.tone_mode.clone(), p.cross_mode.clone())
+    } else if keeps_dcs(ex.tone_mode.as_deref(), &ex.cross_mode) {
+        // The export cannot describe DCS, so a stored DCS scheme can only be
+        // the operator's — or one an earlier CSV import wrote and this export
+        // has no standing to contradict. Keep it verbatim; re-deriving from a
+        // CTCSS pair would silently destroy it (issue #71).
         (
             ex.tone_mode.clone().unwrap_or_else(|| "off".to_string()),
             ex.cross_mode.clone(),
@@ -332,17 +412,36 @@ async fn merge_existing(
             dmr_color_code = ?12, dstar_capable = ?13, ysf_capable = ?14,
             nxdn_capable = ?15, p25_capable = ?16, p25_nac = ?17,
             m17_capable = ?18, tetra_capable = ?19,
-            allstar_node = ?20, echolink_node = ?21, irlp_node = ?22,
-            wires_node = ?23, use_type = ?24, operational_status = ?25,
+            -- Gated on ?43/?44, not COALESCE. COALESCE would also block the
+            -- one export that DOES carry these from ever clearing a value
+            -- RepeaterBook has removed; the flag distinguishes "the export
+            -- says empty" from "the export has no such column".
+            allstar_node = CASE WHEN ?43 THEN ?20 ELSE allstar_node END,
+            echolink_node = CASE WHEN ?43 THEN ?21 ELSE echolink_node END,
+            irlp_node = CASE WHEN ?43 THEN ?22 ELSE irlp_node END,
+            wires_node = CASE WHEN ?43 THEN ?23 ELSE wires_node END,
+            use_type = COALESCE(?24, use_type),
+            operational_status = CASE WHEN ?44 THEN ?25 ELSE operational_status END,
             city = ?26, county = ?27, country = ?28,
+            -- COALESCE, not a straight write: an export with no such column
+            -- reports None and must leave what another export established.
+            -- The free-tier CSV carries neither a Use column nor coordinates.
             latitude = COALESCE(?29, latitude),
             longitude = COALESCE(?30, longitude),
-            notes = ?31, ares = ?32, races = ?33, skywarn = ?34, canwarn = ?35,
-            rb_ctcss_uplink = ?36, rb_ctcss_downlink = ?37,
-            rb_operational_status = ?38, rb_notes = ?39,
-            ctcss_uplink_overridden = ?40, ctcss_downlink_overridden = ?41,
-            operational_status_overridden = ?42, notes_overridden = ?43,
-            has_overrides = ?44,
+            -- Gated, not COALESCE: COALESCE could never clear either code, so
+            -- a cross-DCS scheme whose RX half RepeaterBook dropped would
+            -- squelch on a code the repeater no longer sends, permanently.
+            dcs_code = CASE WHEN ?45 THEN ?31 ELSE dcs_code END,
+            dcs_rx_code = CASE WHEN ?45 THEN ?32 ELSE dcs_rx_code END,
+            rb_dcs_code = CASE WHEN ?46 THEN ?31 ELSE rb_dcs_code END,
+            rb_dcs_rx_code = CASE WHEN ?46 THEN ?32 ELSE rb_dcs_rx_code END,
+            notes = ?33,
+            rb_ctcss_uplink = ?34, rb_ctcss_downlink = ?35,
+            rb_operational_status = CASE WHEN ?44 THEN ?36 ELSE rb_operational_status END,
+            rb_notes = ?37,
+            ctcss_uplink_overridden = ?38, ctcss_downlink_overridden = ?39,
+            operational_status_overridden = ?40, notes_overridden = ?41,
+            has_overrides = ?42,
             last_rb_update = CURRENT_TIMESTAMP
         WHERE id = ?1
         "#,
@@ -377,11 +476,9 @@ async fn merge_existing(
     .bind(&p.country)
     .bind(p.latitude)
     .bind(p.longitude)
+    .bind(&p.dcs_code)
+    .bind(&p.dcs_rx_code)
     .bind(&notes)
-    .bind(p.ares)
-    .bind(p.races)
-    .bind(p.skywarn)
-    .bind(p.canwarn)
     .bind(rb_up)
     .bind(rb_dn)
     .bind(&rb_status)
@@ -391,6 +488,14 @@ async fn merge_existing(
     .bind(status_over)
     .bind(notes_over)
     .bind(has_overrides)
+    .bind(p.covers.link_nodes) // ?43
+    .bind(p.covers.operational_status) // ?44
+    .bind(adopt_rb_dcs) // ?45
+    // The snapshot advances whenever the export could see DCS at all, even if
+    // the operator's edit is what stays in the value — otherwise a curated
+    // channel never learns what RepeaterBook currently says and stays "curated"
+    // for ever, including after the operator reverts to RB's own code.
+    .bind(p.covers.dcs) // ?46
     .execute(&mut *tx)
     .await
     .estr()?;
@@ -508,8 +613,39 @@ struct ParsedChannelStub {
 // ============================================================
 // CSV parser
 // ============================================================
-/// Parse a RepeaterBook CSV export at `path` into our channel representation.
+/// Route a `.csv` to the parser for its shape.
+///
+/// RepeaterBook's free export leads with `Output Freq`; the wide shape below
+/// leads with `Frequency`. Nothing else distinguishes them, and they share no
+/// column name for the frequency, so a file handed to the wrong parser yields
+/// zero channels without reporting an error — which is exactly what a real
+/// free-tier export did before this split existed.
 fn parse_repeaterbook_csv(path: &str) -> Result<Vec<ParsedChannel>, String> {
+    let mut probe = csv::ReaderBuilder::new()
+        .flexible(true)
+        .trim(csv::Trim::All)
+        .from_path(path)
+        .map_err(|e| format!("Could not open CSV: {e}"))?;
+    let headers = probe.headers().estr()?.clone();
+    let has = |name: &str| {
+        headers
+            .iter()
+            .any(|h| h.trim().eq_ignore_ascii_case(name))
+    };
+    if has("Output Freq") {
+        parse_repeaterbook_standard_csv(path)
+    } else {
+        parse_repeaterbook_full_csv(path)
+    }
+}
+
+/// Parse the wide RepeaterBook CSV shape at `path`.
+///
+/// This carries the same field set as the premium "Full Data" JSON — per-mode
+/// columns, Lat/Long, ARES/RACES/SKYWARN, Landmark. No export we have has this
+/// shape (the premium download we have seen is JSON), so unlike the standard
+/// parser below, nothing here has been checked against a real file.
+fn parse_repeaterbook_full_csv(path: &str) -> Result<Vec<ParsedChannel>, String> {
     let mut reader = csv::ReaderBuilder::new()
         .flexible(true)
         .trim(csv::Trim::All)
@@ -584,6 +720,9 @@ fn parse_repeaterbook_csv(path: &str) -> Result<Vec<ParsedChannel>, String> {
             cross_mode: s.cross_mode,
             ctcss_uplink,
             ctcss_downlink,
+            dcs_code: None,
+            dcs_rx_code: None,
+            covers: SourceColumns { link_nodes: false, operational_status: true, dcs: false },
             dmr_color_code,
             dstar_capable,
             ysf_capable,
@@ -605,10 +744,6 @@ fn parse_repeaterbook_csv(path: &str) -> Result<Vec<ParsedChannel>, String> {
             latitude: get(&rec, "Lat").and_then(|s| parse_leading_f64(&s)),
             longitude: get(&rec, "Long").and_then(|s| parse_leading_f64(&s)),
             notes: s_notes_from(&rec, &get),
-            ares: parse_bool(get(&rec, "ARES")),
-            races: parse_bool(get(&rec, "RACES")),
-            skywarn: parse_bool(get(&rec, "SKYWARN")),
-            canwarn: parse_bool(get(&rec, "CANWARN")),
         });
     }
 
@@ -628,6 +763,346 @@ fn s_notes_from(
         parts.push(format!("Landmark: {lm}"));
     }
     (!parts.is_empty()).then(|| parts.join(" | "))
+}
+
+// ============================================================
+// Standard (free-tier) CSV parser
+// ============================================================
+// RepeaterBook offers two downloads. The premium "Full Data" export gives every
+// field and is what `parse_repeaterbook_json` handles; the free CSV gives
+// eleven columns and is what most users can actually get. They share no column
+// name for the frequency, so the two shapes are told apart by their header:
+//
+//   standard : Output Freq,Input Freq,Offset,Uplink Tone,Downlink Tone,Call,
+//              Location,County,State,Modes,Digital Access
+//
+// Built and verified against three real exports (1,104 rows, two dates two
+// months apart). Everything asserted below was observed in those files; where
+// a rule is inferred rather than seen, the comment says so.
+
+/// One RepeaterBook tone cell. The column holds a CTCSS frequency, a DCS code
+/// written `D073`, the literal `CSQ` for carrier squelch, or nothing at all.
+#[derive(Debug, Clone, PartialEq)]
+enum RbTone {
+    /// Blank or `CSQ` — no tone. RepeaterBook uses both; they mean the same.
+    None,
+    Ctcss(f64),
+    /// 3-digit octal, matching how `dcs_code` is stored (migration 0008).
+    Dcs(String),
+}
+
+/// Read one tone cell.
+///
+/// `CSQ` (carrier squelch) is an explicit "no tone" and must not be mistaken
+/// for a missing value that some later step might fill in. A `Dxxx` code is
+/// DCS: RepeaterBook does supply these, despite what the free-tier column
+/// header suggests, and dropping them leaves a channel that cannot key its
+/// repeater.
+fn parse_rb_tone(cell: Option<String>) -> RbTone {
+    let raw = match cell {
+        Some(v) => v.trim().to_string(),
+        None => return RbTone::None,
+    };
+    if raw.is_empty() || raw.eq_ignore_ascii_case("CSQ") {
+        return RbTone::None;
+    }
+    if let Some(rest) = raw.strip_prefix(['D', 'd']) {
+        // DCS codes are conventionally written in octal, which is also how the
+        // channels table stores them, so the digits carry across unchanged.
+        // Anything with an 8 or a 9 is not octal and is not a code we know how
+        // to store, so it is dropped rather than guessed at.
+        if !rest.is_empty() && rest.len() <= 3 && rest.bytes().all(|b| (b'0'..=b'7').contains(&b)) {
+            return RbTone::Dcs(format!("{rest:0>3}"));
+        }
+        return RbTone::None;
+    }
+    match parse_leading_f64(&raw) {
+        Some(f) => RbTone::Ctcss(f),
+        None => RbTone::None,
+    }
+}
+
+/// The tone scheme for an uplink/downlink pair that may be CTCSS or DCS.
+///
+/// Returns `(tone_mode, cross_mode, dcs_code, dcs_rx_code)`. The CTCSS-only
+/// cases match `derive_tone_mode` exactly — this is a superset of it, not a
+/// replacement — and the DCS cases follow the storage convention already in the
+/// database: `DTCS` for the same code both ways with only `dcs_code` set, and
+/// `Cross` with an explicit `cross_mode` for anything mixed.
+fn derive_tone_mode_rb(
+    up: &RbTone,
+    dn: &RbTone,
+) -> (String, String, Option<String>, Option<String>) {
+    let m = |mode: &str, cross: &str, tx: Option<&str>, rx: Option<&str>| {
+        (
+            mode.to_string(),
+            cross.to_string(),
+            tx.map(str::to_string),
+            rx.map(str::to_string),
+        )
+    };
+    match (up, dn) {
+        (RbTone::None, RbTone::None) => m("off", "Tone->Tone", None, None),
+
+        // CTCSS only: identical to derive_tone_mode's behaviour.
+        (RbTone::Ctcss(u), RbTone::Ctcss(d)) if (u - d).abs() < 0.05 => {
+            m("TSQL", "Tone->Tone", None, None)
+        }
+        (RbTone::Ctcss(_), RbTone::Ctcss(_)) => m("Cross", "Tone->Tone", None, None),
+        (RbTone::Ctcss(_), RbTone::None) => m("Tone", "Tone->Tone", None, None),
+        (RbTone::None, RbTone::Ctcss(_)) => m("Cross", "->Tone", None, None),
+
+        // Same DCS code both ways is the common case, and is stored as plain
+        // DTCS with a single code rather than as a cross scheme.
+        (RbTone::Dcs(u), RbTone::Dcs(d)) if u == d => {
+            m("DTCS", "Tone->Tone", Some(u), None)
+        }
+        (RbTone::Dcs(u), RbTone::Dcs(d)) => m("Cross", "DTCS->DTCS", Some(u), Some(d)),
+        (RbTone::Dcs(u), RbTone::None) => m("Cross", "DTCS->", Some(u), None),
+        (RbTone::Dcs(u), RbTone::Ctcss(_)) => m("Cross", "DTCS->Tone", Some(u), None),
+        (RbTone::Ctcss(_), RbTone::Dcs(d)) => m("Cross", "Tone->DTCS", None, Some(d)),
+        (RbTone::None, RbTone::Dcs(d)) => m("Cross", "->DTCS", None, Some(d)),
+    }
+}
+
+/// The digital/link services named in the `Modes` column.
+#[derive(Debug, Default, Clone, PartialEq)]
+struct RbModes {
+    dmr: bool,
+    dstar: bool,
+    ysf: bool,
+    nxdn: bool,
+    p25: bool,
+    m17: bool,
+    tetra: bool,
+    /// Link and other services with nowhere of their own to live, kept in the
+    /// order RepeaterBook listed them so they can go into the notes.
+    extras: Vec<String>,
+}
+
+/// Split the space-separated `Modes` cell.
+///
+/// The whole vocabulary seen across three real exports is `FM DMR DSTAR Fusion
+/// WIRES-X AllStar EchoLink IRLP P-25 ATV`. RepeaterBook's spellings differ
+/// from ours (`DSTAR` not `D-Star`, `P-25` not `P25`, `Fusion` not `System
+/// Fusion`), and NXDN, M17 and TETRA are accepted here without having been
+/// observed, on the grounds that RepeaterBook lists all three elsewhere.
+///
+/// An unrecognised token is kept as an extra rather than dropped: a mode we
+/// have never seen is worth showing the operator, and silently discarding it
+/// would be indistinguishable from a parser bug.
+fn parse_rb_modes(cell: Option<String>) -> RbModes {
+    let mut out = RbModes::default();
+    let raw = cell.unwrap_or_default();
+    for tok in raw.split_whitespace() {
+        match tok.to_ascii_uppercase().as_str() {
+            "FM" | "ANALOG" => {}
+            "DMR" => out.dmr = true,
+            "DSTAR" | "D-STAR" => out.dstar = true,
+            "FUSION" | "YSF" | "C4FM" => out.ysf = true,
+            "NXDN" => out.nxdn = true,
+            "P-25" | "P25" => out.p25 = true,
+            "M17" => out.m17 = true,
+            "TETRA" => out.tetra = true,
+            _ => out.extras.push(tok.to_string()),
+        }
+    }
+    out
+}
+
+/// Parse RepeaterBook's free-tier CSV export at `path`.
+fn parse_repeaterbook_standard_csv(path: &str) -> Result<Vec<ParsedChannel>, String> {
+    let mut reader = csv::ReaderBuilder::new()
+        .flexible(true)
+        .trim(csv::Trim::All)
+        .from_path(path)
+        .map_err(|e| format!("Could not open CSV: {e}"))?;
+
+    let headers = reader.headers().estr()?.clone();
+    let mut col: HashMap<String, usize> = HashMap::new();
+    for (i, h) in headers.iter().enumerate() {
+        col.insert(h.trim().to_lowercase(), i);
+    }
+    let get = |rec: &csv::StringRecord, name: &str| -> Option<String> {
+        col.get(&name.to_lowercase())
+            .and_then(|&i| rec.get(i))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+
+    let mut out = Vec::new();
+    for result in reader.records() {
+        let rec = result.estr()?;
+
+        let rx_freq = match get(&rec, "Output Freq").and_then(|s| parse_leading_f64(&s)) {
+            Some(f) => f,
+            None => continue,
+        };
+        // The Offset column ("+", "-", or "s" for a split) is deliberately
+        // unused: both frequencies arrive at full precision here, so
+        // derive_duplex reads the real relationship straight off them. Trusting
+        // the column instead would misread the three 900 MHz splits in the
+        // sample as simplex.
+        let tx_freq = get(&rec, "Input Freq").and_then(|s| parse_leading_f64(&s));
+        let callsign = get(&rec, "Call").unwrap_or_default();
+
+        // "Colorado Springs - Cheyenne Mtn" is one column here and two fields in
+        // the premium export. Splitting is what lets a CSV import land on the
+        // same synthetic id as a JSON import of the same repeater; without it
+        // the whole library duplicates. Verified across 212 distinct Locations:
+        // every one either has exactly one " - " or none, and none has a
+        // hyphen without the surrounding spaces.
+        let location = get(&rec, "Location");
+        let (city, landmark) = match location {
+            Some(l) => match l.split_once(" - ") {
+                Some((c, lm)) => (Some(c.trim().to_string()), Some(lm.trim().to_string())),
+                None => (Some(l), None),
+            },
+            None => (None, None),
+        };
+
+        // Spelled-out name -> postal code, so the dedupe id matches the JSON's.
+        // An unknown region keeps its name rather than being dropped.
+        let raw_state = get(&rec, "State");
+        let region = raw_state.as_deref().and_then(rb_regions::lookup);
+        let state = match region {
+            Some((code, _)) => Some(code.to_string()),
+            None => raw_state.clone(),
+        };
+        let country = region.map(|(_, c)| c.to_string());
+
+        let up = parse_rb_tone(get(&rec, "Uplink Tone"));
+        let dn = parse_rb_tone(get(&rec, "Downlink Tone"));
+        let (tone_mode, cross_mode, dcs_code, dcs_rx_code) = derive_tone_mode_rb(&up, &dn);
+        let ctcss_uplink = match up {
+            RbTone::Ctcss(f) => Some(f),
+            _ => None,
+        };
+        let ctcss_downlink = match dn {
+            RbTone::Ctcss(f) => Some(f),
+            _ => None,
+        };
+
+        let modes = parse_rb_modes(get(&rec, "Modes"));
+
+        // One column, two meanings: a DMR colour code (0-15) or a P25 NAC.
+        // Which one it is depends on the Modes cell, and reading it as a colour
+        // code regardless would store a NAC of 293 as a colour code.
+        //
+        // A machine listing both DMR and P25 leaves the cell genuinely
+        // ambiguous — one value, two possible meanings, no way to tell which —
+        // so neither field is filled and the raw value goes to the notes for
+        // the operator to resolve. Guessing here writes a wrong byte to a radio.
+        let digital_access = get(&rec, "Digital Access");
+        let ambiguous_access =
+            modes.dmr && modes.p25 && digital_access.as_deref().is_some_and(|s| !s.is_empty());
+        let dmr_color_code = if modes.dmr && !modes.p25 {
+            digital_access
+                .as_deref()
+                .and_then(|s| s.parse::<i64>().ok())
+                // The manual create/update path enforces this range
+                // (channels.rs `checks`); an import must not be the way round
+                // it. Out of range means the cell is not a colour code.
+                .filter(|cc| (0..=15).contains(cc))
+        } else {
+            None
+        };
+        let p25_nac = if modes.p25 && !modes.dmr {
+            digital_access.clone()
+        } else {
+            None
+        };
+
+        // Mode comes from the Modes tokens, never from "a colour code is
+        // present": real DMR repeaters ship with the Digital Access cell empty,
+        // and inferring from it would file them as analog.
+        let mode = derive_mode(
+            modes.dmr,
+            modes.dstar,
+            modes.ysf,
+            modes.nxdn,
+            modes.p25,
+            modes.m17,
+        );
+
+        let s = finalize(
+            &callsign,
+            rx_freq,
+            tx_freq,
+            ctcss_uplink,
+            ctcss_downlink,
+            city.as_deref(),
+            state.as_deref(),
+        );
+
+        // Landmark has no column of its own in our schema; the JSON importer
+        // puts it in the notes and this matches. Link services (AllStar,
+        // EchoLink, IRLP, WIRES-X) have node-number columns here, but the CSV
+        // carries only the fact that they exist, so they go to the notes too
+        // rather than being invented as node ids.
+        let mut note_parts = Vec::new();
+        if let Some(lm) = landmark {
+            note_parts.push(format!("Landmark: {lm}"));
+        }
+        if !modes.extras.is_empty() {
+            note_parts.push(format!("Links: {}", modes.extras.join(", ")));
+        }
+        if ambiguous_access {
+            note_parts.push(format!(
+                "Digital Access {} (DMR+P25 listed; colour code or NAC unresolved)",
+                digital_access.clone().unwrap_or_default()
+            ));
+        }
+        let notes = (!note_parts.is_empty()).then(|| note_parts.join(" | "));
+
+        out.push(ParsedChannel {
+            repeaterbook_id: s.repeaterbook_id,
+            rb_name: s.rb_name,
+            name_long: s.name_long,
+            name_short: s.name_short,
+            callsign,
+            rx_freq,
+            tx_freq: s.tx_freq,
+            offset: s.offset,
+            duplex: s.duplex,
+            band: s.band,
+            mode,
+            // finalize's CTCSS-only reading is replaced by the DCS-aware one.
+            tone_mode,
+            cross_mode,
+            ctcss_uplink,
+            ctcss_downlink,
+            dcs_code,
+            dcs_rx_code,
+            covers: SourceColumns { link_nodes: false, operational_status: false, dcs: true },
+            dmr_color_code,
+            dstar_capable: modes.dstar,
+            ysf_capable: modes.ysf,
+            nxdn_capable: modes.nxdn,
+            p25_capable: modes.p25,
+            p25_nac,
+            m17_capable: modes.m17,
+            tetra_capable: modes.tetra,
+            // Presence is known, node numbers are not; see the notes above.
+            allstar_node: None,
+            echolink_node: None,
+            irlp_node: None,
+            wires_node: None,
+            // Columns this export simply does not have. None, not a default,
+            // so a re-import cannot overwrite what the premium export knew.
+            use_type: None,
+            operational_status: None,
+            city,
+            county: get(&rec, "County"),
+            state,
+            country,
+            latitude: None,
+            longitude: None,
+            notes,
+        });
+    }
+
+    Ok(out)
 }
 
 // ============================================================
@@ -746,6 +1221,9 @@ fn parse_repeaterbook_json(path: &str) -> Result<Vec<ParsedChannel>, String> {
             cross_mode: s.cross_mode,
             ctcss_uplink,
             ctcss_downlink,
+            dcs_code: None,
+            dcs_rx_code: None,
+            covers: SourceColumns { link_nodes: true, operational_status: false, dcs: false },
             dmr_color_code,
             dstar_capable,
             ysf_capable,
@@ -767,10 +1245,6 @@ fn parse_repeaterbook_json(path: &str) -> Result<Vec<ParsedChannel>, String> {
             latitude: jstr(rec, "lat").and_then(|s| parse_leading_f64(&s)),
             longitude: jstr(rec, "lon").and_then(|s| parse_leading_f64(&s)),
             notes: s_notes_json(rec),
-            ares: parse_bool(jstr(rec, "ares")),
-            races: parse_bool(jstr(rec, "races")),
-            skywarn: parse_bool(jstr(rec, "skywarn")),
-            canwarn: parse_bool(jstr(rec, "canwarn")),
         });
     }
 
@@ -1339,6 +1813,358 @@ mod tests {
     /// does not want, and nothing says so. Both now call
     /// `util::differs_from_rb_f64`.
     #[tokio::test]
+    async fn a_standard_csv_reimport_keeps_what_only_the_premium_export_knew() {
+        let dir = std::env::temp_dir().join(format!("cpm_csv_merge_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok();
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        // A premium "Full Data" import establishes the service flags, the use
+        // type and the site coordinates. The free CSV has a column for none of
+        // those four.
+        let json = r#"{"records":[{
+            "freq_mhz":"145.110","input_freq":"144.510","callsign":"QQ0AAA",
+            "state":"CO","city":"Anytown","pl_tone":"100.0",
+            "lat":"39.00000","lon":"-105.00000"
+        }]}"#;
+        let jpath = dir.join("rb.json");
+        std::fs::write(&jpath, json).expect("write json");
+        let from_json = parse_repeaterbook_json(jpath.to_str().unwrap()).expect("parse json");
+        insert_parsed(&pool, &from_json).await.expect("premium import");
+
+        // The JSON parser does not map RepeaterBook's "use" field today, so
+        // set it here directly: the COALESCE that protects it still has to
+        // hold for any row that has one, wherever it came from.
+        sqlx::query("UPDATE channels SET use_type = 'OPEN' WHERE callsign = 'QQ0AAA'")
+            .execute(&pool)
+            .await
+            .expect("seed use_type");
+
+        let before = sqlx::query_as::<_, crate::models::Channel>(
+            "SELECT * FROM channels WHERE callsign = 'QQ0AAA'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("row");
+        assert_eq!(before.latitude, Some(39.0));
+        assert_eq!(before.use_type.as_deref(), Some("OPEN"));
+
+        // The same repeater, now from the free CSV. It has to land on the same
+        // row: that is the whole point of normalising Location and State.
+        let from_csv = parse_repeaterbook_standard_csv(
+            "../sample-data/repeaterbook-standard-sample.csv",
+        )
+        .expect("parse csv");
+        let summary = insert_parsed(&pool, &from_csv).await.expect("csv import");
+        assert_eq!(summary.updated, 1, "QQ0AAA merged rather than duplicating");
+
+        let after = sqlx::query_as::<_, crate::models::Channel>(
+            "SELECT * FROM channels WHERE callsign = 'QQ0AAA'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("row");
+
+        // The failure this test exists for: a straight write of a column this
+        // export does not have clears it, silently, on every matched channel.
+        assert_eq!(after.use_type.as_deref(), Some("OPEN"), "Use cleared");
+        assert_eq!(after.latitude, Some(39.0), "coordinates cleared");
+
+        // What the CSV does carry is still applied.
+        assert_eq!(after.city.as_deref(), Some("Anytown"));
+        assert_eq!(after.notes.as_deref(), Some("Landmark: Sample Hill"));
+    }
+
+    /// Import the sample CSV, then re-import it with one row's tone cells
+    /// rewritten. Returns the resulting channel.
+    async fn reimport_qq0fff_with_tones(
+        tag: &str,
+        uplink: &str,
+        downlink: &str,
+    ) -> (sqlx::SqlitePool, crate::models::Channel) {
+        let dir = std::env::temp_dir().join(format!("cpm_{tag}_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok();
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        let first =
+            parse_repeaterbook_standard_csv("../sample-data/repeaterbook-standard-sample.csv")
+                .expect("parse");
+        insert_parsed(&pool, &first).await.expect("first import");
+
+        // Same export with QQ0FFF's tone columns changed.
+        let orig = std::fs::read_to_string("../sample-data/repeaterbook-standard-sample.csv")
+            .expect("read sample");
+        let edited: String = orig
+            .lines()
+            .map(|l| {
+                if l.contains("QQ0FFF") {
+                    let f: Vec<&str> = l.split(',').collect();
+                    format!(
+                        "{},{},{},{uplink},{downlink},{}",
+                        f[0],
+                        f[1],
+                        f[2],
+                        f[5..].join(",")
+                    )
+                } else {
+                    l.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let p2 = dir.join("second.csv");
+        std::fs::write(&p2, edited).expect("write");
+        let second = parse_repeaterbook_standard_csv(p2.to_str().unwrap()).expect("parse 2");
+        insert_parsed(&pool, &second).await.expect("re-import");
+
+        let ch = sqlx::query_as::<_, crate::models::Channel>(
+            "SELECT * FROM channels WHERE callsign = 'QQ0FFF'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("row");
+        (pool, ch)
+    }
+
+    #[tokio::test]
+    async fn a_repeater_that_moves_off_dcs_stops_programming_dcs() {
+        // QQ0FFF imports as DTCS/073. RepeaterBook then lists it as CTCSS
+        // 100.0 — a retune, or a corrected entry.
+        //
+        // The bug this guards: `keeps_dcs` keyed on the STORED tone_mode, which
+        // was only ever DTCS by an operator's hand until the free CSV started
+        // supplying DCS. It would freeze tone_mode at DTCS for ever; every
+        // encoder gates on tone_mode, so the radio keeps transmitting DCS 073
+        // and will not key the repeater. That is issue #71's failure, arriving
+        // from the other direction.
+        let (_pool, ch) = reimport_qq0fff_with_tones("dcs_off", "100.0", "100.0").await;
+        assert_eq!(ch.tone_mode.as_deref(), Some("TSQL"), "still stuck on DCS");
+        assert_eq!(ch.dcs_code, None, "stale DCS code still programmed");
+        assert_eq!(ch.ctcss_uplink, Some(100.0));
+    }
+
+    #[tokio::test]
+    async fn a_cross_dcs_scheme_can_lose_its_rx_half() {
+        // QQ0GGG is DTCS->DTCS 023/114. RepeaterBook later lists D023 both
+        // ways, so the fresh record has no RX code at all. Under COALESCE the
+        // old 114 could never clear and the channel would squelch for ever on
+        // a code the repeater no longer sends.
+        let dir = std::env::temp_dir().join(format!("cpm_dcs_rx_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok();
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        let first =
+            parse_repeaterbook_standard_csv("../sample-data/repeaterbook-standard-sample.csv")
+                .expect("parse");
+        insert_parsed(&pool, &first).await.expect("first");
+        let before: Option<String> =
+            sqlx::query_scalar("SELECT dcs_rx_code FROM channels WHERE callsign = 'QQ0GGG'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(before.as_deref(), Some("114"), "fixture no longer cross-DCS");
+
+        let orig = std::fs::read_to_string("../sample-data/repeaterbook-standard-sample.csv")
+            .unwrap();
+        let edited = orig.replace(",D023,D114,QQ0GGG,", ",D023,D023,QQ0GGG,");
+        assert_ne!(edited, orig, "fixture row not found");
+        let p2 = dir.join("second.csv");
+        std::fs::write(&p2, edited).unwrap();
+        insert_parsed(
+            &pool,
+            &parse_repeaterbook_standard_csv(p2.to_str().unwrap()).unwrap(),
+        )
+        .await
+        .expect("re-import");
+
+        let ch = sqlx::query_as::<_, crate::models::Channel>(
+            "SELECT * FROM channels WHERE callsign = 'QQ0GGG'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(ch.tone_mode.as_deref(), Some("DTCS"), "same code both ways now");
+        assert_eq!(ch.dcs_code.as_deref(), Some("023"));
+        assert_eq!(ch.dcs_rx_code, None, "stale RX code never cleared");
+    }
+
+    #[tokio::test]
+    async fn an_operators_own_dcs_code_survives_a_reimport() {
+        // The other half of the policy. The operator looks the machine up,
+        // decides RepeaterBook's D073 is wrong and types D047. A re-import must
+        // not quietly put 073 back — merge_existing's documented policy is that
+        // DCS is the operator's to curate.
+        let dir = std::env::temp_dir().join(format!("cpm_dcs_curated_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok();
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        let parsed =
+            parse_repeaterbook_standard_csv("../sample-data/repeaterbook-standard-sample.csv")
+                .expect("parse");
+        insert_parsed(&pool, &parsed).await.expect("first");
+
+        sqlx::query("UPDATE channels SET dcs_code = '047' WHERE callsign = 'QQ0FFF'")
+            .execute(&pool)
+            .await
+            .expect("operator edit");
+
+        insert_parsed(&pool, &parsed).await.expect("re-import");
+
+        let code: Option<String> =
+            sqlx::query_scalar("SELECT dcs_code FROM channels WHERE callsign = 'QQ0FFF'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(code.as_deref(), Some("047"), "operator's DCS overwritten");
+    }
+
+    #[tokio::test]
+    async fn a_free_csv_reimport_keeps_link_nodes_and_status_it_cannot_see() {
+        let dir = std::env::temp_dir().join(format!("cpm_csv_cover_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok();
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        // The premium JSON is the only export that carries link node numbers.
+        let json = r#"{"records":[{
+            "freq_mhz":"145.110","input_freq":"144.510","callsign":"QQ0AAA",
+            "state":"CO","city":"Anytown","pl_tone":"100.0",
+            "allstar_node":"48291","echolink_node":"12345",
+            "irlp_node_id":"7700","wires_node":"21001"
+        }]}"#;
+        let jpath = dir.join("rb.json");
+        std::fs::write(&jpath, json).expect("write json");
+        let from_json = parse_repeaterbook_json(jpath.to_str().unwrap()).expect("parse json");
+        insert_parsed(&pool, &from_json).await.expect("premium import");
+
+        // Operational Status comes only from the wide CSV, so seed it directly.
+        sqlx::query(
+            "UPDATE channels SET operational_status = 'On Air', \
+             rb_operational_status = 'On Air' WHERE callsign = 'QQ0AAA'",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed status");
+
+        // Now the same repeater from the free CSV, which has neither column.
+        let from_csv = parse_repeaterbook_standard_csv(
+            "../sample-data/repeaterbook-standard-sample.csv",
+        )
+        .expect("parse csv");
+        let summary = insert_parsed(&pool, &from_csv).await.expect("csv import");
+        assert_eq!(summary.updated, 1, "QQ0AAA merged rather than duplicating");
+
+        let after = sqlx::query_as::<_, crate::models::Channel>(
+            "SELECT * FROM channels WHERE callsign = 'QQ0AAA'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("row");
+
+        // The failure this exists for: the CSV reports None for all five
+        // because it has no such column, and a straight write turns that into
+        // a silent delete. None of these are editable in the UI, so the only
+        // way back would be another premium import.
+        assert_eq!(after.allstar_node.as_deref(), Some("48291"), "AllStar node wiped");
+        assert_eq!(after.echolink_node.as_deref(), Some("12345"), "EchoLink node wiped");
+        assert_eq!(after.irlp_node.as_deref(), Some("7700"), "IRLP node wiped");
+        assert_eq!(after.wires_node.as_deref(), Some("21001"), "Wires-X node wiped");
+        assert_eq!(after.operational_status.as_deref(), Some("On Air"), "Status wiped");
+        // The snapshot has to survive too, or the next override comparison has
+        // no baseline to work from.
+        let snap: Option<String> = sqlx::query_scalar(
+            "SELECT rb_operational_status FROM channels WHERE callsign = 'QQ0AAA'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(snap.as_deref(), Some("On Air"), "Status rb_ snapshot wiped");
+    }
+
+    #[tokio::test]
+    async fn the_export_that_does_carry_nodes_can_still_clear_one() {
+        // The other half of the rule: a flat COALESCE would have made these
+        // columns write-once, so an export that HAS the column must still be
+        // able to report that RepeaterBook dropped the node.
+        let dir = std::env::temp_dir().join(format!("cpm_csv_clear_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok();
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        let with_node = r#"{"records":[{
+            "freq_mhz":"145.110","input_freq":"144.510","callsign":"QQ0AAA",
+            "state":"CO","city":"Anytown","echolink_node":"12345"
+        }]}"#;
+        let p1 = dir.join("a.json");
+        std::fs::write(&p1, with_node).unwrap();
+        insert_parsed(&pool, &parse_repeaterbook_json(p1.to_str().unwrap()).unwrap())
+            .await
+            .expect("first");
+
+        let node_gone = r#"{"records":[{
+            "freq_mhz":"145.110","input_freq":"144.510","callsign":"QQ0AAA",
+            "state":"CO","city":"Anytown","echolink_node":""
+        }]}"#;
+        let p2 = dir.join("b.json");
+        std::fs::write(&p2, node_gone).unwrap();
+        insert_parsed(&pool, &parse_repeaterbook_json(p2.to_str().unwrap()).unwrap())
+            .await
+            .expect("second");
+
+        let node: Option<String> =
+            sqlx::query_scalar("SELECT echolink_node FROM channels WHERE callsign = 'QQ0AAA'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(node, None, "a delisted node must actually clear");
+    }
+
+    #[tokio::test]
+    async fn a_standard_csv_import_stores_dcs_the_json_could_never_describe() {
+        let dir = std::env::temp_dir().join(format!("cpm_csv_dcs_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok();
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        let parsed = parse_repeaterbook_standard_csv(
+            "../sample-data/repeaterbook-standard-sample.csv",
+        )
+        .expect("parse csv");
+        insert_parsed(&pool, &parsed).await.expect("import");
+
+        // QQ0FFF is D073 both ways. Before this parser existed the tone was
+        // dropped and the channel programmed with no squelch at all, which is
+        // the failure issue #71 describes.
+        let ch = sqlx::query_as::<_, crate::models::Channel>(
+            "SELECT * FROM channels WHERE callsign = 'QQ0FFF'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("row");
+        assert_eq!(ch.tone_mode.as_deref(), Some("DTCS"));
+        assert_eq!(ch.dcs_code.as_deref(), Some("073"));
+
+        // And it survives a re-import of the same export.
+        insert_parsed(&pool, &parsed).await.expect("re-import");
+        let again: Option<String> =
+            sqlx::query_scalar("SELECT dcs_code FROM channels WHERE callsign = 'QQ0FFF'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(again.as_deref(), Some("073"));
+    }
+
+    #[tokio::test]
     async fn clearing_a_repeaterbook_tone_survives_a_reimport() {
         let dir = std::env::temp_dir().join(format!("cpm_clear_tone_{}", std::process::id()));
         let db_path = dir.join("test.sqlite3");
@@ -1468,6 +2294,211 @@ mod tests {
             notes: c.notes.clone(),
             source: Some(c.source.clone()),
         }
+    }
+
+    #[test]
+    fn parses_sample_standard_csv() {
+        let parsed = parse_repeaterbook_csv("../sample-data/repeaterbook-standard-sample.csv")
+            .expect("parse failed");
+        assert_eq!(parsed.len(), 20, "every row parses; none is silently skipped");
+
+        let by_call = |c: &str| {
+            parsed
+                .iter()
+                .find(|p| p.callsign == c)
+                .unwrap_or_else(|| panic!("{c} missing from the parse"))
+        };
+
+        // "Anytown - Sample Hill" is one column here and two fields in the
+        // premium JSON. The split is what makes the two imports agree on the
+        // dedupe id instead of duplicating the library.
+        let a = by_call("QQ0AAA");
+        assert_eq!(a.city.as_deref(), Some("Anytown"));
+        assert_eq!(a.notes.as_deref(), Some("Landmark: Sample Hill"));
+        // State is spelled out in this export and must become the postal code
+        // the JSON importer stores, or every id differs.
+        assert_eq!(a.state.as_deref(), Some("CO"));
+        assert_eq!(a.country.as_deref(), Some("United States"));
+        assert_eq!(a.repeaterbook_id, "QQ0AAA|145.1100|CO|ANYTOWN");
+
+        // A Location with no landmark keeps the whole cell as the city.
+        assert_eq!(by_call("QQ0BBB").city.as_deref(), Some("Testville"));
+        assert_eq!(by_call("QQ0BBB").notes, None);
+    }
+
+    #[test]
+    fn standard_csv_reads_every_tone_shape() {
+        let parsed = parse_repeaterbook_csv("../sample-data/repeaterbook-standard-sample.csv")
+            .expect("parse failed");
+        let t = |c: &str| {
+            let p = parsed.iter().find(|p| p.callsign == c).unwrap();
+            (
+                p.tone_mode.as_str(),
+                p.cross_mode.as_str(),
+                p.dcs_code.as_deref(),
+                p.dcs_rx_code.as_deref(),
+            )
+        };
+
+        // CTCSS, identical to what derive_tone_mode produces.
+        assert_eq!(t("QQ0AAA"), ("Tone", "Tone->Tone", None, None));
+        assert_eq!(t("QQ0BBB"), ("TSQL", "Tone->Tone", None, None));
+        assert_eq!(t("QQ0CCC"), ("Cross", "Tone->Tone", None, None));
+        assert_eq!(t("QQ0DDD"), ("Cross", "->Tone", None, None));
+
+        // CSQ is carrier squelch: an explicit "no tone", not a missing value.
+        assert_eq!(t("QQ0EEE"), ("off", "Tone->Tone", None, None));
+        let e = parsed.iter().find(|p| p.callsign == "QQ0EEE").unwrap();
+        assert_eq!(e.ctcss_uplink, None);
+        assert_eq!(e.ctcss_downlink, None);
+
+        // DCS. RepeaterBook does supply it, and dropping it leaves a channel
+        // that cannot key its repeater (the failure issue #71 is about).
+        assert_eq!(t("QQ0FFF"), ("DTCS", "Tone->Tone", Some("073"), None));
+        assert_eq!(t("QQ0GGG"), ("Cross", "DTCS->DTCS", Some("023"), Some("114")));
+        assert_eq!(t("QQ0HHH"), ("Cross", "DTCS->", Some("205"), None));
+        assert_eq!(t("QQ0III"), ("Cross", "DTCS->Tone", Some("116"), None));
+        assert_eq!(t("QQ0JJJ"), ("Cross", "Tone->DTCS", None, Some("054")));
+
+        // A DCS cell never leaks into the CTCSS columns.
+        let f = parsed.iter().find(|p| p.callsign == "QQ0FFF").unwrap();
+        assert_eq!(f.ctcss_uplink, None);
+        assert_eq!(f.ctcss_downlink, None);
+        // ...and a mixed pair keeps only the CTCSS half.
+        let i = parsed.iter().find(|p| p.callsign == "QQ0III").unwrap();
+        assert_eq!(i.ctcss_uplink, None);
+        assert_eq!(i.ctcss_downlink, Some(131.8));
+    }
+
+    #[test]
+    fn standard_csv_reads_mode_from_the_modes_column() {
+        let parsed = parse_repeaterbook_standard_csv(
+            "../sample-data/repeaterbook-standard-sample.csv",
+        )
+        .expect("parse failed");
+        let p = |c: &str| parsed.iter().find(|p| p.callsign == c).unwrap();
+
+        assert_eq!(p("QQ0KKK").mode, "DMR");
+        assert_eq!(p("QQ0KKK").dmr_color_code, Some(7));
+
+        // The trap: a real DMR repeater with an empty Digital Access cell.
+        // Inferring the mode from "a colour code is present" files it as FM.
+        assert_eq!(p("QQ0LLL").mode, "DMR");
+        assert_eq!(p("QQ0LLL").dmr_color_code, None);
+
+        // Digital Access means NAC, not colour code, when the mode is P25.
+        assert_eq!(p("QQ0MMM").mode, "P25");
+        assert_eq!(p("QQ0MMM").p25_nac.as_deref(), Some("293"));
+        assert_eq!(
+            p("QQ0MMM").dmr_color_code,
+            None,
+            "a NAC of 293 is not a colour code (the range is 0-15)"
+        );
+
+        assert_eq!(p("QQ0NNN").mode, "DSTAR");
+        assert!(p("QQ0NNN").dstar_capable);
+
+        // Link services have no node number in this export, so presence is
+        // recorded in the notes rather than invented as a node id.
+        let o = p("QQ0OOO");
+        assert!(o.ysf_capable);
+        assert_eq!(o.mode, "YSF");
+        assert_eq!(o.wires_node, None);
+        assert_eq!(
+            o.notes.as_deref(),
+            Some("Landmark: Round Butte | Links: WIRES-X")
+        );
+        assert_eq!(
+            p("QQ0PPP").notes.as_deref(),
+            Some("Landmark: Long Mesa | Links: AllStar, EchoLink, IRLP")
+        );
+        // An unrecognised token is surfaced, not silently dropped.
+        assert_eq!(p("QQ0QQQ").notes.as_deref(), Some("Links: ATV"));
+    }
+
+    #[test]
+    fn standard_csv_leaves_absent_columns_absent() {
+        let parsed = parse_repeaterbook_standard_csv(
+            "../sample-data/repeaterbook-standard-sample.csv",
+        )
+        .expect("parse failed");
+        // This export has no Use, Status or Lat/Long columns at all. None, not
+        // a default: merge_existing COALESCEs on them, so reporting a value
+        // here would clear whatever a premium import had established.
+        for p in &parsed {
+            assert_eq!(p.use_type, None, "{} reported a Use it cannot know", p.callsign);
+            assert_eq!(p.operational_status, None);
+            assert_eq!(p.latitude, None);
+            assert_eq!(p.longitude, None);
+        }
+    }
+
+    #[test]
+    fn standard_csv_derives_duplex_from_the_frequencies_not_the_offset_column() {
+        let parsed = parse_repeaterbook_standard_csv(
+            "../sample-data/repeaterbook-standard-sample.csv",
+        )
+        .expect("parse failed");
+        let p = |c: &str| parsed.iter().find(|p| p.callsign == c).unwrap();
+
+        assert_eq!(p("QQ0AAA").duplex, "-");
+        assert_eq!(p("QQ0FFF").duplex, "+");
+
+        // Offset "s" marks a split, not simplex. This 900 MHz pair is 25.5 MHz
+        // apart; reading the column literally would make it a simplex channel
+        // that transmits on its own output frequency.
+        let s = p("QQ0SSS");
+        assert_ne!(s.duplex, "simplex");
+        assert_eq!(s.tx_freq, Some(902.2));
+        assert_eq!(s.band, "900");
+    }
+
+    #[test]
+    fn an_unknown_region_still_imports() {
+        let parsed = parse_repeaterbook_standard_csv(
+            "../sample-data/repeaterbook-standard-sample.csv",
+        )
+        .expect("parse failed");
+        // "Atlantis" is in no table. The row must still import, keeping the
+        // name it was given rather than being dropped or blanked.
+        let r = parsed.iter().find(|p| p.callsign == "QQ0RRR").unwrap();
+        assert_eq!(r.state.as_deref(), Some("Atlantis"));
+        assert_eq!(r.country, None);
+        assert_eq!(r.repeaterbook_id, "QQ0RRR|442.2400|ATLANTIS|FARAWAY");
+    }
+
+    #[test]
+    fn the_two_csv_shapes_route_to_their_own_parsers() {
+        // Both files are `.csv` and share not one column name for the
+        // frequency. Handing either to the wrong parser yields zero channels
+        // and no error, which is how a real free-tier export imported nothing.
+        let standard = parse_repeaterbook_csv("../sample-data/repeaterbook-standard-sample.csv")
+            .expect("standard parse");
+        let wide = parse_repeaterbook_csv("../sample-data/repeaterbook-sample.csv")
+            .expect("wide parse");
+        assert_eq!(standard.len(), 20);
+        assert_eq!(wide.len(), 10);
+
+        // The wide shape's own parser cannot read the standard export: this is
+        // the exact silent failure the header sniff exists to prevent.
+        let wrong = parse_repeaterbook_full_csv("../sample-data/repeaterbook-standard-sample.csv")
+            .expect("parses, but finds nothing");
+        assert_eq!(wrong.len(), 0);
+    }
+
+    #[test]
+    fn a_dcs_cell_that_is_not_octal_is_dropped_rather_than_guessed() {
+        // DCS codes are octal, and that is how the channels table stores them.
+        // An 8 or a 9 means this is not the notation we think it is.
+        assert_eq!(parse_rb_tone(Some("D073".into())), RbTone::Dcs("073".into()));
+        assert_eq!(parse_rb_tone(Some("D23".into())), RbTone::Dcs("023".into()));
+        assert_eq!(parse_rb_tone(Some("D089".into())), RbTone::None);
+        assert_eq!(parse_rb_tone(Some("D".into())), RbTone::None);
+        assert_eq!(parse_rb_tone(Some("CSQ".into())), RbTone::None);
+        assert_eq!(parse_rb_tone(Some("csq".into())), RbTone::None);
+        assert_eq!(parse_rb_tone(Some("".into())), RbTone::None);
+        assert_eq!(parse_rb_tone(None), RbTone::None);
+        assert_eq!(parse_rb_tone(Some("100.0".into())), RbTone::Ctcss(100.0));
     }
 
     #[test]

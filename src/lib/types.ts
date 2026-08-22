@@ -44,10 +44,6 @@ export interface Channel {
   echolink_node: string | null;
   irlp_node: string | null;
   wires_node: string | null;
-  ares: boolean;
-  races: boolean;
-  skywarn: boolean;
-  canwarn: boolean;
   use_type: string | null;
   operational_status: string | null;
   service_type: string | null;
@@ -730,6 +726,10 @@ export interface ImportPreviewRow {
   tone_mode: string;
   ctcss_uplink: number | null;
   ctcss_downlink: number | null;
+  /// TX/RX DCS codes, 3-digit octal. Only the free-tier CSV supplies these;
+  /// the premium "Full Data" JSON has no DCS field.
+  dcs_code: string | null;
+  dcs_rx_code: string | null;
   dmr_color_code: number | null;
   dstar_capable: boolean;
   ysf_capable: boolean;
@@ -751,10 +751,6 @@ export interface ImportPreviewRow {
   latitude: number | null;
   longitude: number | null;
   notes: string | null;
-  ares: boolean;
-  races: boolean;
-  skywarn: boolean;
-  canwarn: boolean;
 }
 
 export interface ImportPreview {
