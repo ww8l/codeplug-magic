@@ -17,24 +17,24 @@
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json"
   },
   "dependencies": {
-    "@tanstack/react-virtual": "^3.14.3",
+    "@tanstack/react-virtual": "^3.14.10",
     "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
     "clsx": "^2.1.1",
-    "lucide-react": "^1.21.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
+    "lucide-react": "^1.33.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2",
-    "sonner": "^2.0.7"
+    "sonner": "^2.0.8"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.3.1",
+    "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2",
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.6.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
     "tailwindcss": "^4.3.1",
-    "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "typescript": "~7.0.2",
+    "vite": "^8.2.1"
   }
 }
