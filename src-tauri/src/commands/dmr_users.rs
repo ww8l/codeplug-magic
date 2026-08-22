@@ -750,7 +750,6 @@ const COUNTRY_CONTINENTS: &[(&str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::Acquire;
 
     async fn test_pool() -> sqlx::SqlitePool {
         use std::sync::atomic::{AtomicU32, Ordering};

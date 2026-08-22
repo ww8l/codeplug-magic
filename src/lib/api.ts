@@ -13,6 +13,8 @@ import type {
   BackupPruneResult,
   CodeplugWritten,
   RadioBackupsSummary,
+  BackupTable,
+  TalkgroupRefreshSummary,
   DashboardStats,
   GeoPoint,
   ExportPreview,
@@ -79,8 +81,8 @@ export const api = {
       state: state ?? null,
       country: country ?? null,
     }),
-  backfillChannelCoordinates: () =>
-    invoke<BackfillResult>("backfill_channel_coordinates"),
+  backfillChannelCoordinates: (allowOnline: boolean) =>
+    invoke<BackfillResult>("backfill_channel_coordinates", { allowOnline }),
   getChannel: (id: number) => invoke<Channel>("get_channel", { id }),
   createChannel: (input: ChannelInput) =>
     invoke<Channel>("create_channel", { input }),
@@ -132,6 +134,8 @@ export const api = {
   // ---- whole-database master backup & restore ----
   exportDatabase: (path: string) =>
     invoke<string>("export_database", { path }),
+  backupContents: () =>
+    invoke<BackupTable[]>("backup_contents"),
   isDatabaseBackup: (path: string) =>
     invoke<boolean>("is_database_backup", { path }),
   importDatabase: (path: string) =>
@@ -211,6 +215,10 @@ export const api = {
     invoke<TalkgroupImportPreview>("preview_talkgroup_import", { path, network }),
   importTalkgroups: (path: string, network: string) =>
     invoke<ImportSummary>("import_talkgroups", { path, network }),
+  // Downloads the BrandMeister list on demand. Nothing is bundled: the app
+  // ships no talkgroups at all, and a new install starts empty.
+  refreshBrandmeisterTalkgroups: () =>
+    invoke<TalkgroupRefreshSummary>("refresh_brandmeister_talkgroups"),
   exportTalkgroups: (path: string) =>
     invoke<number>("export_talkgroups", { path }),
   isTalkgroupBackup: (path: string) =>
@@ -369,8 +377,8 @@ export const api = {
     }),
 
   // ---- direct radio programming (UV-5R) ----
-  restoreImage: (port: string, path: string) =>
-    invoke<RestoreResult>("restore_image", { port, path }),
+  restoreImage: (driverKey: string, port: string, path: string) =>
+    invoke<RestoreResult>("restore_image", { driverKey, port, path }),
   backupsDir: () => invoke<string>("backups_dir"),
   // What is in radio-backups/, and the operator-initiated prune. Nothing here
   // deletes on its own — see the Rust module for why (#77).
