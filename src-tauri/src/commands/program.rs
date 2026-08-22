@@ -398,19 +398,107 @@ pub struct MemoryCard {
     pub has_original: bool,
 }
 
-/// Mounted removable media, wherever this OS puts it. macOS mounts under
-/// /Volumes; Windows gives each card a drive letter. Both are cheap to
-/// enumerate and neither needs any permission the app does not already have.
+/// Mounted removable media, wherever this OS puts it. Windows gives each card a
+/// drive letter; macOS mounts under /Volumes; Linux has no fixed place at all,
+/// so its mount table is read instead. None of the three needs any permission
+/// the app does not already have.
+///
+/// Split three ways on purpose rather than "Windows, or else". #106 shipped
+/// because Linux fell through to the macOS branch, read a `/Volumes` that does
+/// not exist there, and swallowed the error: on a platform with published
+/// installers, no microSD card was ever detected and nothing said why. A fourth
+/// platform now fails to build rather than inheriting whichever branch it lands
+/// in.
 fn mounted_roots() -> Vec<std::path::PathBuf> {
-    if cfg!(target_os = "windows") {
+    #[cfg(target_os = "windows")]
+    {
         ('D'..='Z')
             .map(|d| std::path::PathBuf::from(format!("{d}:\\")))
             .collect()
-    } else {
+    }
+
+    #[cfg(target_os = "macos")]
+    {
         std::fs::read_dir("/Volumes")
             .map(|rd| rd.flatten().map(|e| e.path()).collect())
             .unwrap_or_default()
     }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Unreadable /proc/mounts means "no cards", the same as an empty one:
+        // the manual picker is always there, and a card is not worth an error
+        // dialog about procfs.
+        parse_proc_mounts(&std::fs::read_to_string("/proc/mounts").unwrap_or_default())
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    compile_error!(
+        "mounted_roots: this platform's convention for removable media is unknown — give it \
+         its own branch instead of inheriting another OS's (#106)"
+    );
+}
+
+/// Mount points from `/proc/mounts` that could be a radio's card.
+///
+/// Linux mounts removable media through udisks2, which puts it under
+/// `/media/<user>/<label>` on Debian and Ubuntu and `/run/media/<user>/<label>`
+/// on Fedora and Arch — and an operator who mounted the card by hand put it
+/// wherever they liked. So this filters the real mount table rather than
+/// guessing at directories: every radio here writes its card as FAT or exFAT,
+/// and no Linux system volume is either. `fuseblk` is in the list because
+/// exfat-fuse reports itself that way.
+///
+/// The one vfat volume a Linux desktop always has is the EFI system partition,
+/// so /boot is dropped — it can never hold a codeplug and does not belong in a
+/// list the UI calls "cards".
+///
+/// Compiled into the tests on every OS, so the parsing is checked on the
+/// machine this was written on and not only on the one that had the bug.
+#[cfg(any(target_os = "linux", test))]
+fn parse_proc_mounts(table: &str) -> Vec<std::path::PathBuf> {
+    table
+        .lines()
+        .filter_map(|line| {
+            // device, mount point, fs type, then options this does not care about.
+            let mut fields = line.split_whitespace();
+            let _device = fields.next()?;
+            let point = unescape_mount_point(fields.next()?);
+            let fstype = fields.next()?;
+            let removable = matches!(fstype, "vfat" | "exfat" | "msdos" | "fuseblk");
+            (removable && point != "/boot" && !point.starts_with("/boot/"))
+                .then(|| std::path::PathBuf::from(point))
+        })
+        .collect()
+}
+
+/// The kernel writes space, tab, newline and backslash in a mount point as
+/// three-digit octal escapes, so a card the operator labelled `MY CARD` arrives
+/// as `MY\040CARD` and a path built from that verbatim would not exist.
+///
+/// Anything else following a backslash is left exactly as it was rather than
+/// guessed at, and the bytes are only reassembled into a `String` at the end so
+/// that an accented label survives the walk.
+#[cfg(any(target_os = "linux", test))]
+fn unescape_mount_point(field: &str) -> String {
+    let bytes = field.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 3 < bytes.len() {
+            if let Some(b) = std::str::from_utf8(&bytes[i + 1..i + 4])
+                .ok()
+                .and_then(|digits| u8::from_str_radix(digits, 8).ok())
+            {
+                out.push(b);
+                i += 4;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 fn volume_name(root: &std::path::Path) -> String {
@@ -1057,5 +1145,63 @@ mod tests {
         assert!(err.contains("a UV-5R backup is"), "{err}");
         assert!(err.contains("cpm-restore-dispatch-test.img"), "{err}");
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// A real Ubuntu mount table, of the shape the box that reproduced #106
+    /// writes: the card is under /media/<user>/, which the old code never
+    /// looked at because it read /Volumes and got an error it threw away.
+    const UBUNTU_MOUNTS: &str = "\
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+/dev/sda2 / ext4 rw,relatime,errors=remount-ro 0 0
+/dev/sda1 /boot/efi vfat rw,relatime,fmask=0077,dmask=0077 0 0
+tmpfs /run/user/1000 tmpfs rw,nosuid,nodev,relatime,size=1608276k 0 0
+/dev/mmcblk0p1 /media/tim/FT5D vfat rw,nosuid,nodev,relatime,uid=1000,gid=1000 0 0
+/dev/sdb1 /run/media/tim/ID-52 exfat rw,nosuid,nodev,relatime,uid=1000 0 0
+/dev/sdc1 /mnt/MY\\040CARD vfat rw,relatime,uid=1000,gid=1000 0 0
+";
+
+    /// #106: on Linux the card is found through the mount table, wherever the
+    /// desktop or the operator put it — Debian/Ubuntu's /media/<user>,
+    /// Fedora/Arch's /run/media/<user>, and a hand mount under /mnt all count.
+    #[test]
+    fn a_linux_card_is_found_wherever_it_was_mounted() {
+        let roots = parse_proc_mounts(UBUNTU_MOUNTS);
+        assert!(roots.contains(&std::path::PathBuf::from("/media/tim/FT5D")), "{roots:?}");
+        assert!(roots.contains(&std::path::PathBuf::from("/run/media/tim/ID-52")), "{roots:?}");
+        // The escape is undone, so joining FT5D/BACKUP onto it names a real file.
+        assert!(roots.contains(&std::path::PathBuf::from("/mnt/MY CARD")), "{roots:?}");
+        // …and the volume the UI shows is the label, not the whole path.
+        assert_eq!(volume_name(std::path::Path::new("/media/tim/FT5D")), "FT5D");
+    }
+
+    /// The system's own volumes are not cards. Dropping the ESP matters
+    /// because it is vfat and every UEFI Linux has one, so a plain
+    /// "FAT means removable" rule would offer /boot/efi on every machine.
+    #[test]
+    fn the_root_filesystem_and_the_esp_are_not_offered_as_cards() {
+        let roots = parse_proc_mounts(UBUNTU_MOUNTS);
+        for not_a_card in ["/", "/sys", "/proc", "/run/user/1000", "/boot/efi"] {
+            assert!(
+                !roots.contains(&std::path::PathBuf::from(not_a_card)),
+                "{not_a_card} was offered as a card: {roots:?}"
+            );
+        }
+        assert_eq!(roots.len(), 3, "{roots:?}");
+    }
+
+    /// A line the kernel could never write should not panic or half-parse: a
+    /// truncated line is skipped, and a backslash that is not an octal escape
+    /// stays a backslash rather than being guessed at.
+    #[test]
+    fn a_malformed_mount_line_is_skipped_not_guessed_at() {
+        assert!(parse_proc_mounts("/dev/sdb1 /mnt/card\n\n   \n").is_empty());
+        assert_eq!(unescape_mount_point("/mnt/a\\b"), "/mnt/a\\b");
+        assert_eq!(unescape_mount_point("/mnt/a\\99"), "/mnt/a\\99");
+        // Octal 400 does not fit in a byte, so it is left alone rather than wrapped.
+        assert_eq!(unescape_mount_point("/mnt/a\\400"), "/mnt/a\\400");
+        // Tab and newline are escaped too, and a label can be non-ASCII.
+        assert_eq!(unescape_mount_point("/mnt/a\\011b"), "/mnt/a\tb");
+        assert_eq!(unescape_mount_point("/media/tim/CARTÃO"), "/media/tim/CARTÃO");
     }
 }
