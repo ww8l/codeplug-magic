@@ -200,8 +200,8 @@ export function Settings() {
             </h2>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               This app has no telemetry, no accounts and no automatic updates.
-              It makes exactly two kinds of network request, both of them
-              because you asked for something:
+              It makes exactly three kinds of network request, every one of
+              them because you asked for something:
             </p>
             <ul className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
               <li>
@@ -219,6 +219,14 @@ export function Settings() {
                 </strong>{" "}
                 — downloads the public radioid.net user database. Nothing about
                 you is sent.
+              </li>
+              <li>
+                <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                  Talkgroup download
+                </strong>{" "}
+                — fetches the public BrandMeister talkgroup list when you press
+                BrandMeister on the Talkgroups page. The list is not shipped
+                with the app. Nothing about you is sent.
               </li>
             </ul>
             <label className="mt-3 flex items-start gap-2 text-xs text-slate-600 dark:text-slate-300">
