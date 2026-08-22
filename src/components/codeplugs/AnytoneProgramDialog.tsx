@@ -14,6 +14,7 @@ import {
   ArrowDown,
   X,
 } from "lucide-react";
+import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "../../lib/api";
 import type {
   AnytoneProgramPreview,
@@ -31,7 +32,15 @@ import { Button, Spinner, Select, TextInput } from "../ui";
 import type { ProgramDialogProps } from "../../lib/radioProgramming";
 
 type Payload = "channels" | "userdb" | "profile";
+
 type Busy = null | "program" | "verify" | "restore";
+
+/// Last path segment, for naming a backup in a confirmation. The full path is
+/// an app-data directory nobody reads; the file name carries the timestamp,
+/// which is the part that identifies WHICH backup.
+function fileName(path: string): string {
+  return path.split(/[\\/]/).pop() || path;
+}
 
 /**
  * Direct AnyTone AT-D890UV programming from the database: a FULL REPLACE of
@@ -91,6 +100,24 @@ export function AnytoneProgramDialog({
   const backupPath =
     result?.backup_path ?? settingsResult?.backup_path ?? latest?.backup_path ?? null;
   const usingLatest = !result && !settingsResult && !callsignResult && latest != null;
+  // Which write's pre-write backup Verify and Restore are pointed at. Only one
+  // of these can be set at a time — `doProgram` clears the others (#63) — so
+  // this names the real target rather than guessing at the ?? chain's winner.
+  // The on-disk fallback can be either kind of write — `latest_anytone_program`
+  // scans both prefixes — and the two back up disjoint parts of the radio. A
+  // settings backup described as "the last program" contradicts the filename
+  // right above it in the confirm, which is the one place that has to be exact.
+  const latestKind =
+    latest && fileName(latest.backup_path).startsWith("anytone-settings-write-")
+      ? "settings write"
+      : "channel-set program";
+  const backupSource = result
+    ? "the channel-set program"
+    : settingsResult
+      ? "the settings write"
+      : latest
+        ? `the last ${latestKind} on disk (${latest.stamp})`
+        : null;
 
   const refreshPorts = async () => {
     try {
@@ -239,12 +266,36 @@ export function AnytoneProgramDialog({
       setVerify(await api.verifyAnytoneProgram(port, expectedPath));
     });
 
-  const doRestore = () =>
-    run("restore", async () => {
-      if (!backupPath) return;
+  /// Restore is a FULL write that commits and reboots the radio, and it was the
+  /// only radio-write button in the app with no gate at all — Program, the
+  /// generic dialog, the TD-H3 dialog and the UV-5R restore each have one.
+  ///
+  /// A native confirm rather than this dialog's `ack` checkbox: Restore is
+  /// reached in a hurry, after something already went wrong, and a checkbox
+  /// sitting above the button is exactly what a hurried operator ticks without
+  /// reading. It also has to name WHICH file — the whole of #63 was this button
+  /// silently pointing at the wrong one. (#64)
+  const doRestore = async () => {
+    if (!backupPath) return;
+    const ok = await confirmDialog(
+      `Write ${fileName(backupPath)} back to the ${modelName}?\n\n` +
+        `That file is the pre-write backup from ${backupSource ?? "an earlier write"}. ` +
+        `Restoring is a full write: every window the backup holds is rewritten, ` +
+        `then the radio commits and reboots. Anything programmed since that ` +
+        `backup was taken is lost.`,
+      {
+        title: "Restore backup to radio",
+        kind: "warning",
+        okLabel: "Restore",
+        cancelLabel: "Cancel",
+      },
+    );
+    if (!ok) return;
+    await run("restore", async () => {
       setVerify(null);
       setRestored(await api.restoreAnytoneBackup(port, backupPath));
     });
+  };
 
   const payloads: {
     id: Payload;
@@ -283,6 +334,12 @@ export function AnytoneProgramDialog({
       onClose={onClose}
       title={`Program Radio — ${codeplugName}`}
       width="max-w-2xl"
+      // A radio operation is in flight. The Tauri command runs to completion
+      // whatever this dialog does, so dismissing it would leave the radio being
+      // written while the operator looks at an ordinary page — no spinner, no
+      // "keep the radio on", no backup path. (#65)
+      dismissible={busy === null}
+      lockedHint={`Closing now would hide the write, not stop it — the ${modelName} is still being written to.`}
     >
       <div className="flex flex-col">
         {/* Banner */}
@@ -713,8 +770,8 @@ export function AnytoneProgramDialog({
             <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
               {usingLatest && (
                 <p>
-                  Using the most recent program image on disk
-                  {latest?.stamp ? ` (${latest.stamp})` : ""}. If the last Program
+                  Using the most recent {latestKind} image on disk
+                  {latest?.stamp ? ` (${latest.stamp})` : ""}. If that write
                   looked like it failed, the radio likely still committed — it
                   reboots and drops off USB before the app gets its reply. Rescan,
                   reselect the port, then Verify.

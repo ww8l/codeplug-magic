@@ -191,6 +191,32 @@ pub(crate) trait ImageProgrammer: Send + Sync {
     ) -> Result<CodeplugProgramReport, String>;
 }
 
+/// Attach the pre-write backup to an error raised DURING the write phase.
+///
+/// A write that fails partway through leaves the radio holding a mix of the old
+/// and the new codeplug, and the frame-level messages already say so — the
+/// AnyTone's is literally "STOP and restore from the backup". None of them named
+/// the file. Every one of these functions has the backup path as a local, taken
+/// moments earlier, and was dropping it on the way out: the recovery instruction
+/// did not name its own input, and `radio-backups/` is a folder of
+/// similarly-named files. (#66)
+///
+/// `how` is per-radio because the affordance is: the AnyTone dialog has a
+/// Restore button already pointed at this file, the UV-5R's picks a file, and
+/// the TD-H3 has no in-app restore at all — which the operator needs told
+/// rather than left to discover.
+pub(crate) fn with_restore_hint(
+    e: impl std::fmt::Display,
+    backup: &Path,
+    how: &str,
+) -> String {
+    format!(
+        "{e}\n\nThe radio may now hold a mix of the old and the new codeplug. \
+         The backup taken before this write is:\n\n    {}\n\n{how}",
+        backup.display()
+    )
+}
+
 /// Everything a clone radio needs to program a codeplug, resolved from the
 /// database by the command layer (drivers never query). Mirrors
 /// [`CodeplugPayload`]'s role for [`CodeplugProgrammer`] radios.
@@ -539,5 +565,29 @@ impl DriverCapabilities {
             export: driver.as_codeplug_exporter().is_some(),
             diagnostics: driver.as_diagnostics().is_some(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The message has to carry the path, or it is the message we already had.
+    #[test]
+    fn a_write_failure_names_the_backup_and_what_to_do_with_it() {
+        let msg = with_restore_hint(
+            "no write ack at 0x0100C000 (got None) — the radio rejected the frame; \
+             STOP and restore from the backup",
+            Path::new("/tmp/radio-backups/anytone-program-20260820-101530.bin"),
+            "Use \"Restore backup\" in the Program dialog.",
+        );
+        // The original frame-level message survives…
+        assert!(msg.contains("STOP and restore from the backup"), "{msg}");
+        // …and now names its own input, and what to do with it.
+        assert!(msg.contains("anytone-program-20260820-101530.bin"), "{msg}");
+        assert!(msg.contains("Use \"Restore backup\""), "{msg}");
+        // And says why it matters: "restore" alone does not convey that the
+        // radio is holding half of each codeplug right now.
+        assert!(msg.contains("mix of the old and the new"), "{msg}");
     }
 }

@@ -135,6 +135,12 @@ export function Tdh3ProgramDialog({
       onClose={onClose}
       title={`Program Radio — ${codeplugName}`}
       width="max-w-2xl"
+      // A radio operation is in flight. The Tauri command runs to completion
+      // whatever this dialog does, so dismissing it would leave the radio being
+      // written while the operator looks at an ordinary page — no spinner, no
+      // "keep the radio on", no backup path. (#65)
+      dismissible={busy === null}
+      lockedHint="Closing now would hide the write, not stop it — the radio is still being written to."
     >
       <div className="flex flex-col">
         {/* Banner */}

@@ -229,8 +229,19 @@ impl ImageProgrammer for TidradioTdh3 {
         // 3. Re-identify (the radio settles after a full read) and upload the
         //    whole main range, then exit programming mode.
         std::thread::sleep(Duration::from_secs(1));
-        reident(&mut *p)?;
-        upload(&mut *p, &image)?;
+        // Name the backup on every failure from here on — this radio has no
+        // in-app restore, so the file IS the recovery and the operator has to
+        // be told which one it is. (#66)
+        let restore_hint = |e: String| {
+            crate::radios::driver::with_restore_hint(
+                e,
+                &backup_path,
+                "Keep that file. This radio has no Restore action in the app yet, so it is \
+                 the only copy of what was on the radio before this write.",
+            )
+        };
+        reident(&mut *p).map_err(restore_hint)?;
+        upload(&mut *p, &image).map_err(restore_hint)?;
 
         // 4. Read back and verify (non-fatal — every block was ack'd).
         let (verified, note, channels) = match verify_after_write(&mut *p, &image) {

@@ -237,3 +237,139 @@ fn the_profile_form_calls_a_card_radio_by_how_it_is_programmed() {
          flag this test guards is not reaching the seeding decision."
     );
 }
+
+/// Every Tauri command that takes a serial `port` must claim it (#67).
+///
+/// The claim is one line and easy to leave out of a new command, and leaving it
+/// out is invisible: the command works perfectly on its own and only misbehaves
+/// when a second operation overlaps it — exactly the case nobody tests by hand.
+/// So the rule is checked mechanically instead.
+///
+/// The invariant is deliberately "takes a port", not "does radio I/O", because
+/// the second is not decidable by reading text. A command that genuinely takes
+/// a port name without talking to it can opt out with the marker named in the
+/// failure message, which makes the exception a thing someone WROTE rather than
+/// a thing they forgot.
+#[test]
+fn every_command_taking_a_port_claims_it() {
+    const OPT_OUT: &str = "no-port-lock:";
+    let dir = manifest_dir().join("src/commands");
+    let mut checked = 0;
+
+    for entry in std::fs::read_dir(&dir).expect("commands dir") {
+        let path = entry.expect("entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let src = read(&path);
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+
+        // Split on the attribute so each chunk is exactly one command body.
+        for chunk in src.split("#[tauri::command]").skip(1) {
+            let Some(sig_end) = chunk.find(')') else { continue };
+            let sig = &chunk[..sig_end];
+            let Some(name) = sig
+                .split("fn ")
+                .nth(1)
+                .and_then(|r| r.split('(').next())
+                .map(str::trim)
+            else {
+                continue;
+            };
+            if !sig.contains("port: String") {
+                continue;
+            }
+            if chunk.contains(OPT_OUT) {
+                continue;
+            }
+            assert!(
+                chunk.contains("port_lock::claim"),
+                "{file}: `{name}` takes a serial port but never calls \
+                 radios::port_lock::claim, so a second radio operation can start on that \
+                 port while it runs. Claim it as the first line inside the spawn_blocking \
+                 closure, so the guard lives for the whole session. If this command really \
+                 does not talk to the radio, say so with a `// {OPT_OUT} <why>` comment."
+            );
+            checked += 1;
+        }
+    }
+
+    assert!(
+        checked >= 10,
+        "only {checked} port-taking commands found — the parser has probably stopped \
+         matching, so fix it rather than deleting the test it feeds"
+    );
+}
+
+/// Split a source file's production half into one chunk per top-level `fn`,
+/// each chunk running from its signature to the next one.
+fn top_level_fns(src: &str) -> Vec<(String, String)> {
+    let src = production_half(src);
+    let mut starts: Vec<usize> = Vec::new();
+    for (nl, _) in src.match_indices('\n') {
+        let rest = &src[nl + 1..];
+        if ["fn ", "pub fn ", "async fn ", "pub async fn "]
+            .iter()
+            .any(|kw| rest.starts_with(kw))
+        {
+            starts.push(nl + 1);
+        }
+    }
+    let mut out = Vec::new();
+    for (n, &from) in starts.iter().enumerate() {
+        let to = starts.get(n + 1).copied().unwrap_or(src.len());
+        let body = &src[from..to];
+        let name = body
+            .split("fn ")
+            .nth(1)
+            .and_then(|s| s.split(['(', '<']).next())
+            .unwrap_or("?")
+            .to_string();
+        out.push((name, body.to_string()));
+    }
+    out
+}
+
+/// Anything that hands a profile's settings to a driver checks their range
+/// first.
+///
+/// The schema's `min`/`max` were decoration for the whole life of the project:
+/// the form rendered them as HTML attributes, which flag an out-of-range value
+/// without preventing one, and each driver's encoder cast whatever arrived
+/// straight down to a byte — a UV-5R backlight timeout of 300 reached the radio
+/// as byte 44 (#87). The check is one call, `settings_bounds::check_settings_bounds`,
+/// and it has to run in front of *every* path, not the two someone remembered.
+///
+/// Crude on purpose, like the rest of this file: it reads the source for the
+/// three shapes that carry settings to a radio — an `ImageProgramRequest`, an
+/// `ExportRequest`, and a direct `write_settings` — and requires the same
+/// function to mention the check. A fourth path added later is caught the day
+/// it is written rather than the day it programs somebody's radio.
+#[test]
+fn every_path_that_sends_settings_to_a_radio_checks_their_range_first() {
+    const CARRIES_SETTINGS: [&str; 3] = ["ImageProgramRequest {", "ExportRequest {", ".write_settings("];
+    let mut checked = 0;
+    for file in ["src/commands/program.rs", "src/commands/export.rs"] {
+        let path = manifest_dir().join(file);
+        for (name, body) in top_level_fns(&read(&path)) {
+            let Some(marker) = CARRIES_SETTINGS.iter().find(|m| body.contains(**m)) else {
+                continue;
+            };
+            checked += 1;
+            assert!(
+                body.contains("strip_out_of_range"),
+                "{file}: {name} carries settings to a radio (`{marker}`) but never calls \
+                 strip_out_of_range. \
+                 Every value it carries is about to be cast down to a byte by a driver's \
+                 encoder, so an out-of-range one lands on the radio as a different setting \
+                 and nothing reports it."
+            );
+        }
+    }
+    assert_eq!(
+        checked, 3,
+        "expected the three settings-carrying paths (settings write, codeplug program, card \
+         export) — found {checked}. If a path moved, point this test at it rather than \
+         leaving it passing vacuously"
+    );
+}
