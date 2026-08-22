@@ -679,6 +679,10 @@ pub async fn export_preview(
 pub struct CodeplugWritten {
     pub channels: usize,
     pub path: String,
+    /// Settings this export did NOT write because they are outside the range
+    /// the model's schema declares — one sentence, or absent when there is
+    /// nothing to say (#87).
+    pub note: Option<String>,
 }
 
 #[tauri::command]
@@ -712,6 +716,26 @@ pub async fn generate_codeplug(
     .await
     .estr()?
     .flatten();
+
+    // A card radio's settings go into the file the radio itself will load, so
+    // the same range check the cable paths run applies here (#87): a value
+    // outside the range its schema declares is dropped rather than cast down to
+    // a byte by the exporter's encoder, and the report names it.
+    let mut dropped: Vec<String> = Vec::new();
+    let profile_settings: Option<String> =
+        match (profile_settings, &model.non_channel_settings_schema) {
+            (Some(values), Some(schema)) => {
+                let mut parsed: serde_json::Value = serde_json::from_str(&values)
+                    .map_err(|e| format!("saved profile settings are not valid JSON: {e}"))?;
+                dropped = crate::radios::settings_bounds::strip_out_of_range(schema, &mut parsed);
+                Some(if dropped.is_empty() {
+                    values
+                } else {
+                    parsed.to_string()
+                })
+            }
+            (values, _) => values,
+        };
 
     // Format-keyed registry lookup (Chunk 3.8): a model picks its exporter by
     // `export_format`, never by name and never by driver — an export-only model
@@ -753,6 +777,7 @@ pub async fn generate_codeplug(
     Ok(CodeplugWritten {
         channels: included.len(),
         path,
+        note: crate::radios::settings_bounds::note_line(&dropped),
     })
 }
 

@@ -29,7 +29,6 @@ use crate::commands::dmr_users::select_prioritized_dmr_users;
 use crate::commands::export;
 use crate::db::AppState;
 use crate::error::MapErrString;
-use crate::radios::baofeng_uv5r as uv5r;
 use crate::radios::driver::{
     CallsignDbReport, CallsignRecord, CodeplugProgramReport, DecodedChannelSample,
     DriverCapabilities, ImageProgramRequest, ProgramReport, RadioDriver, SettingsWriteReport,
@@ -666,20 +665,32 @@ pub async fn write_radio_settings(
         "This profile has no saved settings to apply. Open it under Radios, run \
          \"Download from radio\", and save first.",
     )?;
-    let settings: serde_json::Value = serde_json::from_str(&saved)
+    let mut settings: serde_json::Value = serde_json::from_str(&saved)
         .map_err(|e| format!("saved profile settings are not valid JSON: {e}"))?;
+    // A value outside the range its schema declares would be cast down to a
+    // byte by whichever encoder this driver uses and land on the radio as a
+    // different setting entirely, so it is dropped here rather than written
+    // (#87). The report says which, so a field that stayed behind is visible.
+    let dropped = crate::radios::settings_bounds::strip_out_of_range(&target.schema, &mut settings);
 
     let backup_dir = app.path().app_data_dir().estr()?.join("radio-backups");
     std::fs::create_dir_all(&backup_dir).estr()?;
 
-    tauri::async_runtime::spawn_blocking(move || {
+    let mut report = tauri::async_runtime::spawn_blocking(move || {
         // One radio operation per port: this guard lives for the whole blocking
         // session and releases on the way out, panic included. (#67)
         let _port_guard = crate::radios::port_lock::claim(&port)?;
         writer.write_settings(&port, &settings, &target.schema, &backup_dir)
     })
     .await
-    .estr()?
+    .estr()??;
+    if let Some(line) = crate::radios::settings_bounds::note_line(&dropped) {
+        report.note = Some(match report.note {
+            Some(existing) => format!("{existing} {line}"),
+            None => line,
+        });
+    }
+    Ok(report)
 }
 
 /// Push the DMR **call-sign database** (caller-ID / "UserDB") to a radio that
@@ -860,29 +871,39 @@ pub async fn program_radio(
             .await
             .estr()?;
 
-        tauri::async_runtime::spawn_blocking(move || {
+        // Resolved out here so a value the schema says the radio cannot take is
+        // dropped before the port is opened — the encoder past this point casts
+        // straight down to a byte, which is how 300 was programmed as 44 (#87).
+        let mut dropped: Vec<String> = Vec::new();
+        let settings: Option<(serde_json::Value, String)> = match (&profile_settings, &schema) {
+            (Some(s), Some(schema)) => {
+                let mut value: serde_json::Value = serde_json::from_str(s)
+                    .map_err(|e| format!("saved profile settings are not valid JSON: {e}"))?;
+                dropped = crate::radios::settings_bounds::strip_out_of_range(schema, &mut value);
+                Some((value, schema.clone()))
+            }
+            _ => None,
+        };
+
+        let mut report = tauri::async_runtime::spawn_blocking(move || {
             // One radio operation per port: this guard lives for the whole
             // blocking session and releases on the way out, panic included. (#67)
             let _port_guard = crate::radios::port_lock::claim(&port)?;
-            let settings = match (&profile_settings, &schema) {
-                (Some(s), Some(schema)) => {
-                    let value: serde_json::Value = serde_json::from_str(s)
-                        .map_err(|e| format!("saved profile settings are not valid JSON: {e}"))?;
-                    Some((value, schema.as_str()))
-                }
-                _ => None,
-            };
             let req = ImageProgramRequest {
                 model: &model,
                 channels: &slots,
-                settings: settings.as_ref().map(|(v, s)| (v, *s)),
+                settings: settings.as_ref().map(|(v, s)| (v, s.as_str())),
                 backup_dir: &backup_dir,
                 label: &label,
             };
             imager.program_codeplug(&port, &req)
         })
         .await
-        .estr()??
+        .estr()??;
+        report
+            .warnings
+            .extend(crate::radios::settings_bounds::note_line(&dropped));
+        report
     } else {
         return Err(format!(
             "{} cannot be programmed over the cable",
@@ -930,19 +951,36 @@ fn program_report_to_generic(r: ProgramReport) -> CodeplugProgramReport {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct RestoreResult {
     pub bytes: usize,
     pub source: String,
 }
 
-/// Restore a previously-saved backup `.img` to the radio. Writes the full main
-/// block (channels, names, DTMF, and all settings) plus the aux ranges we ever
-/// touch, straight from the file — the recovery path for a bad write. The file
-/// must be a CHIRP-compatible UV-5R image (it carries the 8-byte ident prefix,
-/// so radio address 0x0000 is at image offset 0x0008).
+/// Restore a previously-saved backup image to the radio — the recovery path
+/// after a bad write.
+///
+/// Registry-dispatched, and it takes a `driver_key` for the same reason
+/// `identify`/`download_image` do: a bare port name carries no model hint, and
+/// this command writes a whole image into flash. Only drivers implementing
+/// [`ImageRestorer`] reach it, which is also what the dialog gates its button
+/// on — the button used to appear for every clone radio while the body of this
+/// function spoke UV-5R and nothing else.
 #[tauri::command]
-pub async fn restore_image(port: String, path: String) -> Result<RestoreResult, String> {
+pub async fn restore_image(
+    driver_key: String,
+    port: String,
+    path: String,
+) -> Result<RestoreResult, String> {
+    let driver = driver(&driver_key)?;
+    let restorer = driver.as_image_restorer().ok_or_else(|| {
+        format!(
+            "{} cannot put a backup back over the cable yet. The file is still a complete \
+             copy of the radio's memory — keep it.",
+            driver.display_name()
+        )
+    })?;
+
     tauri::async_runtime::spawn_blocking(move || {
         // One radio operation per port: this guard lives for the whole blocking
         // session and releases on the way out, panic included. (#67)
@@ -951,16 +989,10 @@ pub async fn restore_image(port: String, path: String) -> Result<RestoreResult, 
         // Validate the FILE, not just the port: `radio-backups/` holds backups
         // for every radio, and this path writes whatever it is handed straight
         // into flash. (#61)
-        uv5r::check_restore_image(&image).map_err(|e| format!("{path}: {e}"))?;
-
-        let mut p = uv5r::open_port(&port)?;
-        let (magic, _ident) = uv5r::ident_radio(&mut *p)?;
-        if !magic.starts_with("UV5R") {
-            return Err("the connected radio did not identify as a UV-5R".into());
-        }
-
-        uv5r::upload_full_image(&mut *p, &image)?;
-
+        restorer
+            .check_restore_image(&image)
+            .map_err(|e| format!("{path}: {e}"))?;
+        restorer.restore_image(&port, &image)?;
         Ok(RestoreResult {
             bytes: image.len(),
             source: path,
@@ -968,4 +1000,57 @@ pub async fn restore_image(port: String, path: String) -> Result<RestoreResult, 
     })
     .await
     .estr()?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A restore is now dispatched by driver key, and a driver that cannot put
+    /// a backup back says so instead of speaking somebody else's protocol at
+    /// the radio.
+    ///
+    /// This is the shape of the bug: `restore_image` opened the port with UV-5R
+    /// timings and sent the UV-5R handshake no matter which radio was on the
+    /// cable, while the dialog offered the button to every clone radio.
+    #[tokio::test]
+    async fn a_driver_that_cannot_restore_says_so_before_touching_the_port() {
+        let err = restore_image(
+            "kenwood_thd75".into(),
+            "/dev/cu.nonesuch".into(),
+            "/nonexistent.img".into(),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("cannot put a backup back"), "{err}");
+        // …and it does not tell the operator to throw the file away.
+        assert!(err.contains("keep it"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_driver_key_is_refused() {
+        assert!(restore_image("no_such_radio".into(), "p".into(), "f".into())
+            .await
+            .is_err());
+    }
+
+    /// The FILE is checked before the port is opened, so pointing a UV-5R at a
+    /// TD-H3 backup fails on the file rather than on a serial timeout — and the
+    /// error names the file. (#61's rule, now running per driver.)
+    #[tokio::test]
+    async fn the_wrong_radios_backup_is_refused_before_any_port_is_opened() {
+        let path = std::env::temp_dir().join("cpm-restore-dispatch-test.img");
+        // A TD-H3-shaped image: right length for that radio, wrong for a UV-5R.
+        std::fs::write(&path, vec![0u8; 0x2008]).unwrap();
+        let err = restore_image(
+            "baofeng_uv5r".into(),
+            "/dev/cu.nonesuch".into(),
+            path.to_string_lossy().into_owned(),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("a UV-5R backup is"), "{err}");
+        assert!(err.contains("cpm-restore-dispatch-test.img"), "{err}");
+        let _ = std::fs::remove_file(&path);
+    }
 }

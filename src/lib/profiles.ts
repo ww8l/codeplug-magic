@@ -175,3 +175,44 @@ export function settingsTabs(fields: SettingField[]): SettingsTab[] | null {
   // A heading with nothing under it would be an empty tab.
   return tabs.filter((t) => t.fields.length > 0);
 }
+
+/**
+ * Why a value is one the radio cannot take, or null if it is fine.
+ *
+ * A schema's `min`/`max` reached the screen as HTML attributes and nothing
+ * else, and `<input type="number">` flags an out-of-range value without
+ * preventing one — so 300 in a 0–24 field was saved, handed to the encoder and
+ * cast down to a byte, landing on the radio as 44 (#87). The Rust side refuses
+ * the same values on the way to the radio; this is what puts the reason next to
+ * the field, before the profile is stored.
+ *
+ * Numbers only, deliberately: a value stored as text is skipped here exactly as
+ * the encoders skip it, and a `select` holding a label its option list does not
+ * name is how a setting read off a radio survives a round trip.
+ */
+export function settingRangeError(
+  field: SettingField,
+  value: SettingsValue | undefined,
+): string | null {
+  if (field.type !== "integer" || typeof value !== "number") return null;
+  if (!Number.isFinite(value)) return null;
+  if (!Number.isInteger(value)) return "Whole numbers only.";
+  if (field.min != null && field.max != null && (value < field.min || value > field.max))
+    return `Must be between ${field.min} and ${field.max}.`;
+  if (field.min != null && value < field.min) return `Must be ${field.min} or more.`;
+  if (field.max != null && value > field.max) return `Must be ${field.max} or less.`;
+  return null;
+}
+
+/** Every out-of-range value in `values`, keyed by field key. */
+export function settingsRangeErrors(
+  fields: SettingField[],
+  values: SettingsValues,
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  for (const f of fields) {
+    const message = settingRangeError(f, values[f.key]);
+    if (message) errors[f.key] = message;
+  }
+  return errors;
+}

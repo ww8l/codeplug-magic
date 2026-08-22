@@ -289,6 +289,27 @@ fn sort_contact_bank(contacts: &mut [PlannedContact], channels: &mut [PlannedCha
     }
 }
 
+/// Fit a per-channel number into the range the record's byte holds, saying so
+/// when it did not already fit.
+///
+/// The clamp itself is not new — it has always been what kept a colour code of
+/// 99 from becoming some other byte. What was new in #87 is the operator being
+/// told: a value the channel form accepted and the report showed as programmed
+/// arrived on the radio as a different one, silently. Warning rather than
+/// refusing is deliberate at this altitude: the row is one channel out of
+/// hundreds, and refusing the whole codeplug over it would be the worse trade.
+/// The channel form and `validate_channel_input` are the gates that stop the
+/// value being stored in the first place.
+fn clamped(value: i64, lo: i64, hi: i64, what: &str, who: &str, warnings: &mut Vec<String>) -> u8 {
+    let fitted = value.clamp(lo, hi);
+    if fitted != value {
+        warnings.push(format!(
+            "{who}: {what} {value} is outside {lo}-{hi} — programmed as {fitted}"
+        ));
+    }
+    fitted as u8
+}
+
 /// Invert one expanded row to a channel edit. `contact_index` is the radio
 /// contact slot assigned to the row's talkgroup (0 when the row has none).
 fn invert_channel(
@@ -318,6 +339,16 @@ fn invert_channel(
         tone
     };
 
+    let color_code = clamped(c.dmr_color_code.unwrap_or(1), 0, 15, "colour code", &name, warnings);
+    let time_slot = clamped(
+        ec.timeslot.or(c.dmr_timeslot).unwrap_or(1),
+        1,
+        2,
+        "time slot",
+        &name,
+        warnings,
+    );
+
     AnytoneChannelEdit {
         power: invert_power(c.power.as_deref(), warnings, &name),
         name,
@@ -327,12 +358,8 @@ fn invert_channel(
         wide: !digital && mode_str != "NFM",
         mode: if digital { 1 } else { 0 },
         tone,
-        color_code: c.dmr_color_code.unwrap_or(1).clamp(0, 15) as u8,
-        time_slot: ec
-            .timeslot
-            .or(c.dmr_timeslot)
-            .unwrap_or(1)
-            .clamp(1, 2) as u8,
+        color_code,
+        time_slot,
         contact_index,
         // Full replace: every channel gets an explicit scan-list byte —
         // 0xFF (none) unless a planned scan list claims the slot below.
@@ -1140,6 +1167,25 @@ mod tests {
         assert_eq!(invert_power(None, &mut w, "X"), 3); // NULL = Turbo
         assert!(w.is_empty());
         assert_eq!(invert_power(Some("50W"), &mut w, "X"), 2); // unknown → High + warn
+        assert_eq!(w.len(), 1);
+    }
+
+    /// #87: a colour code of 99 was fitted into the record's 0-15 field and
+    /// nothing said so, so the report claimed a channel the radio never got.
+    #[test]
+    fn a_number_that_does_not_fit_its_field_is_clamped_out_loud() {
+        let mut w = Vec::new();
+        assert_eq!(clamped(99, 0, 15, "colour code", "KD8ABC", &mut w), 15);
+        assert_eq!(w, ["KD8ABC: colour code 99 is outside 0-15 — programmed as 15"]);
+
+        // The clamp is unchanged for values that already fit — no warning, and
+        // no warning for the far side either.
+        let mut w = Vec::new();
+        assert_eq!(clamped(15, 0, 15, "colour code", "KD8ABC", &mut w), 15);
+        assert_eq!(clamped(1, 1, 2, "time slot", "KD8ABC", &mut w), 1);
+        assert!(w.is_empty(), "{w:?}");
+
+        assert_eq!(clamped(-4, 0, 15, "colour code", "KD8ABC", &mut w), 0);
         assert_eq!(w.len(), 1);
     }
 

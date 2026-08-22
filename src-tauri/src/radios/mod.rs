@@ -3,6 +3,7 @@
 //!
 //! - `driver`   — the `RadioDriver` trait + capability sub-traits (3.1).
 //! - `registry` — static driver list + model→driver lookup (3.2).
+//! - `settings_bounds` — the one range check every settings write runs first.
 //! - `wiring`   — test-only cross-cutting checks that a new driver is connected
 //!   at both ends, including across the Rust/TypeScript boundary.
 //! - `<key>/`   — one concrete driver per radio (3.3 UV-5R + 3.4 TD-H3 done;
@@ -29,6 +30,7 @@ pub(crate) mod icom_id52;
 pub(crate) mod kenwood_thd75;
 pub(crate) mod port_lock;
 pub(crate) mod registry;
+pub(crate) mod settings_bounds;
 pub(crate) mod tidradio_tdh3;
 #[cfg(test)]
 mod wiring;

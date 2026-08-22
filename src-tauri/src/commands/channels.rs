@@ -435,11 +435,47 @@ async fn fetch_channel(pool: &sqlx::SqlitePool, id: i64) -> Result<Channel, Stri
     .estr()
 }
 
+/// Range-check the per-channel numbers that end up as a single field in a radio
+/// record, before any of them reaches the database.
+///
+/// The channel form types them free-hand, and every programmer downstream fits
+/// whatever it is handed into the byte it has: a colour code of 99 was
+/// programmed as 15 and the report said nothing (#87). The programmer still
+/// clamps — it must, for the rows already stored — but it warns now, and this
+/// stops new ones being stored at all.
+///
+/// Import is deliberately not routed through here: a bad cell in a shared CSV
+/// should cost that channel's field, not the whole import.
+///
+/// Only the fields the row's own mode uses are checked. A channel keeps the
+/// values of a mode it is no longer in — switch a DMR channel to FM and its
+/// colour code is still on the row — and refusing to save a channel over a
+/// field its form does not even draw would strand the row with no way to fix
+/// it. The value is checked again the moment the mode that reads it comes back.
+fn validate_channel_input(input: &ChannelInput) -> Result<(), String> {
+    let mode = input.mode.as_deref().unwrap_or("FM").to_uppercase();
+    let when = |used: bool, v: Option<i64>| if used { v } else { None };
+    let checks = [
+        ("Color code", when(mode == "DMR", input.dmr_color_code), 0, 15),
+        ("Time slot", when(mode == "DMR", input.dmr_timeslot), 1, 2),
+        ("M17 CAN", when(mode == "M17", input.m17_can), 0, 15),
+    ];
+    for (what, value, lo, hi) in checks {
+        if let Some(v) = value {
+            if v < lo || v > hi {
+                return Err(format!("{what} must be between {lo} and {hi} — got {v}."));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn create_channel(
     state: State<'_, AppState>,
     input: ChannelInput,
 ) -> Result<Channel, String> {
+    validate_channel_input(&input)?;
     let band = derive_band(input.rx_freq);
     let (duplex, offset) = derive_duplex(input.rx_freq, input.tx_freq);
 
@@ -554,6 +590,9 @@ pub(super) async fn update_impl(
     id: i64,
     input: ChannelInput,
 ) -> Result<Channel, String> {
+    // In here rather than in the command, so anything reaching the update path
+    // is range-checked — not just the IPC entry point (#87).
+    validate_channel_input(&input)?;
     // Load the existing row so we can compute override flags against the
     // RepeaterBook-supplied baseline values.
     let existing = sqlx::query_as::<_, Channel>(&format!(
@@ -945,6 +984,61 @@ async fn rederive_tone_mode(pool: &sqlx::SqlitePool, id: i64) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A channel exactly as the form posts it, with `extra` merged over the
+    /// required fields.
+    fn channel_input(extra: serde_json::Value) -> ChannelInput {
+        let mut v = serde_json::json!({"rx_freq": 146.52, "mode": "DMR"});
+        let map = v.as_object_mut().unwrap();
+        for (k, val) in extra.as_object().unwrap() {
+            map.insert(k.clone(), val.clone());
+        }
+        serde_json::from_value(v).expect("test input matches ChannelInput")
+    }
+
+    /// #87: the form accepted 99 and the programmer quietly wrote 15.
+    #[test]
+    fn a_colour_code_the_record_cannot_hold_is_refused_before_it_is_stored() {
+        let err = validate_channel_input(&channel_input(
+            serde_json::json!({"dmr_color_code": 99}),
+        ))
+        .unwrap_err();
+        assert!(err.contains("Color code must be between 0 and 15"), "{err}");
+    }
+
+    #[test]
+    fn the_other_two_single_field_numbers_are_checked_the_same_way() {
+        assert!(validate_channel_input(&channel_input(
+            serde_json::json!({"mode": "M17", "m17_can": 16})
+        ))
+        .is_err());
+        assert!(validate_channel_input(&channel_input(serde_json::json!({"dmr_timeslot": 0}))).is_err());
+        assert!(validate_channel_input(&channel_input(serde_json::json!({"dmr_timeslot": 3}))).is_err());
+    }
+
+    /// A channel that has moved to another mode still carries the old mode's
+    /// numbers, and its form no longer shows them — so refusing the save would
+    /// leave the row unfixable.
+    #[test]
+    fn a_field_the_rows_mode_does_not_use_is_left_alone() {
+        let fm = channel_input(serde_json::json!({"mode": "FM", "dmr_color_code": 99, "m17_can": 99}));
+        assert!(validate_channel_input(&fm).is_ok());
+        let m17 = channel_input(serde_json::json!({"mode": "M17", "dmr_color_code": 99}));
+        assert!(validate_channel_input(&m17).is_ok());
+        // …and it is checked again the moment that mode comes back.
+        let dmr = channel_input(serde_json::json!({"mode": "DMR", "dmr_color_code": 99}));
+        assert!(validate_channel_input(&dmr).is_err());
+    }
+
+    #[test]
+    fn the_edges_and_an_unset_field_pass() {
+        for v in [serde_json::json!({"dmr_color_code": 0, "dmr_timeslot": 2}),
+                  serde_json::json!({"mode": "M17", "m17_can": 15}),
+                  serde_json::json!({"dmr_color_code": 15, "dmr_timeslot": 1}),
+                  serde_json::json!({})] {
+            assert!(validate_channel_input(&channel_input(v.clone())).is_ok(), "{v}");
+        }
+    }
 
     #[test]
     fn freq_term_strips_trailing_zeros() {
