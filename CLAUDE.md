@@ -27,11 +27,14 @@ substantial work under `src-tauri/src/radios/`.
   runners cost nothing. Don't shape work around saving Actions minutes; the old
   rules here did, and they cost verification instead. CI now runs on pull
   requests, on pushes to `main`, and across all three OSes including macOS.
-- **Landing a branch is a local merge, not a PR.** `git merge --no-ff` into
-  `main` and push; CI verifies the merge commit itself, which is what catches a
-  bug that exists only in the combination of two green branches. A PR is still
-  fine when you want review or discussion before landing — it is no longer an
-  expense, just a choice.
+- **Open a PR for finished work.** One branch, one PR — CI checks it on all
+  three OSes before it lands, which is the point: a branch that has never been
+  verified anywhere but the author's Mac should not reach `main`. This reverses
+  the old rule, which existed only because a PR cost metered minutes.
+- **`main` is still verified on its own.** CI runs on push to `main` as well, so
+  a merge of two green branches gets checked as the combination — this project
+  has shipped bugs that existed nowhere else. Landing by local merge is still
+  possible and still safe for something trivial, but the PR is the default.
 - **The pre-push hook is still worth having.** `npm run ci` gives you the answer
   in 40 seconds instead of waiting on runners, but it is no longer the *only*
   macOS check, so a local toolchain that has drifted from CI's `stable` is no
