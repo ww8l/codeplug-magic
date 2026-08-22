@@ -60,6 +60,8 @@ pub struct Channel {
     pub notes: Option<String>,
     pub source: String,
     pub repeaterbook_id: Option<String>,
+    pub rb_dcs_code: Option<String>,
+    pub rb_dcs_rx_code: Option<String>,
     pub rb_ctcss_uplink: Option<f64>,
     pub rb_ctcss_downlink: Option<f64>,
     pub rb_operational_status: Option<String>,

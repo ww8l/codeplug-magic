@@ -32,6 +32,10 @@ struct SourceColumns {
     /// allstar_node, echolink_node, irlp_node, wires_node.
     link_nodes: bool,
     operational_status: bool,
+    /// Whether the tone columns can express DCS. Only the free-tier CSV can;
+    /// for the other two a stored DCS scheme can only be an operator's edit,
+    /// which is the assumption `keeps_dcs` was written on.
+    dcs: bool,
 }
 
 /// A single RepeaterBook record (from CSV or JSON) parsed and mapped into our
@@ -152,6 +156,14 @@ struct ExistingChannel {
     notes_overridden: bool,
     tone_mode: Option<String>,
     cross_mode: String,
+    dcs_code: Option<String>,
+    dcs_rx_code: Option<String>,
+    /// What RepeaterBook last said. A stored code that differs from its
+    /// snapshot is the operator's edit; one that matches came from an import
+    /// and is ours to refresh. NULL pre-dates migration 0019 and reads as
+    /// "differs", which preserves whatever is stored.
+    rb_dcs_code: Option<String>,
+    rb_dcs_rx_code: Option<String>,
 }
 
 
@@ -199,7 +211,8 @@ async fn insert_parsed(
             "SELECT id, ctcss_uplink, ctcss_downlink, operational_status, notes, \
              ctcss_uplink_overridden, ctcss_downlink_overridden, \
              operational_status_overridden, notes_overridden, \
-             tone_mode, cross_mode \
+             tone_mode, cross_mode, dcs_code, dcs_rx_code, \
+             rb_dcs_code, rb_dcs_rx_code \
              FROM channels WHERE repeaterbook_id = ?1",
         )
         .bind(&p.repeaterbook_id)
@@ -218,6 +231,7 @@ async fn insert_parsed(
                 rb_name, name_long, name_short, callsign, rx_freq, tx_freq,
                 offset, duplex, band, mode, tone_mode, ctcss_uplink,
                 ctcss_downlink, dcs_code, dcs_rx_code,
+                rb_dcs_code, rb_dcs_rx_code,
                 dmr_color_code, dstar_capable, ysf_capable,
                 nxdn_capable, p25_capable, p25_nac, m17_capable, tetra_capable,
                 allstar_node, echolink_node, irlp_node, wires_node,
@@ -230,6 +244,7 @@ async fn insert_parsed(
                 ?1, ?2, ?3, ?4, ?5, ?6,
                 ?7, ?8, ?9, ?10, ?11, ?12,
                 ?13, ?14, ?15,
+                ?43, ?44,
                 ?16, ?17, ?18,
                 ?19, ?20, ?21, ?22, ?23,
                 ?24, ?25, ?26, ?27,
@@ -283,6 +298,10 @@ async fn insert_parsed(
         .bind(&p.operational_status) // rb_operational_status snapshot
         .bind(&p.notes) // rb_notes snapshot
         .bind(&p.cross_mode)
+        // rb_dcs_* snapshots: what this export said, so a later import can tell
+        // an operator's edit from one of ours.
+        .bind(&p.dcs_code) // ?43
+        .bind(&p.dcs_rx_code) // ?44
         .execute(&mut *tx)
         .await
         .estr()?;
@@ -298,18 +317,24 @@ async fn insert_parsed(
 ///
 /// Merge policy:
 ///   * RB-authoritative technical facts (mode + every digital-mode flag,
-///     tx_freq/offset/duplex/band, nodes, EmComm flags, city/county/country) are
-///     refreshed from RB — this is what corrects a stale/mis-flagged mode.
+///     tx_freq/offset/duplex/band, city/county/country) are refreshed from RB —
+///     this is what corrects a stale/mis-flagged mode.
 ///   * The four user-overridable fields (uplink/downlink tone, operational
 ///     status, notes) keep the user's value when overridden; otherwise they
 ///     adopt the fresh RB value. Their `rb_*` snapshots always advance and the
 ///     override flags are recomputed. `tone_mode`/`cross_mode` are re-derived
 ///     from the merged tone pair so they stay consistent with a kept override —
 ///     except on a DCS scheme, which is kept verbatim (see [`keeps_dcs`]).
-///   * User-facing names (`name_long`, `name_short`), DMR slot/talkgroup, DCS,
-///     and power are NOT touched — those are the operator's to curate.
-///   * `latitude`/`longitude` use COALESCE so an RB record without coordinates
-///     never wipes coordinates the user set or the geocoder filled in.
+///   * User-facing names (`name_long`, `name_short`), DMR slot/talkgroup and
+///     power are NOT touched — those are the operator's to curate.
+///   * DCS is the operator's to curate *once they have curated it*. The
+///     free-tier CSV supplies DCS, so a stored code is compared against its
+///     `rb_dcs_*` snapshot: matching means an import wrote it and a fresh
+///     export may refresh it, differing means the operator typed it and it
+///     stays. Only an export that can express DCS gets a say.
+///   * `latitude`/`longitude` use COALESCE, and the link nodes and
+///     `operational_status` are gated on `SourceColumns`, so an export that
+///     has no such column never wipes what another export established.
 ///
 /// `callsign`, `rx_freq`, and `state` are part of the dedupe id, so a matched
 /// row necessarily agrees on them; they are intentionally left as-is.
@@ -347,26 +372,33 @@ async fn merge_existing(
         merge_tracked_str(ex.notes_overridden, ex.notes.clone(), p.notes.clone());
     let has_overrides = up_over || dn_over || status_over || notes_over;
 
-    // Re-derive the tone scheme from the merged (possibly overridden) tone pair.
-    // Two exceptions, in order:
+    // Is the stored DCS the operator's, or one an import wrote? Comparing
+    // against the snapshot is the same test the tracked tone fields use. A row
+    // predating migration 0019 has NULL snapshots and so reads as the
+    // operator's, which preserves whatever it holds.
+    let dcs_curated = ex.dcs_code != ex.rb_dcs_code || ex.dcs_rx_code != ex.rb_dcs_rx_code;
+
+    // An export whose tone columns can express DCS describes the machine's
+    // squelch completely: what it omits is genuinely absent, not merely
+    // unknown. So its scheme is adopted whole — including moving a channel OFF
+    // DCS when RepeaterBook now lists CTCSS, which is the case that otherwise
+    // sticks forever and programs a tone the repeater no longer uses.
     //
-    //   1. The operator put the channel on DCS themselves. Their edit wins, and
-    //      re-deriving from a CTCSS pair would silently destroy it (issue #71).
-    //   2. This export carries DCS. The free-tier CSV does — its tone columns
-    //      hold values like `D073` — so `derive_tone_mode`, which only ever
-    //      produces off/Tone/TSQL/Cross from a CTCSS pair, would drop it and
-    //      leave the channel with no squelch tone at all. The premium JSON has
-    //      no DCS field, so this arm simply never fires for a JSON import.
-    let (tone_mode, cross_mode) = if keeps_dcs(ex.tone_mode.as_deref(), &ex.cross_mode) {
+    // Not adopted when the operator has curated the tones or the DCS codes
+    // themselves; their edit wins, exactly as it does for CTCSS.
+    let adopt_rb_dcs = p.covers.dcs && !dcs_curated && !up_over && !dn_over;
+
+    let (tone_mode, cross_mode) = if adopt_rb_dcs {
+        (p.tone_mode.clone(), p.cross_mode.clone())
+    } else if keeps_dcs(ex.tone_mode.as_deref(), &ex.cross_mode) {
+        // The export cannot describe DCS, so a stored DCS scheme can only be
+        // the operator's — or one an earlier CSV import wrote and this export
+        // has no standing to contradict. Keep it verbatim; re-deriving from a
+        // CTCSS pair would silently destroy it (issue #71).
         (
             ex.tone_mode.clone().unwrap_or_else(|| "off".to_string()),
             ex.cross_mode.clone(),
         )
-    } else if !up_over && !dn_over && (p.dcs_code.is_some() || p.dcs_rx_code.is_some()) {
-        // Guarded on the override flags: if the operator has edited the tones
-        // themselves, adopting a DCS scheme here would leave tone_mode saying
-        // DTCS while merge_tracked_f64 keeps their CTCSS value in the field.
-        (p.tone_mode.clone(), p.cross_mode.clone())
     } else {
         derive_tone_mode(ctcss_uplink, ctcss_downlink)
     };
@@ -396,8 +428,13 @@ async fn merge_existing(
             -- The free-tier CSV carries neither a Use column nor coordinates.
             latitude = COALESCE(?29, latitude),
             longitude = COALESCE(?30, longitude),
-            dcs_code = COALESCE(?31, dcs_code),
-            dcs_rx_code = COALESCE(?32, dcs_rx_code),
+            -- Gated, not COALESCE: COALESCE could never clear either code, so
+            -- a cross-DCS scheme whose RX half RepeaterBook dropped would
+            -- squelch on a code the repeater no longer sends, permanently.
+            dcs_code = CASE WHEN ?45 THEN ?31 ELSE dcs_code END,
+            dcs_rx_code = CASE WHEN ?45 THEN ?32 ELSE dcs_rx_code END,
+            rb_dcs_code = CASE WHEN ?46 THEN ?31 ELSE rb_dcs_code END,
+            rb_dcs_rx_code = CASE WHEN ?46 THEN ?32 ELSE rb_dcs_rx_code END,
             notes = ?33,
             rb_ctcss_uplink = ?34, rb_ctcss_downlink = ?35,
             rb_operational_status = CASE WHEN ?44 THEN ?36 ELSE rb_operational_status END,
@@ -453,6 +490,12 @@ async fn merge_existing(
     .bind(has_overrides)
     .bind(p.covers.link_nodes) // ?43
     .bind(p.covers.operational_status) // ?44
+    .bind(adopt_rb_dcs) // ?45
+    // The snapshot advances whenever the export could see DCS at all, even if
+    // the operator's edit is what stays in the value — otherwise a curated
+    // channel never learns what RepeaterBook currently says and stays "curated"
+    // for ever, including after the operator reverts to RB's own code.
+    .bind(p.covers.dcs) // ?46
     .execute(&mut *tx)
     .await
     .estr()?;
@@ -679,7 +722,7 @@ fn parse_repeaterbook_full_csv(path: &str) -> Result<Vec<ParsedChannel>, String>
             ctcss_downlink,
             dcs_code: None,
             dcs_rx_code: None,
-            covers: SourceColumns { link_nodes: false, operational_status: true },
+            covers: SourceColumns { link_nodes: false, operational_status: true, dcs: false },
             dmr_color_code,
             dstar_capable,
             ysf_capable,
@@ -831,6 +874,7 @@ struct RbModes {
     nxdn: bool,
     p25: bool,
     m17: bool,
+    tetra: bool,
     /// Link and other services with nowhere of their own to live, kept in the
     /// order RepeaterBook listed them so they can go into the notes.
     extras: Vec<String>,
@@ -859,6 +903,7 @@ fn parse_rb_modes(cell: Option<String>) -> RbModes {
             "NXDN" => out.nxdn = true,
             "P-25" | "P25" => out.p25 = true,
             "M17" => out.m17 = true,
+            "TETRA" => out.tetra = true,
             _ => out.extras.push(tok.to_string()),
         }
     }
@@ -943,9 +988,22 @@ fn parse_repeaterbook_standard_csv(path: &str) -> Result<Vec<ParsedChannel>, Str
         // One column, two meanings: a DMR colour code (0-15) or a P25 NAC.
         // Which one it is depends on the Modes cell, and reading it as a colour
         // code regardless would store a NAC of 293 as a colour code.
+        //
+        // A machine listing both DMR and P25 leaves the cell genuinely
+        // ambiguous — one value, two possible meanings, no way to tell which —
+        // so neither field is filled and the raw value goes to the notes for
+        // the operator to resolve. Guessing here writes a wrong byte to a radio.
         let digital_access = get(&rec, "Digital Access");
-        let dmr_color_code = if modes.dmr {
-            digital_access.as_deref().and_then(|s| s.parse::<i64>().ok())
+        let ambiguous_access =
+            modes.dmr && modes.p25 && digital_access.as_deref().is_some_and(|s| !s.is_empty());
+        let dmr_color_code = if modes.dmr && !modes.p25 {
+            digital_access
+                .as_deref()
+                .and_then(|s| s.parse::<i64>().ok())
+                // The manual create/update path enforces this range
+                // (channels.rs `checks`); an import must not be the way round
+                // it. Out of range means the cell is not a colour code.
+                .filter(|cc| (0..=15).contains(cc))
         } else {
             None
         };
@@ -989,6 +1047,12 @@ fn parse_repeaterbook_standard_csv(path: &str) -> Result<Vec<ParsedChannel>, Str
         if !modes.extras.is_empty() {
             note_parts.push(format!("Links: {}", modes.extras.join(", ")));
         }
+        if ambiguous_access {
+            note_parts.push(format!(
+                "Digital Access {} (DMR+P25 listed; colour code or NAC unresolved)",
+                digital_access.clone().unwrap_or_default()
+            ));
+        }
         let notes = (!note_parts.is_empty()).then(|| note_parts.join(" | "));
 
         out.push(ParsedChannel {
@@ -1010,7 +1074,7 @@ fn parse_repeaterbook_standard_csv(path: &str) -> Result<Vec<ParsedChannel>, Str
             ctcss_downlink,
             dcs_code,
             dcs_rx_code,
-            covers: SourceColumns { link_nodes: false, operational_status: false },
+            covers: SourceColumns { link_nodes: false, operational_status: false, dcs: true },
             dmr_color_code,
             dstar_capable: modes.dstar,
             ysf_capable: modes.ysf,
@@ -1018,7 +1082,7 @@ fn parse_repeaterbook_standard_csv(path: &str) -> Result<Vec<ParsedChannel>, Str
             p25_capable: modes.p25,
             p25_nac,
             m17_capable: modes.m17,
-            tetra_capable: false,
+            tetra_capable: modes.tetra,
             // Presence is known, node numbers are not; see the notes above.
             allstar_node: None,
             echolink_node: None,
@@ -1159,7 +1223,7 @@ fn parse_repeaterbook_json(path: &str) -> Result<Vec<ParsedChannel>, String> {
             ctcss_downlink,
             dcs_code: None,
             dcs_rx_code: None,
-            covers: SourceColumns { link_nodes: true, operational_status: false },
+            covers: SourceColumns { link_nodes: true, operational_status: false, dcs: false },
             dmr_color_code,
             dstar_capable,
             ysf_capable,
@@ -1810,6 +1874,155 @@ mod tests {
         // What the CSV does carry is still applied.
         assert_eq!(after.city.as_deref(), Some("Anytown"));
         assert_eq!(after.notes.as_deref(), Some("Landmark: Sample Hill"));
+    }
+
+    /// Import the sample CSV, then re-import it with one row's tone cells
+    /// rewritten. Returns the resulting channel.
+    async fn reimport_qq0fff_with_tones(
+        tag: &str,
+        uplink: &str,
+        downlink: &str,
+    ) -> (sqlx::SqlitePool, crate::models::Channel) {
+        let dir = std::env::temp_dir().join(format!("cpm_{tag}_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok();
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        let first =
+            parse_repeaterbook_standard_csv("../sample-data/repeaterbook-standard-sample.csv")
+                .expect("parse");
+        insert_parsed(&pool, &first).await.expect("first import");
+
+        // Same export with QQ0FFF's tone columns changed.
+        let orig = std::fs::read_to_string("../sample-data/repeaterbook-standard-sample.csv")
+            .expect("read sample");
+        let edited: String = orig
+            .lines()
+            .map(|l| {
+                if l.contains("QQ0FFF") {
+                    let f: Vec<&str> = l.split(',').collect();
+                    format!(
+                        "{},{},{},{uplink},{downlink},{}",
+                        f[0],
+                        f[1],
+                        f[2],
+                        f[5..].join(",")
+                    )
+                } else {
+                    l.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let p2 = dir.join("second.csv");
+        std::fs::write(&p2, edited).expect("write");
+        let second = parse_repeaterbook_standard_csv(p2.to_str().unwrap()).expect("parse 2");
+        insert_parsed(&pool, &second).await.expect("re-import");
+
+        let ch = sqlx::query_as::<_, crate::models::Channel>(
+            "SELECT * FROM channels WHERE callsign = 'QQ0FFF'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("row");
+        (pool, ch)
+    }
+
+    #[tokio::test]
+    async fn a_repeater_that_moves_off_dcs_stops_programming_dcs() {
+        // QQ0FFF imports as DTCS/073. RepeaterBook then lists it as CTCSS
+        // 100.0 — a retune, or a corrected entry.
+        //
+        // The bug this guards: `keeps_dcs` keyed on the STORED tone_mode, which
+        // was only ever DTCS by an operator's hand until the free CSV started
+        // supplying DCS. It would freeze tone_mode at DTCS for ever; every
+        // encoder gates on tone_mode, so the radio keeps transmitting DCS 073
+        // and will not key the repeater. That is issue #71's failure, arriving
+        // from the other direction.
+        let (_pool, ch) = reimport_qq0fff_with_tones("dcs_off", "100.0", "100.0").await;
+        assert_eq!(ch.tone_mode.as_deref(), Some("TSQL"), "still stuck on DCS");
+        assert_eq!(ch.dcs_code, None, "stale DCS code still programmed");
+        assert_eq!(ch.ctcss_uplink, Some(100.0));
+    }
+
+    #[tokio::test]
+    async fn a_cross_dcs_scheme_can_lose_its_rx_half() {
+        // QQ0GGG is DTCS->DTCS 023/114. RepeaterBook later lists D023 both
+        // ways, so the fresh record has no RX code at all. Under COALESCE the
+        // old 114 could never clear and the channel would squelch for ever on
+        // a code the repeater no longer sends.
+        let dir = std::env::temp_dir().join(format!("cpm_dcs_rx_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok();
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        let first =
+            parse_repeaterbook_standard_csv("../sample-data/repeaterbook-standard-sample.csv")
+                .expect("parse");
+        insert_parsed(&pool, &first).await.expect("first");
+        let before: Option<String> =
+            sqlx::query_scalar("SELECT dcs_rx_code FROM channels WHERE callsign = 'QQ0GGG'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(before.as_deref(), Some("114"), "fixture no longer cross-DCS");
+
+        let orig = std::fs::read_to_string("../sample-data/repeaterbook-standard-sample.csv")
+            .unwrap();
+        let edited = orig.replace(",D023,D114,QQ0GGG,", ",D023,D023,QQ0GGG,");
+        assert_ne!(edited, orig, "fixture row not found");
+        let p2 = dir.join("second.csv");
+        std::fs::write(&p2, edited).unwrap();
+        insert_parsed(
+            &pool,
+            &parse_repeaterbook_standard_csv(p2.to_str().unwrap()).unwrap(),
+        )
+        .await
+        .expect("re-import");
+
+        let ch = sqlx::query_as::<_, crate::models::Channel>(
+            "SELECT * FROM channels WHERE callsign = 'QQ0GGG'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(ch.tone_mode.as_deref(), Some("DTCS"), "same code both ways now");
+        assert_eq!(ch.dcs_code.as_deref(), Some("023"));
+        assert_eq!(ch.dcs_rx_code, None, "stale RX code never cleared");
+    }
+
+    #[tokio::test]
+    async fn an_operators_own_dcs_code_survives_a_reimport() {
+        // The other half of the policy. The operator looks the machine up,
+        // decides RepeaterBook's D073 is wrong and types D047. A re-import must
+        // not quietly put 073 back — merge_existing's documented policy is that
+        // DCS is the operator's to curate.
+        let dir = std::env::temp_dir().join(format!("cpm_dcs_curated_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok();
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        let parsed =
+            parse_repeaterbook_standard_csv("../sample-data/repeaterbook-standard-sample.csv")
+                .expect("parse");
+        insert_parsed(&pool, &parsed).await.expect("first");
+
+        sqlx::query("UPDATE channels SET dcs_code = '047' WHERE callsign = 'QQ0FFF'")
+            .execute(&pool)
+            .await
+            .expect("operator edit");
+
+        insert_parsed(&pool, &parsed).await.expect("re-import");
+
+        let code: Option<String> =
+            sqlx::query_scalar("SELECT dcs_code FROM channels WHERE callsign = 'QQ0FFF'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(code.as_deref(), Some("047"), "operator's DCS overwritten");
     }
 
     #[tokio::test]
