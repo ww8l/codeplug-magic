@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { open as openDialog, save } from "@tauri-apps/plugin-dialog";
-import { Download, CheckCircle2, XCircle, Ear } from "lucide-react";
+import { Download, CheckCircle2, XCircle, Ear, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { api, withToast } from "../../lib/api";
 import type { ExportPreview } from "../../lib/types";
@@ -139,6 +139,28 @@ export function ExportDialog({
             {media && (
               <div className="border-b border-slate-200 bg-amber-50 px-5 py-2.5 text-[11px] leading-relaxed text-amber-900 dark:border-slate-700 dark:bg-amber-950/40 dark:text-amber-200">
                 <span className="font-semibold">{media.before}</span> {media.preserves}
+              </div>
+            )}
+
+            {/* The same fact from the sharing side (#75). The file this writes
+                is a patched COPY of the operator's own radio file, so it is
+                personal — which is exactly what makes it unsafe to post to a
+                club list or attach to an issue without knowing. */}
+            {media && (
+              <div className="flex items-start gap-2 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-[11px] leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                <ShieldAlert
+                  size={14}
+                  className="mt-px shrink-0 text-slate-400 dark:text-slate-500"
+                />
+                <span>
+                  <span className="font-semibold">
+                    Sharing this file shares your radio.
+                  </span>{" "}
+                  It is a copy of the file your radio wrote, so it carries{" "}
+                  {media.carries}. Fine for programming your own radio — think
+                  twice before posting it to a club list or attaching it to a
+                  bug report.
+                </span>
               </div>
             )}
 

@@ -12,6 +12,7 @@ import type {
   CodeplugSummary,
   CodeplugWritten,
   TalkgroupRefreshSummary,
+  BackupTable,
   DashboardStats,
   GeoPoint,
   ExportPreview,
@@ -78,8 +79,8 @@ export const api = {
       state: state ?? null,
       country: country ?? null,
     }),
-  backfillChannelCoordinates: () =>
-    invoke<BackfillResult>("backfill_channel_coordinates"),
+  backfillChannelCoordinates: (allowOnline: boolean) =>
+    invoke<BackfillResult>("backfill_channel_coordinates", { allowOnline }),
   getChannel: (id: number) => invoke<Channel>("get_channel", { id }),
   createChannel: (input: ChannelInput) =>
     invoke<Channel>("create_channel", { input }),
@@ -131,6 +132,8 @@ export const api = {
   // ---- whole-database master backup & restore ----
   exportDatabase: (path: string) =>
     invoke<string>("export_database", { path }),
+  backupContents: () =>
+    invoke<BackupTable[]>("backup_contents"),
   isDatabaseBackup: (path: string) =>
     invoke<boolean>("is_database_backup", { path }),
   importDatabase: (path: string) =>

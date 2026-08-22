@@ -359,6 +359,93 @@ pub async fn import_database(state: State<'_, AppState>, path: String) -> Result
     import_impl(&state.pool, path).await
 }
 
+/// One table's contribution to a master backup, for the inventory shown before
+/// the file is written (#81).
+#[derive(serde::Serialize)]
+pub struct BackupTable {
+    /// The SQLite table name. Also the fallback label, so a table added by a
+    /// later migration still appears in the inventory with no code change here
+    /// — the same bargain the exporter itself makes.
+    pub table: String,
+    /// What the user calls it.
+    pub label: String,
+    pub rows: i64,
+    /// Why this line deserves a second look before the file leaves the machine.
+    /// `None` for the user's own data, which is what anyone expects a backup to
+    /// hold; `Some` for the parts nobody would predict from "back up my
+    /// codeplugs".
+    pub caution: Option<String>,
+}
+
+/// Human labels and cautions for the tables we know about. Anything not listed
+/// falls back to its table name with no caution — an unrecognised table is
+/// still disclosed, just not described.
+const TABLE_FACTS: &[(&str, &str, Option<&str>)] = &[
+    ("channels", "Channels", None),
+    ("channel_lists", "Channel lists", None),
+    ("channel_list_entries", "Channel list members", None),
+    ("codeplugs", "Codeplugs", None),
+    ("codeplug_channel_lists", "Codeplug channel lists", None),
+    ("codeplug_scan_lists", "Codeplug scan lists", None),
+    ("codeplug_channel_scan_lists", "Codeplug scan-list members", None),
+    ("scan_lists", "Scan lists", None),
+    ("scan_list_entries", "Scan list members", None),
+    ("talkgroups", "Talkgroups", None),
+    ("repeater_talkgroups", "Repeater talkgroups", None),
+    ("radio_models", "Radio models", None),
+    (
+        "radio_profiles",
+        "Radio profiles",
+        Some("your call sign, DMR ID and any APRS beacon position, exactly as programmed into each radio"),
+    ),
+    (
+        "dmr_users",
+        "DMR contacts",
+        Some("names, call signs and cities of third-party operators, imported from radioid.net — other people's data, not yours"),
+    ),
+];
+
+/// Everything a master backup would contain, table by table, so the user can
+/// see it before the file exists rather than after they have mailed it to
+/// someone (#81).
+///
+/// It counts the LIVE tables rather than a hardcoded list, for the same reason
+/// the exporter copies the database file rather than serialising known tables:
+/// a table added by a later migration lands in the backup automatically, and
+/// must therefore land in this inventory automatically too.
+#[tauri::command]
+pub async fn backup_contents(state: State<'_, AppState>) -> Result<Vec<BackupTable>, String> {
+    contents_impl(&state.pool).await
+}
+
+async fn contents_impl(pool: &sqlx::SqlitePool) -> Result<Vec<BackupTable>, String> {
+    let tables: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> '_sqlx_migrations'
+         ORDER BY name",
+    )
+    .fetch_all(pool)
+    .await
+    .estr()?;
+
+    let mut out = Vec::with_capacity(tables.len());
+    for table in tables {
+        let quoted = table.replace('"', "\"\"");
+        let rows: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{quoted}\""))
+            .fetch_one(pool)
+            .await
+            .estr()?;
+        let facts = TABLE_FACTS.iter().find(|(t, _, _)| *t == table);
+        out.push(BackupTable {
+            label: facts.map(|(_, l, _)| l.to_string()).unwrap_or_else(|| table.clone()),
+            caution: facts.and_then(|(_, _, c)| *c).map(str::to_string),
+            table,
+            rows,
+        });
+    }
+    Ok(out)
+}
+
 /// Where the pre-restore snapshot lives: beside the live database, one file,
 /// overwritten by each restore. Bounded on purpose — it is a way back from
 /// restoring the wrong file, not a backup history.
@@ -862,6 +949,68 @@ mod tests {
             assert!(err.contains("running from"), "unexpected error for {candidate}: {err}");
         }
         assert!(db_path.exists(), "the live database must still be there");
+
+        pool.close().await;
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The inventory shown before a backup is written must be derived from the
+    /// live schema, not from a list someone has to remember to update. A table
+    /// added by a future migration lands in the backup file automatically — so
+    /// it has to land in the disclosure automatically too, even with nothing
+    /// known about it beyond its name (#81).
+    #[tokio::test]
+    async fn a_table_nobody_described_is_still_disclosed() {
+        let dir = std::env::temp_dir().join(format!("cpm_manifest_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("live.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        sqlx::query("CREATE TABLE aprs_beacons (id INTEGER PRIMARY KEY, note TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO aprs_beacons (note) VALUES ('home'), ('shack')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let inventory = contents_impl(&pool).await.expect("inventory");
+
+        // Every real table is accounted for, including the one TABLE_FACTS has
+        // never heard of, which falls back to its own name.
+        let live: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master
+             WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> '_sqlx_migrations'",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        for table in &live {
+            assert!(
+                inventory.iter().any(|e| &e.table == table),
+                "{table} would ride along in the backup undisclosed"
+            );
+        }
+
+        let stranger = inventory
+            .iter()
+            .find(|e| e.table == "aprs_beacons")
+            .expect("the undescribed table");
+        assert_eq!(stranger.label, "aprs_beacons", "unknown tables fall back to their name");
+        assert_eq!(stranger.rows, 2);
+
+        // And the part nobody predicts from "back up my codeplugs" says so.
+        let dmr = inventory
+            .iter()
+            .find(|e| e.table == "dmr_users")
+            .expect("dmr_users");
+        let caution = dmr.caution.as_deref().unwrap_or("");
+        assert!(
+            caution.contains("radioid.net"),
+            "the third-party operator dump must name where it came from: {caution:?}"
+        );
 
         pool.close().await;
         std::fs::remove_dir_all(&dir).ok();

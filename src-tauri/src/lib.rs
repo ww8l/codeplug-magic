@@ -237,6 +237,7 @@ pub fn run() {
             commands::backup::export_database,
             commands::backup::import_database,
             commands::backup::is_database_backup,
+            commands::backup::backup_contents,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

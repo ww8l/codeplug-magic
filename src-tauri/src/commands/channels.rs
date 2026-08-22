@@ -232,6 +232,9 @@ pub struct BackfillResult {
     pub not_found: usize,
     /// A lookup errored (e.g. the geocoder was unreachable).
     pub failed: usize,
+    /// Not in the user's own data, and online lookup is switched off, so the
+    /// town name was never sent anywhere (#80).
+    pub skipped_offline: usize,
 }
 
 /// Find a matching centroid among the user's own repeaters: exact city, and
@@ -258,16 +261,24 @@ fn match_centroid<'a>(
 /// Prefers an offline centroid from the user's own repeaters; otherwise falls
 /// back to the online geocoder (throttled to respect Nominatim's usage policy).
 /// Never touches channels that already have coordinates.
+///
+/// `allow_online` carries the operator's choice from Settings. With it false
+/// the centroid match still runs — that is their own data and instant — but no
+/// town name is ever sent to Nominatim (#80).
 #[tauri::command]
 pub async fn backfill_channel_coordinates(
     state: State<'_, AppState>,
+    allow_online: bool,
 ) -> Result<BackfillResult, String> {
-    backfill_impl(&state.pool).await
+    backfill_impl(&state.pool, allow_online).await
 }
 
-async fn backfill_impl(pool: &sqlx::SqlitePool) -> Result<BackfillResult, String> {
+async fn backfill_impl(
+    pool: &sqlx::SqlitePool,
+    allow_online: bool,
+) -> Result<BackfillResult, String> {
     let client = geocoder_client()?;
-    backfill_with(pool, |city, st, country| {
+    backfill_with(pool, allow_online, |city, st, country| {
         let client = client.clone();
         async move {
             geocode_nominatim(&client, &city, st.as_deref(), country.as_deref()).await
@@ -280,6 +291,7 @@ async fn backfill_impl(pool: &sqlx::SqlitePool) -> Result<BackfillResult, String
 /// many times it is actually called.
 async fn backfill_with<L, F>(
     pool: &sqlx::SqlitePool,
+    allow_online: bool,
     mut lookup: L,
 ) -> Result<BackfillResult, String>
 where
@@ -309,6 +321,7 @@ where
         from_online: 0,
         not_found: 0,
         failed: 0,
+        skipped_offline: 0,
     };
     let mut did_online = false;
 
@@ -352,7 +365,13 @@ where
             continue;
         }
 
-        // 3) Online geocoder. Space requests ~1s apart per Nominatim's policy.
+        // 3) Online geocoder — but only with the operator's say-so. Off means
+        //    off: no request, and no sleeping between requests we never make.
+        if !allow_online {
+            result.skipped_offline += 1;
+            continue;
+        }
+        // Space requests ~1s apart per Nominatim's policy.
         if did_online {
             tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
         }
@@ -1102,7 +1121,7 @@ mod tests {
         .unwrap()
         .last_insert_rowid();
 
-        let res = backfill_impl(&pool).await.expect("backfill");
+        let res = backfill_impl(&pool, true).await.expect("backfill");
         assert_eq!(res.scanned, 1, "only the coordinate-less channel is scanned");
         assert_eq!(res.from_data, 1);
         assert_eq!(res.from_online, 0, "local hit must not touch the network");
@@ -1223,7 +1242,7 @@ mod tests {
         }
 
         let asked = std::cell::RefCell::new(Vec::<String>::new());
-        let res = backfill_with(&pool, |city, _st, _country| {
+        let res = backfill_with(&pool, true, |city, _st, _country| {
             asked.borrow_mut().push(city.clone());
             async move {
                 if city.trim().eq_ignore_ascii_case("denver") {
@@ -1249,6 +1268,66 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(filled, 61);
+
+        pool.close().await;
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// "Off" has to mean no request, not a request whose answer is discarded.
+    /// The offline half still runs — those centroids are the user's own data
+    /// and never leave the machine — so a town the user already has repeaters
+    /// in is still filled in (#80).
+    #[tokio::test]
+    async fn offline_backfill_sends_no_town_anywhere() {
+        let dir = std::env::temp_dir().join(format!("cpm_offline_geo_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("offline.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        // One repeater in Denver that already has coordinates — the centroid.
+        sqlx::query(
+            "INSERT INTO channels (rx_freq, city, state, latitude, longitude)
+             VALUES (145.0, 'Denver', 'CO', 39.74, -104.99)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // One more in Denver without them, and one in a town we have never seen.
+        sqlx::query("INSERT INTO channels (rx_freq, city, state) VALUES (146.0, 'Denver', 'CO')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO channels (rx_freq, city, state) VALUES (147.0, 'Nowhere', 'CO')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let asked = std::cell::RefCell::new(Vec::<String>::new());
+        let res = backfill_with(&pool, false, |city, _st, _country| {
+            asked.borrow_mut().push(city.clone());
+            async move { Ok(Some(GeoPoint { latitude: 1.0, longitude: 2.0 })) }
+        })
+        .await
+        .expect("backfill");
+
+        assert!(
+            asked.borrow().is_empty(),
+            "no town name may leave the machine: {:?}",
+            asked.borrow()
+        );
+        assert_eq!(res.from_data, 1, "the user's own centroid still fills Denver");
+        assert_eq!(res.skipped_offline, 1, "the unknown town is reported, not silently dropped");
+        assert_eq!(res.from_online, 0);
+
+        // And the town we could not resolve keeps its empty coordinates rather
+        // than picking up the lookup's answer.
+        let nowhere: Option<f64> =
+            sqlx::query_scalar("SELECT latitude FROM channels WHERE city = 'Nowhere'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(nowhere, None);
 
         pool.close().await;
         std::fs::remove_dir_all(&dir).ok();

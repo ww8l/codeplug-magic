@@ -255,6 +255,9 @@ export interface BackfillResult {
   from_online: number;
   not_found: number;
   failed: number;
+  /// Towns not in the user's own data, left alone because online lookup is off
+  /// — their names were never sent anywhere.
+  skipped_offline: number;
 }
 
 export interface ScanList {
@@ -808,6 +811,19 @@ export interface StandardImportSummary {
 // either source with one table. (Full fidelity is preserved in the file and
 // applied on import, not via the preview.)
 export type ChannelBackupPreview = ImportPreview;
+
+/// One table's contribution to a master backup, from `backup_contents`. The
+/// backend derives this from the LIVE schema rather than a fixed list, so a
+/// table added later shows up here on its own — `label` falls back to the raw
+/// table name when nothing is known about it.
+export interface BackupTable {
+  table: string;
+  label: string;
+  rows: number;
+  /// Why this line deserves a second look before the file is shared, or null
+  /// for the user's own data.
+  caution: string | null;
+}
 
 /// What an export produced. `path` is not always the path the UI asked for: a
 /// card exporter handed a FOLDER creates a file in it and names it the way the

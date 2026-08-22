@@ -3,6 +3,7 @@ import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { useSearchParams } from "react-router-dom";
 import { Upload, Download, Plus, Search, X, Radio, Trash2, ListPlus, MapPin, BookMarked } from "lucide-react";
 import { api, withToast } from "../lib/api";
+import { useOnlineGeocoding } from "../lib/prefs";
 import type { Channel, ChannelFilter, CityCentroid } from "../lib/types";
 import { BANDS, MODES, OP_STATUSES } from "../lib/constants";
 import { haversineMiles } from "../lib/geo";
@@ -197,19 +198,28 @@ export function Channels() {
     [allChannels],
   );
   const [backfilling, setBackfilling] = useState(false);
+  const [geocodeOnline] = useOnlineGeocoding();
 
   const backfillCoords = async () => {
     if (missingCoords === 0) return;
+    const plural = missingCoords === 1 ? "" : "s";
     const ok = await confirmDialog(
-      `Look up coordinates for ${missingCoords} channel${missingCoords === 1 ? "" : "s"} ` +
-        `that have a city but no lat/lon? Towns matching your existing repeaters are ` +
-        `filled instantly; the rest use OpenStreetMap (about 1 per second), so this ` +
-        `may take a moment. Channels that already have coordinates are left untouched.`,
+      geocodeOnline
+        ? `Look up coordinates for ${missingCoords} channel${plural} that have a city ` +
+            `but no lat/lon? Towns matching your existing repeaters are filled ` +
+            `instantly and offline; the rest have their town name sent to ` +
+            `OpenStreetMap (about 1 per second), so this may take a moment. ` +
+            `Channels that already have coordinates are left untouched.`
+        : `Fill coordinates for ${missingCoords} channel${plural} that have a city ` +
+            `but no lat/lon, using only towns already in your own channels? Online ` +
+            `lookup is off, so nothing is sent anywhere and towns you have no ` +
+            `repeater in are left blank. Channels that already have coordinates ` +
+            `are left untouched.`,
       { title: "Backfill coordinates", kind: "info" },
     );
     if (!ok) return;
     setBackfilling(true);
-    const res = await withToast(api.backfillChannelCoordinates(), {
+    const res = await withToast(api.backfillChannelCoordinates(geocodeOnline), {
       error: "Backfill failed",
     });
     setBackfilling(false);
@@ -218,6 +228,8 @@ export function Channels() {
       const filled = res.from_data + res.from_online;
       const bits = [`Filled ${filled} of ${res.scanned}`];
       if (res.not_found) bits.push(`${res.not_found} not found`);
+      if (res.skipped_offline)
+        bits.push(`${res.skipped_offline} need online lookup (off)`);
       if (res.failed) bits.push(`${res.failed} failed`);
       toast.success(bits.join(" · "));
       load(filter);
