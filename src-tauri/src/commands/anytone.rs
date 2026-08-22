@@ -28,6 +28,15 @@
 //!     the data bytes (hardware-confirmed as `addr+len+data`).
 //!   - end session: send ASCII `END`; radio replies `0x06`.
 //!
+//! LICENCE NOTE on the upstream citations in this header. `reald/anytone-flash-tools`
+//! is bare GPL-2.0-only with no "or any later version" grant, so none of its code
+//! may be combined into this GPLv3 work — and none of it is here. What came from it
+//! is the fact list above (the `PROGRAM` handshake, the `QX\x06` reply, the `R`/`W`
+//! frame layout, `END`), read out of its `at-d878uv_protocol.md`. How a device
+//! behaves on the wire is not copyrightable subject matter. Do not copy code, tables
+//! or data from that project into this tree. `qdmr` is GPLv3 and compatible; see the
+//! Licence section of the README for the full accounting.
+//!
 //! NOTE: AnyTone codeplug memory is SPARSE and lives at high addresses (channels,
 //! zones, bitmaps … all above ~0x00800000); address 0 is unmapped. The exact
 //! D890UV map is not yet published, so Stage 1 probes the well-known D868/D878
