@@ -495,6 +495,13 @@ fn read_value(image: &[u8], loc: &Loc, def: &FieldDef) -> Option<Value> {
             // BCD 0000 on the next settings write — the app pushing a limit of
             // 000 MHz onto a radio whose block was simply unset. Unset decodes
             // as unset: the form leaves it blank and the writer skips it.
+            //
+            // ★ Hardware-proven on Tim's UV-5R, 2026-08-21. Read from the radio
+            // the four fields came back blank, saved blank, and the program that
+            // followed changed exactly five bytes of the image — four of them the
+            // power-on message it was meant to change. Image 0x1908 read
+            // 00 00 00 00 00 both before and after, so nothing was pushed at a
+            // block the radio has never filled in.
             if n == 0 {
                 return Some(Value::String(String::new()));
             }
