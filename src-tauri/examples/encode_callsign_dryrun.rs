@@ -148,7 +148,7 @@ async fn main() {
     let mut keys: Vec<u32> = Vec::new();
     let mut group_keys: Vec<u32> = Vec::new();
     for p in patches.iter().filter(|p| p.addr >= MAP_BASE && p.addr < DB_BASE) {
-        for e in p.data.chunks_exact(8) {
+        for e in p.data.as_chunks::<8>().0 {
             let key = u32::from_le_bytes([e[0], e[1], e[2], e[3]]);
             keys.push(key);
             if key & 1 == 1 {

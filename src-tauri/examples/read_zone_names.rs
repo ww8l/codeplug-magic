@@ -16,7 +16,9 @@ const WINDOW: u32 = 0x4000;
 
 fn decode_utf16le(slot: &[u8], chars: usize) -> String {
     let units: Vec<u16> = slot
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .take(chars)
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .take_while(|&u| u != 0x0000 && u != 0xFFFF)

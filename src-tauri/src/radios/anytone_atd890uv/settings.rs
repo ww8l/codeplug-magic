@@ -82,7 +82,7 @@ pub(crate) fn bcd_be_encode(mut v: u32) -> [u8; 4] {
         v /= 10;
     }
     let mut out = [0u8; 4];
-    for (i, chunk) in digits.chunks_exact(2).enumerate() {
+    for (i, chunk) in digits.as_chunks::<2>().0.iter().enumerate() {
         out[i] = (chunk[0] << 4) | chunk[1];
     }
     out
@@ -92,7 +92,9 @@ pub(crate) fn bcd_be_encode(mut v: u32) -> [u8; 4] {
 /// or 0xFFFF (blank) unit.
 pub(crate) fn radio_name_decode(b: &[u8]) -> String {
     let units: Vec<u16> = b
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .take(16)
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .take_while(|&u| u != 0 && u != 0xFFFF)
@@ -212,7 +214,9 @@ pub fn decode_anytone_settings(windows: &[(u32, Vec<u8>)]) -> Value {
                 let units: Vec<u16> = buf
                     .get(off..end)
                     .unwrap_or(&[])
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|c| u16::from_le_bytes([c[0], c[1]]))
                     .take_while(|&u| u != 0)
                     .collect();
