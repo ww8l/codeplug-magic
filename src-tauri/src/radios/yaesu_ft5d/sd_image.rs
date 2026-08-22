@@ -516,6 +516,11 @@ impl CodeplugExporter for YaesuFt5d {
         "yaesu_ft5d_sd"
     }
 
+    /// The radio's microSD `BACKUP.dat`.
+    fn target_extensions(&self) -> &'static [&'static str] {
+        &["dat"]
+    }
+
     /// `path` is the operator's existing `FT5D/BACKUP/BACKUP.dat` — the file is
     /// read as the template and written back in place, because that exact path
     /// is what the radio's Restore menu reads. The untouched original is kept

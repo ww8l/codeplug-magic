@@ -125,6 +125,12 @@ fn temp_sibling(target: &Path) -> std::path::PathBuf {
 /// one, and SQLite removes its own partial output.
 #[tauri::command]
 pub async fn export_database(state: State<'_, AppState>, path: String) -> Result<String, String> {
+    // The name has to be one this export produces, checked before anything is
+    // written (#91). It belongs HERE and not in `export_impl`: this is the only
+    // caller that takes the path from the operator. The pre-restore snapshot
+    // names its own file `*.sqlite3.before-restore`, which this check would
+    // rightly refuse.
+    crate::commands::write_paths::check_write_target(&path, &["sqlite3"])?;
     export_impl(&state.pool, path).await
 }
 

@@ -1433,6 +1433,10 @@ mod tests {
     /// The bitmaps sit in a run of 32-byte fields and were confused once
     /// already: writing the scan-list count into the radio-ID bitmap made CPS
     /// fail its read. Keep them distinct and non-overlapping.
+    // These compare consts, so clippy sees a constant assertion. That is the
+    // point: the test exists to fail the moment one of these base addresses is
+    // edited into overlapping another bitmap.
+    #[allow(clippy::assertions_on_constants)]
     #[test]
     fn scan_and_radio_id_bitmaps_do_not_overlap() {
         use crate::radios::anytone_atd890uv::settings::RADIO_ID_BITMAP_BASE;

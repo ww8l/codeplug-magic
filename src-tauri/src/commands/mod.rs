@@ -17,3 +17,4 @@ pub mod program;
 pub mod radio_backups;
 pub mod standard_lists;
 pub mod talkgroups;
+pub mod write_paths;

@@ -557,6 +557,7 @@ pub struct TalkgroupBackup {
 /// Returns how many were written.
 #[tauri::command]
 pub async fn export_talkgroups(state: State<'_, AppState>, path: String) -> Result<usize, String> {
+    crate::commands::write_paths::check_write_target(&path, &["json"])?;
     let talkgroups = sqlx::query_as::<_, BackupTalkgroupRow>(
         "SELECT tg_number, name, network, call_type, notes, source
          FROM talkgroups ORDER BY network, tg_number",

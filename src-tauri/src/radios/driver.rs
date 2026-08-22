@@ -549,6 +549,16 @@ pub(crate) trait CodeplugExporter {
     /// Write the codeplug file(s) rooted at `path`, returning channels written.
     fn export(&self, path: &str, req: &ExportRequest) -> Result<usize, String>;
 
+    /// Extensions this exporter's finished file can end in, lowercase and
+    /// without dots.
+    ///
+    /// No default: a new exporter has to say what it writes, because the export
+    /// command refuses to write a target whose name is not one of these. The
+    /// check runs on the output of [`resolve_target`](Self::resolve_target), so
+    /// an exporter that NAMES its own file only has to be honest about what it
+    /// named (#91).
+    fn target_extensions(&self) -> &'static [&'static str];
+
     /// The concrete file this export will write, given whatever target the UI
     /// handed over. Identity for every exporter that writes exactly where it is
     /// told — override it only when the exporter can CREATE a file the operator

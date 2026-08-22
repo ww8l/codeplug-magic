@@ -79,8 +79,8 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
-      # Non-fatal for now: there are pre-existing clippy warnings. Once those
-      # are cleaned up, tighten this to `cargo clippy --all-targets -- -D warnings`.
+      # Fatal, matching scripts/ci-local.sh. The pre-existing warnings were
+      # cleared in #91, so a new one is now a real signal.
       - name: cargo clippy
         working-directory: src-tauri
-        run: cargo clippy --all-targets
+        run: cargo clippy --all-targets -- -D warnings

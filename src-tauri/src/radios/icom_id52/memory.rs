@@ -289,6 +289,11 @@ impl CodeplugExporter for IcomId52 {
         "icom_id52_icf"
     }
 
+    /// The ID-52's own container format.
+    fn target_extensions(&self) -> &'static [&'static str] {
+        &["icf"]
+    }
+
     /// Two card files, one exporter, chosen by the extension of the file the
     /// operator picked.
     ///

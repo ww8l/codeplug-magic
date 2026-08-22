@@ -2,6 +2,11 @@
   "name": "ww8l-codeplug-magic",
   "private": true,
   "version": "26.8.18",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ww8l/codeplug-magic.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,12 +20,11 @@
     "@tanstack/react-virtual": "^3.14.3",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.1",
-    "@tauri-apps/plugin-opener": "^2",
     "clsx": "^2.1.1",
     "lucide-react": "^1.21.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-router-dom": "^7.18.0",
+    "react-router-dom": "^7.18.2",
     "sonner": "^2.0.7"
   },
   "devDependencies": {

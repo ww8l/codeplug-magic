@@ -4,6 +4,10 @@ version = "26.8.18"
 description = "WW8L Codeplug Magic - master codeplug database for amateur radio operators"
 authors = ["WW8L"]
 edition = "2021"
+# SPDX. Declared "-only" because neither the LICENSE file nor any source header
+# grants "or any later version"; relax to GPL-3.0-or-later if that is intended.
+license = "GPL-3.0-only"
+repository = "https://github.com/ww8l/codeplug-magic"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -19,7 +23,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -499,6 +499,7 @@ pub async fn export_dmr_users(
     max_count: Option<i64>,
     priority_countries: Vec<String>,
 ) -> Result<DmrExportSummary, String> {
+    crate::commands::write_paths::check_write_target(&path, &["csv"])?;
     let rows = select_prioritized_dmr_users(&state.pool, max_count, &priority_countries).await?;
 
     let mut wtr = csv::Writer::from_writer(vec![]);

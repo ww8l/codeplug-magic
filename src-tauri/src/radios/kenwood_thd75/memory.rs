@@ -617,6 +617,11 @@ impl CodeplugExporter for KenwoodThd75 {
         "kenwood_thd75_sd"
     }
 
+    /// `resolve_target` names the next `MMDDYYYY_HHMMSS.d75` in the card folder.
+    fn target_extensions(&self) -> &'static [&'static str] {
+        &["d75"]
+    }
+
     /// Patch a config file the radio saved, and write the result as a **new**
     /// file beside it.
     ///

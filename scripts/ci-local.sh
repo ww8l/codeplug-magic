@@ -25,9 +25,9 @@ step "cargo check --all-targets"
 step "cargo test"
 (cd src-tauri && cargo test)
 
-# Non-fatal, matching ci.yml: there are pre-existing clippy warnings. Once those
-# are cleaned up, tighten both this and ci.yml to `-- -D warnings`.
-step "cargo clippy --all-targets"
-(cd src-tauri && cargo clippy --all-targets)
+# Fatal, matching ci.yml. The pre-existing warnings were cleared in #91, so a
+# new one is now a real signal rather than noise on an already-dirty list.
+step "cargo clippy --all-targets -- -D warnings"
+(cd src-tauri && cargo clippy --all-targets -- -D warnings)
 
 printf '\n\033[1;32m==> CI passed\033[0m (%ss)\n' "$(( $(date +%s) - start ))"
