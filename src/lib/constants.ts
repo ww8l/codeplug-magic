@@ -41,6 +41,72 @@ export const CROSS_MODES = [
 
 export const DTCS_POLARITIES = ["NN", "NR", "RN", "RR"];
 
+/** The transmit and receive halves a tone scheme uses: "Tone", "DTCS", or "". */
+export function toneSides(
+  tone_mode: string | null,
+  cross_mode: string | null,
+): { tmode: string; txSide: string; rxSide: string } {
+  const tmode = tone_mode ?? "off";
+  let txSide = "";
+  let rxSide = "";
+  if (tmode === "Tone") {
+    txSide = "Tone";
+  } else if (tmode === "TSQL") {
+    txSide = rxSide = "Tone";
+  } else if (tmode === "DTCS") {
+    txSide = rxSide = "DTCS";
+  } else if (tmode === "Cross") {
+    [txSide, rxSide] = (cross_mode || "Tone->Tone").split("->");
+  }
+  return { tmode, txSide, rxSide };
+}
+
+/**
+ * Which of the four tone columns the chosen scheme actually reads — the single
+ * source for both the editor's field visibility and what gets saved.
+ */
+export function toneFieldsInUse(
+  tone_mode: string | null,
+  cross_mode: string | null,
+): { ctcss_uplink: boolean; ctcss_downlink: boolean; dcs_code: boolean; dcs_rx_code: boolean } {
+  const { tmode, txSide, rxSide } = toneSides(tone_mode, cross_mode);
+  return {
+    ctcss_uplink: txSide === "Tone" && tmode !== "TSQL",
+    ctcss_downlink: rxSide === "Tone" || tmode === "TSQL",
+    dcs_code: txSide === "DTCS",
+    dcs_rx_code: rxSide === "DTCS" && tmode === "Cross",
+  };
+}
+
+/**
+ * Null out every tone column the chosen scheme does not use, so what is stored
+ * says what the operator sees.
+ *
+ * Setting Tone Mode to "off" used to leave the CTCSS values sitting in the row.
+ * Nothing had changed against the RepeaterBook snapshot, so no override was
+ * recorded — and the next re-import re-derived the scheme straight back to TSQL,
+ * silently undoing "this machine is carrier access" (issue #86).
+ */
+export function clearUnusedToneFields<
+  T extends {
+    tone_mode: string | null;
+    cross_mode: string;
+    ctcss_uplink: number | null;
+    ctcss_downlink: number | null;
+    dcs_code: string | null;
+    dcs_rx_code: string | null;
+  },
+>(input: T): T {
+  const use = toneFieldsInUse(input.tone_mode, input.cross_mode);
+  return {
+    ...input,
+    ctcss_uplink: use.ctcss_uplink ? input.ctcss_uplink : null,
+    ctcss_downlink: use.ctcss_downlink ? input.ctcss_downlink : null,
+    dcs_code: use.dcs_code ? input.dcs_code : null,
+    dcs_rx_code: use.dcs_rx_code ? input.dcs_rx_code : null,
+  };
+}
+
 // Radio-agnostic per-channel power. Mapped to each radio's levels on export.
 export const POWER_LEVELS = ["High", "Med", "Low"];
 

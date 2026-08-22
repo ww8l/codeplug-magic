@@ -7,7 +7,8 @@ use crate::db::AppState;
 use crate::error::MapErrString;
 use crate::models::{Channel, ChannelFilter, ChannelInput, CityCentroid};
 use crate::util::{
-    derive_band, derive_duplex, gen_name_long, gen_name_short, normalize_dstar_call, truncate,
+    derive_band, derive_duplex, derive_tone_mode, differs_from_rb_f64, differs_from_rb_str,
+    gen_name_long, gen_name_short, keeps_dcs, normalize_dstar_call, truncate,
 };
 
 /// Normalize a search term for matching against frequency text. If the term
@@ -393,11 +394,17 @@ async fn update_coords(
 
 #[tauri::command]
 pub async fn get_channel(state: State<'_, AppState>, id: i64) -> Result<Channel, String> {
+    fetch_channel(&state.pool, id).await
+}
+
+/// `get_channel` without a Tauri handle, so the command implementations (and
+/// their tests) can read a row back.
+async fn fetch_channel(pool: &sqlx::SqlitePool, id: i64) -> Result<Channel, String> {
     sqlx::query_as::<_, Channel>(&format!(
         "SELECT {CHANNEL_COLUMNS} FROM channels WHERE id = ?1"
     ))
     .bind(id)
-    .fetch_one(&state.pool)
+    .fetch_one(pool)
     .await
     .estr()
 }
@@ -511,26 +518,46 @@ pub async fn update_channel(
     id: i64,
     input: ChannelInput,
 ) -> Result<Channel, String> {
+    update_impl(&state.pool, id, input).await
+}
+
+/// The body of [`update_channel`], against a pool rather than a Tauri handle so
+/// the override-flag rules can be tested the way the editor actually runs them.
+pub(super) async fn update_impl(
+    pool: &sqlx::SqlitePool,
+    id: i64,
+    input: ChannelInput,
+) -> Result<Channel, String> {
     // Load the existing row so we can compute override flags against the
     // RepeaterBook-supplied baseline values.
     let existing = sqlx::query_as::<_, Channel>(&format!(
         "SELECT {CHANNEL_COLUMNS} FROM channels WHERE id = ?1"
     ))
     .bind(id)
-    .fetch_one(&state.pool)
+    .fetch_one(pool)
     .await
     .estr()?;
 
     let band = derive_band(input.rx_freq);
     let (duplex, offset) = derive_duplex(input.rx_freq, input.tx_freq);
 
-    // An override exists when the user value differs from the RB baseline and
-    // a RB baseline is present. Manual channels (no rb_* values) never override.
-    let ctcss_up_over = differs_opt_f64(input.ctcss_uplink, existing.rb_ctcss_uplink);
-    let ctcss_dn_over = differs_opt_f64(input.ctcss_downlink, existing.rb_ctcss_downlink);
-    let status_over =
-        differs_opt_str(&input.operational_status, &existing.rb_operational_status);
-    let notes_over = differs_opt_str(&input.notes, &existing.rb_notes);
+    // An override exists when the user value differs from the RepeaterBook
+    // baseline. Only a RepeaterBook-sourced row can ever be re-imported, so the
+    // flags are meaningless — and would show a spurious "overridden" badge — on
+    // a manually created channel; those never override.
+    //
+    // "Differs" is deliberately symmetric (`differs_from_rb_*`): CLEARING a tone
+    // RepeaterBook reports is an override just as much as changing it. It used
+    // to count only when both sides had a value, so a deliberate clear recorded
+    // no override and the next re-import put the tone straight back (issue #86).
+    let rb_sourced = existing.repeaterbook_id.is_some();
+    let ctcss_up_over =
+        rb_sourced && differs_from_rb_f64(input.ctcss_uplink, existing.rb_ctcss_uplink);
+    let ctcss_dn_over =
+        rb_sourced && differs_from_rb_f64(input.ctcss_downlink, existing.rb_ctcss_downlink);
+    let status_over = rb_sourced
+        && differs_from_rb_str(&input.operational_status, &existing.rb_operational_status);
+    let notes_over = rb_sourced && differs_from_rb_str(&input.notes, &existing.rb_notes);
     let has_overrides = ctcss_up_over || ctcss_dn_over || status_over || notes_over;
 
     // Keep the existing provenance unless the form supplied a (non-blank) value.
@@ -610,11 +637,11 @@ pub async fn update_channel(
     .bind(normalize_dstar_call(input.dstar_ur_call.as_deref()))
     .bind(normalize_dstar_call(input.dstar_rpt1.as_deref()))
     .bind(normalize_dstar_call(input.dstar_rpt2.as_deref()))
-    .execute(&state.pool)
+    .execute(pool)
     .await
     .estr()?;
 
-    get_channel(state, id).await
+    fetch_channel(pool, id).await
 }
 
 /// Build the display name for a copy: the original with "Copy " in front,
@@ -853,21 +880,40 @@ pub async fn accept_rb_value(
     .await
     .estr()?;
 
+    // Putting a tone back changes which tone scheme the channel is on, and the
+    // two have to agree: accepting RepeaterBook's 100.0 Hz onto a channel the
+    // operator had set to "off" otherwise leaves a tone every encoder ignores.
+    // Re-derived exactly as the importer does, DCS included.
+    if field.starts_with("ctcss_") {
+        rederive_tone_mode(&state.pool, id).await?;
+    }
+
     get_channel(state, id).await
 }
 
-fn differs_opt_f64(a: Option<f64>, baseline: Option<f64>) -> bool {
-    match (a, baseline) {
-        (Some(x), Some(y)) => (x - y).abs() > f64::EPSILON,
-        _ => false,
+/// Put `tone_mode`/`cross_mode` back in step with the channel's tone pair,
+/// leaving a DCS scheme alone (RepeaterBook cannot describe one, so it is the
+/// operator's own — see [`keeps_dcs`]).
+async fn rederive_tone_mode(pool: &sqlx::SqlitePool, id: i64) -> Result<(), String> {
+    let row: (Option<String>, String, Option<f64>, Option<f64>) = sqlx::query_as(
+        "SELECT tone_mode, cross_mode, ctcss_uplink, ctcss_downlink FROM channels WHERE id = ?1",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .estr()?;
+    if keeps_dcs(row.0.as_deref(), &row.1) {
+        return Ok(());
     }
-}
-
-fn differs_opt_str(a: &Option<String>, baseline: &Option<String>) -> bool {
-    match (a, baseline) {
-        (Some(x), Some(y)) => x != y,
-        _ => false,
-    }
+    let (tone_mode, cross_mode) = derive_tone_mode(row.2, row.3);
+    sqlx::query("UPDATE channels SET tone_mode = ?2, cross_mode = ?3 WHERE id = ?1")
+        .bind(id)
+        .bind(&tone_mode)
+        .bind(&cross_mode)
+        .execute(pool)
+        .await
+        .estr()?;
+    Ok(())
 }
 
 #[cfg(test)]

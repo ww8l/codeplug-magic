@@ -12,7 +12,8 @@ use crate::db::AppState;
 use crate::error::MapErrString;
 use crate::models::ImportSummary;
 use crate::util::{
-    derive_band, derive_duplex, gen_name_long, gen_name_short, repair_truncated_tx, truncate,
+    derive_band, derive_duplex, derive_tone_mode, differs_from_rb_f64, differs_from_rb_str,
+    gen_name_long, gen_name_short, keeps_dcs, repair_truncated_tx, truncate,
 };
 
 /// A single RepeaterBook record (from CSV or JSON) parsed and mapped into our
@@ -113,7 +114,8 @@ fn build_preview(parsed: &[ParsedChannel]) -> ImportPreview {
 }
 
 /// The subset of an existing channel row needed to merge a re-import: the four
-/// user-overridable RepeaterBook fields and their override flags.
+/// user-overridable RepeaterBook fields and their override flags, plus the
+/// stored tone scheme so a DCS one survives the merge (see [`keeps_dcs`]).
 #[derive(sqlx::FromRow)]
 struct ExistingChannel {
     id: i64,
@@ -125,19 +127,10 @@ struct ExistingChannel {
     ctcss_downlink_overridden: bool,
     operational_status_overridden: bool,
     notes_overridden: bool,
+    tone_mode: Option<String>,
+    cross_mode: String,
 }
 
-fn merge_differs_f64(a: Option<f64>, b: Option<f64>) -> bool {
-    match (a, b) {
-        (Some(x), Some(y)) => (x - y).abs() > f64::EPSILON,
-        (None, None) => false,
-        _ => true,
-    }
-}
-
-fn merge_differs_str(a: &Option<String>, b: &Option<String>) -> bool {
-    a.as_deref() != b.as_deref()
-}
 
 /// Merge one user-overridable numeric RB field on re-import. If the user had
 /// overridden it, keep their value; otherwise adopt the fresh RB value. The
@@ -150,7 +143,7 @@ fn merge_tracked_f64(
     rb: Option<f64>,
 ) -> (Option<f64>, Option<f64>, bool) {
     let value = if overridden { current } else { rb };
-    (value, rb, merge_differs_f64(value, rb))
+    (value, rb, differs_from_rb_f64(value, rb))
 }
 
 /// String twin of [`merge_tracked_f64`].
@@ -160,7 +153,7 @@ fn merge_tracked_str(
     rb: Option<String>,
 ) -> (Option<String>, Option<String>, bool) {
     let value = if overridden { current } else { rb.clone() };
-    let over = merge_differs_str(&value, &rb);
+    let over = differs_from_rb_str(&value, &rb);
     (value, rb, over)
 }
 
@@ -182,7 +175,8 @@ async fn insert_parsed(
         let existing: Option<ExistingChannel> = sqlx::query_as(
             "SELECT id, ctcss_uplink, ctcss_downlink, operational_status, notes, \
              ctcss_uplink_overridden, ctcss_downlink_overridden, \
-             operational_status_overridden, notes_overridden \
+             operational_status_overridden, notes_overridden, \
+             tone_mode, cross_mode \
              FROM channels WHERE repeaterbook_id = ?1",
         )
         .bind(&p.repeaterbook_id)
@@ -287,7 +281,8 @@ async fn insert_parsed(
 ///     status, notes) keep the user's value when overridden; otherwise they
 ///     adopt the fresh RB value. Their `rb_*` snapshots always advance and the
 ///     override flags are recomputed. `tone_mode`/`cross_mode` are re-derived
-///     from the merged tone pair so they stay consistent with a kept override.
+///     from the merged tone pair so they stay consistent with a kept override —
+///     except on a DCS scheme, which is kept verbatim (see [`keeps_dcs`]).
 ///   * User-facing names (`name_long`, `name_short`), DMR slot/talkgroup, DCS,
 ///     and power are NOT touched — those are the operator's to curate.
 ///   * `latitude`/`longitude` use COALESCE so an RB record without coordinates
@@ -316,8 +311,17 @@ async fn merge_existing(
         merge_tracked_str(ex.notes_overridden, ex.notes.clone(), p.notes.clone());
     let has_overrides = up_over || dn_over || status_over || notes_over;
 
-    // Re-derive the tone scheme from the merged (possibly overridden) tone pair.
-    let (tone_mode, cross_mode) = derive_tone_mode(ctcss_uplink, ctcss_downlink);
+    // Re-derive the tone scheme from the merged (possibly overridden) tone pair —
+    // unless the operator put the channel on DCS, which RepeaterBook cannot
+    // describe and re-deriving would silently destroy.
+    let (tone_mode, cross_mode) = if keeps_dcs(ex.tone_mode.as_deref(), &ex.cross_mode) {
+        (
+            ex.tone_mode.clone().unwrap_or_else(|| "off".to_string()),
+            ex.cross_mode.clone(),
+        )
+    } else {
+        derive_tone_mode(ctcss_uplink, ctcss_downlink)
+    };
 
     sqlx::query(
         r#"
@@ -454,26 +458,6 @@ fn finalize(
         band,
         tone_mode,
         cross_mode,
-    }
-}
-
-/// Map a RepeaterBook uplink/downlink CTCSS pair to CHIRP's universal tone
-/// scheme (`tone_mode`, `cross_mode`). Shared by the initial parse and the
-/// re-import merge so a merged (possibly user-overridden) tone pair always
-/// re-derives a consistent tone_mode.
-fn derive_tone_mode(
-    ctcss_uplink: Option<f64>,
-    ctcss_downlink: Option<f64>,
-) -> (String, String) {
-    let eps = 0.05; // tones are tenths of a Hz; compare with a small epsilon
-    match (ctcss_uplink, ctcss_downlink) {
-        (Some(up), Some(dn)) if (up - dn).abs() < eps => {
-            ("TSQL".to_string(), "Tone->Tone".to_string())
-        }
-        (Some(_), Some(_)) => ("Cross".to_string(), "Tone->Tone".to_string()),
-        (Some(_), None) => ("Tone".to_string(), "Tone->Tone".to_string()),
-        (None, Some(_)) => ("Cross".to_string(), "->Tone".to_string()),
-        (None, None) => ("off".to_string(), "Tone->Tone".to_string()),
     }
 }
 
@@ -1263,6 +1247,227 @@ mod tests {
         let s = finalize("N0ODD", 446.8625, Some(441.0), None, None, None, None);
         assert_eq!(s.tx_freq, Some(441.0));
         assert!((s.offset - 5.8625).abs() < 1e-9);
+    }
+
+    /// A DCS tone scheme is the operator's own — RepeaterBook carries CTCSS
+    /// only — so a re-import must not re-derive it away (issue #71).
+    ///
+    /// Without the `keeps_dcs` guard the merge writes whatever
+    /// `derive_tone_mode` makes of the CTCSS pair: "off" for a machine
+    /// RepeaterBook lists with no PL (leaving `dcs_code` orphaned and the
+    /// channel programming with NO squelch tone, so it will not key the
+    /// repeater), or "TSQL" for one that does list a PL — CTCSS silently
+    /// replacing the operator's DCS.
+    #[tokio::test]
+    async fn a_reimport_keeps_a_dcs_tone_scheme() {
+        let dir = std::env::temp_dir().join(format!("cpm_dcs_merge_{}", std::process::id()));
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        let parsed =
+            parse_repeaterbook_csv("../sample-data/repeaterbook-sample.csv").expect("parse");
+        insert_parsed(&pool, &parsed).await.expect("first import");
+
+        // W0CPH is listed with PL 100.0; W0ARK with no tone at all. Put both on
+        // DCS the way an operator would after looking the machines up.
+        for call in ["W0CPH", "W0ARK"] {
+            sqlx::query(
+                "UPDATE channels SET tone_mode = 'DTCS', dcs_code = '023',
+                 dcs_rx_code = '023' WHERE callsign = ?1",
+            )
+            .bind(call)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        // Re-import the very same export to pick up a status change.
+        let summary = insert_parsed(&pool, &parsed).await.expect("re-import");
+        assert_eq!(summary.updated, parsed.len(), "every row should merge");
+
+        for call in ["W0CPH", "W0ARK"] {
+            let (tone_mode, dcs): (Option<String>, Option<String>) =
+                sqlx::query_as("SELECT tone_mode, dcs_code FROM channels WHERE callsign = ?1")
+                    .bind(call)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(
+                tone_mode.as_deref(),
+                Some("DTCS"),
+                "{call} lost its DCS tone scheme on re-import"
+            );
+            assert_eq!(dcs.as_deref(), Some("023"), "{call} lost its DCS code");
+        }
+
+        // A channel left on CTCSS still re-derives normally — the guard is not a
+        // blanket freeze on the tone scheme.
+        let tone_mode: Option<String> =
+            sqlx::query_scalar("SELECT tone_mode FROM channels WHERE callsign = 'N0BLD'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(tone_mode.as_deref(), Some("off"));
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// `keeps_dcs` keys on the tone scheme, not on a code being present: a
+    /// leftover `dcs_code` under a CTCSS scheme is inert and must not freeze it.
+    #[test]
+    fn keeps_dcs_only_for_schemes_that_squelch_on_dcs() {
+        assert!(keeps_dcs(Some("DTCS"), "Tone->Tone"));
+        assert!(keeps_dcs(Some("dtcs"), "Tone->Tone"));
+        assert!(keeps_dcs(Some("Cross"), "Tone->DTCS"));
+        assert!(keeps_dcs(Some("Cross"), "DTCS->Tone"));
+        assert!(keeps_dcs(Some("Cross"), "DTCS->DTCS"));
+        assert!(!keeps_dcs(Some("Cross"), "Tone->Tone"));
+        assert!(!keeps_dcs(Some("Tone"), "Tone->Tone"));
+        assert!(!keeps_dcs(Some("TSQL"), "Tone->Tone"));
+        assert!(!keeps_dcs(Some("off"), "Tone->Tone"));
+        assert!(!keeps_dcs(None, "Tone->Tone"));
+    }
+
+    /// Deliberately clearing a tone RepeaterBook reports must be recorded as an
+    /// override, or the next re-import puts the tone straight back (issue #86).
+    ///
+    /// The editor and the importer each had their own idea of "differs": the
+    /// editor counted a change only when BOTH sides had a value, so clearing a
+    /// tone left `ctcss_uplink_overridden = 0` and the merge adopted
+    /// RepeaterBook's 88.5 Hz again — the channel transmits a tone the machine
+    /// does not want, and nothing says so. Both now call
+    /// `util::differs_from_rb_f64`.
+    #[tokio::test]
+    async fn clearing_a_repeaterbook_tone_survives_a_reimport() {
+        let dir = std::env::temp_dir().join(format!("cpm_clear_tone_{}", std::process::id()));
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        // RepeaterBook reports PL 88.5 on a machine that is really carrier-access.
+        let json = r#"{"records":[{
+            "freq_mhz":"146.940","input_freq":"146.340","callsign":"W0CPH",
+            "state":"CO","city":"Colorado Springs","pl_tone":"88.5"
+        }]}"#;
+        let jpath = dir.join("rb.json");
+        std::fs::create_dir_all(&dir).ok();
+        std::fs::write(&jpath, json).expect("write json");
+        let parsed = parse_repeaterbook_json(jpath.to_str().unwrap()).expect("parse");
+        insert_parsed(&pool, &parsed).await.expect("first import");
+
+        let ch = sqlx::query_as::<_, crate::models::Channel>(
+            "SELECT * FROM channels WHERE callsign = 'W0CPH'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("row");
+        assert_eq!(ch.ctcss_uplink, Some(88.5));
+
+        // The operator clears the tone field in the editor and saves.
+        let mut input = channel_input_from(&ch);
+        input.ctcss_uplink = None;
+        input.tone_mode = Some("off".to_string());
+        let saved = crate::commands::channels::update_impl(&pool, ch.id, input)
+            .await
+            .expect("save");
+        assert_eq!(saved.ctcss_uplink, None);
+        assert!(
+            saved.ctcss_uplink_overridden,
+            "clearing a tone RepeaterBook reports is an override"
+        );
+
+        // A fresh export still lists 88.5 — the clear has to hold.
+        insert_parsed(&pool, &parsed).await.expect("re-import");
+        let after: Option<f64> =
+            sqlx::query_scalar("SELECT ctcss_uplink FROM channels WHERE callsign = 'W0CPH'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(after, None, "the re-import brought the cleared tone back");
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// A manually created channel has no RepeaterBook baseline to differ from,
+    /// so editing it must never raise an "overridden" flag.
+    #[tokio::test]
+    async fn a_manual_channel_never_reports_an_override() {
+        let dir = std::env::temp_dir().join(format!("cpm_manual_over_{}", std::process::id()));
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        sqlx::query(
+            "INSERT INTO channels (id, name_long, rx_freq, mode, source) \
+             VALUES (1, 'Simplex', 146.52, 'FM', 'manual')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let ch = sqlx::query_as::<_, crate::models::Channel>("SELECT * FROM channels WHERE id = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        let mut input = channel_input_from(&ch);
+        input.ctcss_uplink = Some(100.0);
+        input.notes = Some("club net".to_string());
+        let saved = crate::commands::channels::update_impl(&pool, 1, input)
+            .await
+            .expect("save");
+        assert!(!saved.ctcss_uplink_overridden);
+        assert!(!saved.notes_overridden);
+        assert!(!saved.has_overrides);
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// What the editor form does: load the row, hand its user-editable fields
+    /// back as the input, with whatever the operator changed.
+    fn channel_input_from(c: &crate::models::Channel) -> crate::models::ChannelInput {
+        crate::models::ChannelInput {
+            name_long: c.name_long.clone(),
+            name_short: c.name_short.clone(),
+            callsign: c.callsign.clone(),
+            rx_freq: c.rx_freq,
+            tx_freq: c.tx_freq,
+            offset: c.offset,
+            duplex: c.duplex.clone(),
+            mode: c.mode.clone(),
+            tone_mode: c.tone_mode.clone(),
+            ctcss_uplink: c.ctcss_uplink,
+            ctcss_downlink: c.ctcss_downlink,
+            dcs_code: c.dcs_code.clone(),
+            dcs_rx_code: c.dcs_rx_code.clone(),
+            dcs_polarity: c.dcs_polarity.clone(),
+            cross_mode: c.cross_mode.clone(),
+            power: c.power.clone(),
+            dmr_color_code: c.dmr_color_code,
+            dmr_timeslot: c.dmr_timeslot,
+            dmr_talkgroup: c.dmr_talkgroup,
+            dstar_capable: c.dstar_capable,
+            dstar_ur_call: c.dstar_ur_call.clone(),
+            dstar_rpt1: c.dstar_rpt1.clone(),
+            dstar_rpt2: c.dstar_rpt2.clone(),
+            ysf_capable: c.ysf_capable,
+            nxdn_capable: c.nxdn_capable,
+            p25_capable: c.p25_capable,
+            p25_nac: c.p25_nac.clone(),
+            m17_capable: c.m17_capable,
+            m17_can: c.m17_can,
+            use_type: c.use_type.clone(),
+            operational_status: c.operational_status.clone(),
+            service_type: c.service_type.clone(),
+            city: c.city.clone(),
+            county: c.county.clone(),
+            state: c.state.clone(),
+            country: c.country.clone(),
+            latitude: c.latitude,
+            longitude: c.longitude,
+            notes: c.notes.clone(),
+            source: Some(c.source.clone()),
+        }
     }
 
     #[test]

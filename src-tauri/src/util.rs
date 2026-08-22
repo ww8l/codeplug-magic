@@ -13,6 +13,17 @@ pub fn derive_band(freq: f64) -> &'static str {
     }
 }
 
+/// Above this separation (MHz) an RX/TX pair is an odd or cross-band SPLIT
+/// rather than a repeater shift.
+///
+/// It has to clear every canonical offset in [`standard_offsets`] — 25 MHz on
+/// 33 cm and 20 MHz on 23 cm are the widest — or those pairs are classified as
+/// splits and the standard offset is never snapped (the two used to disagree:
+/// the threshold was 15 MHz, which made both entries unreachable, #83). The
+/// widest amateur band is 70 cm at 30 MHz, and the narrowest gap between two
+/// bands is 74 MHz (2 m to 1.25 m), so 30 separates them cleanly.
+const SPLIT_THRESHOLD_MHZ: f64 = 30.0;
+
 /// Derive duplex direction and a positive offset (MHz) from RX/TX frequencies.
 /// Returns (duplex, offset) where duplex is one of "+", "-", "none", "split".
 pub fn derive_duplex(rx_freq: f64, tx_freq: Option<f64>) -> (String, f64) {
@@ -22,7 +33,7 @@ pub fn derive_duplex(rx_freq: f64, tx_freq: Option<f64>) -> (String, f64) {
             let diff = tx - rx_freq;
             if diff.abs() < 0.0001 {
                 ("none".to_string(), 0.0)
-            } else if diff.abs() > 15.0 {
+            } else if diff.abs() > SPLIT_THRESHOLD_MHZ {
                 // Unusually large separation -> treat as an odd/cross-band split.
                 ("split".to_string(), diff.abs())
             } else if diff > 0.0 {
@@ -108,6 +119,76 @@ pub fn gen_name_short(callsign: &str) -> String {
     truncate(callsign, 7)
 }
 
+/// Does this stored tone scheme squelch on DCS?
+///
+/// RepeaterBook carries CTCSS only, so a DCS scheme can only be the operator's
+/// own edit — they looked the machine up and it uses DCS. `derive_tone_mode`
+/// can never return one (it only ever produces off/Tone/TSQL/Cross from a CTCSS
+/// pair), so re-deriving it on a re-import would replace DCS with "off" or with
+/// CTCSS and leave `dcs_code` orphaned. Every encoder gates on `tone_mode`, so
+/// the channel would then program with no squelch tone at all and would not key
+/// the repeater (issue #71).
+///
+/// Keyed on the tone scheme rather than on `dcs_code` being present, because a
+/// leftover code under a CTCSS scheme is inert and must not freeze it.
+pub fn keeps_dcs(tone_mode: Option<&str>, cross_mode: &str) -> bool {
+    match tone_mode {
+        Some(m) if m.eq_ignore_ascii_case("DTCS") => true,
+        Some(m) if m.eq_ignore_ascii_case("Cross") => {
+            cross_mode.to_uppercase().contains("DTCS")
+        }
+        _ => false,
+    }
+}
+
+/// Map a RepeaterBook uplink/downlink CTCSS pair to CHIRP's universal tone
+/// scheme (`tone_mode`, `cross_mode`). Shared by the initial parse, the
+/// re-import merge and "Accept RB value" so a merged or reverted tone pair
+/// always re-derives a consistent tone_mode.
+pub fn derive_tone_mode(
+    ctcss_uplink: Option<f64>,
+    ctcss_downlink: Option<f64>,
+) -> (String, String) {
+    let eps = 0.05; // tones are tenths of a Hz; compare with a small epsilon
+    match (ctcss_uplink, ctcss_downlink) {
+        (Some(up), Some(dn)) if (up - dn).abs() < eps => {
+            ("TSQL".to_string(), "Tone->Tone".to_string())
+        }
+        (Some(_), Some(_)) => ("Cross".to_string(), "Tone->Tone".to_string()),
+        (Some(_), None) => ("Tone".to_string(), "Tone->Tone".to_string()),
+        (None, Some(_)) => ("Cross".to_string(), "->Tone".to_string()),
+        (None, None) => ("off".to_string(), "Tone->Tone".to_string()),
+    }
+}
+
+/// Does a stored value differ from the RepeaterBook snapshot it was imported
+/// from — i.e. has the operator overridden it?
+///
+/// **A missing value on either side is a difference.** Clearing a tone
+/// RepeaterBook reported is an override just as much as changing it, and adding
+/// a tone RepeaterBook does not report is too. Getting this wrong is silent:
+/// the flag stays 0, and the next re-import adopts the RepeaterBook value and
+/// undoes the operator's edit (issue #86).
+///
+/// Shared by the editor (which sets the flag) and the importer (which reads it),
+/// so the two can never disagree about what counts as a change.
+pub fn differs_from_rb_f64(value: Option<f64>, rb: Option<f64>) -> bool {
+    match (value, rb) {
+        (Some(x), Some(y)) => (x - y).abs() > f64::EPSILON,
+        (None, None) => false,
+        _ => true,
+    }
+}
+
+/// String twin of [`differs_from_rb_f64`]. A blank string and NULL are both
+/// "no value", so the form's empty field and an absent RepeaterBook note agree.
+pub fn differs_from_rb_str(value: &Option<String>, rb: &Option<String>) -> bool {
+    fn norm(s: &Option<String>) -> Option<&str> {
+        s.as_deref().map(str::trim).filter(|t| !t.is_empty())
+    }
+    norm(value) != norm(rb)
+}
+
 /// Tidy a D-STAR call sign the way it will be stored: trimmed, upper case, and
 /// blank collapsed to None. Kept out of the drivers so the channel library holds
 /// one canonical spelling and every radio packs the same text.
@@ -148,6 +229,43 @@ pub fn pack_dstar_call(text: &str) -> String {
         return t;
     }
     format!("{:<7.7}{}", call, module)
+}
+
+#[cfg(test)]
+mod duplex_tests {
+    use super::*;
+
+    /// Issue #83: the split threshold and [`standard_offsets`] used to
+    /// disagree. At 15 MHz the 25 MHz (33 cm) and 20 MHz (23 cm) entries were
+    /// unreachable — those pairs came out as `split`, which the CHIRP exporter
+    /// then had to write as an absolute TX frequency, and `repair_truncated_tx`
+    /// skipped them entirely because it only handles `+`/`-`.
+    #[test]
+    fn wide_standard_offsets_are_shifts_and_cross_band_pairs_are_splits() {
+        // 33 cm: RX 927.5 / TX 902.5 — a canonical 25 MHz repeater offset.
+        assert_eq!(derive_duplex(927.5, Some(902.5)), ("-".to_string(), 25.0));
+        // 23 cm: a canonical 20 MHz offset.
+        assert_eq!(derive_duplex(1282.0, Some(1262.0)), ("-".to_string(), 20.0));
+        // 70 cm and 2 m shifts are untouched.
+        let (dup, off) = derive_duplex(146.94, Some(146.34));
+        assert_eq!(dup, "-");
+        assert!((off - 0.6).abs() < 1e-9);
+        // Cross-band really is a split; the narrowest gap between two amateur
+        // bands is 2 m to 1.25 m.
+        assert_eq!(derive_duplex(446.0, Some(147.0)).0, "split");
+        assert_eq!(derive_duplex(223.5, Some(147.0)).0, "split");
+
+        // And every canonical offset must now be reachable as a shift.
+        for rx in [29.6, 52.5, 146.94, 223.5, 446.0, 927.5, 1282.0] {
+            for &off in standard_offsets(rx) {
+                assert_eq!(
+                    derive_duplex(rx, Some(rx - off)).0,
+                    "-",
+                    "{off} MHz on {rx} MHz is a standard offset but classifies as a split"
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]
