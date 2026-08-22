@@ -145,6 +145,29 @@ pub(crate) fn apply_settings(body: &mut [u8], settings: &Map<String, Value>) -> 
         if field_end(f) > body.len() {
             continue;
         }
+        // TEXT that already reads as the incoming value is left ALONE rather
+        // than rewritten with the same string. Re-encoding text is not
+        // byte-neutral — this writer NUL-pads to the full width, while an
+        // untouched APRS row is 0xff and a partly-filled one is characters then
+        // 0xff — so a save the operator never made would rewrite the tail of
+        // every string field they never opened. The FT5D learned that by
+        // blanking a call sign; the ID-52 has carried the same short-circuit
+        // since it shipped.
+        //
+        // Deliberately NOT applied to the other kinds, which is where this
+        // differs from the ID-52. `Bool` decodes as `byte != 0`, so a byte
+        // holding 0x5A — or 0xff, which is what an unwritten one holds —
+        // already "decodes as true", and skipping would mean an operator who
+        // deliberately turns that setting ON gets nothing written. The form
+        // sends every value on every save, so this code cannot tell "they set
+        // it" from "they left it": for a flag, writing the canonical 0x01 is
+        // the answer that is never silently wrong. `Uint`, `UintLe`, `Enum` and
+        // `BoolBit` re-encode to the exact stored bytes anyway (an unlabelled
+        // enum code round-trips as its number), so they have nothing to skip.
+        if matches!(f.kind, SK::Text { .. }) && decode_field(body, f) == *v {
+            written += 1;
+            continue;
+        }
         let at = f.byte as usize;
         let ok = match (&f.kind, v) {
             (SK::Bool, Value::Bool(b)) => {
@@ -180,32 +203,20 @@ pub(crate) fn apply_settings(body: &mut [u8], settings: &Map<String, Value>) -> 
             }
             (SK::Text { len }, Value::String(s)) => {
                 let n = *len as usize;
-                // Writing an empty value over a field that ALREADY reads as
-                // empty would change only its padding, which is a change the
-                // operator did not ask for -- the same reason a card radio's
-                // form seeds blank rather than with defaults. Untouched rows
-                // in the APRS grids are 0xff, sometimes 0xff then NUL, so
-                // testing the decoded value rather than the byte pattern is
-                // what actually covers them. Clearing a field that holds real
-                // text still NUL-fills, because it does not read as empty.
-                let already_empty = body[at..at + n]
-                    .iter()
-                    .take_while(|&&b| b != 0 && b != 0xff)
-                    .next()
-                    .is_none();
-                if s.is_empty() && already_empty {
-                    true
-                } else {
-                    // NUL-pad to the FULL field width. Writing only the string
-                    // and leaving the tail alone would splice the previous
-                    // value's ending on to a shorter new one.
-                    let bytes = s.as_bytes();
-                    for i in 0..n {
-                        body[at + i] =
-                            bytes.get(i).copied().filter(|b| b.is_ascii()).unwrap_or(0);
-                    }
-                    true
+                // An empty value over a field that already reads as empty is
+                // handled by the decode check above — it would change only the
+                // padding, which is a change the operator did not ask for.
+                // Clearing a field that holds real text still NUL-fills, since
+                // that does not read as empty.
+                //
+                // NUL-pad to the FULL field width: writing only the string and
+                // leaving the tail alone would splice the previous value's
+                // ending on to a shorter new one.
+                let bytes = s.as_bytes();
+                for i in 0..n {
+                    body[at + i] = bytes.get(i).copied().filter(|b| b.is_ascii()).unwrap_or(0);
                 }
+                true
             }
             _ => false,
         };
@@ -613,31 +624,25 @@ mod tests {
         })
     }
 
-    /// ⚠ FINDING, not a property worth keeping: on this radio a save the
-    /// operator did not make is NOT always inert. Two concrete cases, both
-    /// reproduced here:
+    /// A save the operator did not make must not rewrite the padding of text
+    /// they never opened — and must still write a flag they DID set.
     ///
-    ///   * a `Bool` byte holding anything but 0 or 1 decodes as `true` and is
-    ///     rewritten as 0x01;
-    ///   * a `Text` field holding real characters followed by an `0xff` tail
-    ///     decodes with the tail cut off and is rewritten NUL-padded to the full
-    ///     width. The driver's own decoder comment says untouched APRS rows are
-    ///     "0xff, sometimes 0xff then NUL", so a partly-filled row is the
-    ///     natural in-between — and `already_empty` only covers the fully-empty
-    ///     case.
+    /// Both halves are one decision. `apply_settings` skips a `Text` field
+    /// whose stored bytes already decode to the incoming string, because
+    /// re-encoding text is not byte-neutral: this writer NUL-pads to the full
+    /// width, while an untouched APRS row is 0xff and a partly-filled one is
+    /// characters followed by 0xff. That was half of the finding this test
+    /// replaces (`a_no_op_save_still_rewrites_two_kinds_of_non_canonical_byte`).
     ///
-    /// The ID-52 does not have this: its `apply_settings` skips any field whose
-    /// stored bytes already decode to the incoming value, so the operator's own
-    /// encoding survives. Adding the same short-circuit here would fix both
-    /// cases at once.
-    ///
-    /// Whether a real `.d75` ever holds either byte pattern is a question only a
-    /// capture answers, which is why this pins the behaviour rather than
-    /// asserting the fix. **If you are reading this because you added the
-    /// short-circuit: delete this test** and assert the ID-52's property
-    /// instead (`a_no_op_save_leaves_non_canonical_bytes_alone`).
+    /// The other half — a `Bool` byte holding something other than 0 or 1 being
+    /// normalised to 0x01 — is left as it was, ON PURPOSE. `Bool` decodes as
+    /// `byte != 0`, so 0x5A and 0xff both already "decode as true"; skipping
+    /// would mean an operator deliberately switching that setting on gets
+    /// nothing written at all, since the form sends every value on every save
+    /// and this code cannot tell the two apart. A normalised flag byte costs
+    /// one byte on a no-op save. The alternative costs a setting.
     #[test]
-    fn a_no_op_save_still_rewrites_two_kinds_of_non_canonical_byte() {
+    fn a_no_op_save_leaves_text_padding_alone_but_still_writes_a_flag() {
         let mut body = normalised_body();
 
         let text = THD75_SETTINGS_FIELDS
@@ -648,9 +653,10 @@ mod tests {
             unreachable!()
         };
         let at = text.byte as usize;
+        let len = len as usize;
         body[at] = b'W';
         body[at + 1] = b'8';
-        for b in body[at + 2..at + len as usize].iter_mut() {
+        for b in body[at + 2..at + len].iter_mut() {
             *b = 0xff;
         }
 
@@ -660,30 +666,38 @@ mod tests {
             .expect("a bool field");
         body[flag.byte as usize] = 0x5A;
 
+        // The fixture holds what it claims to, or the assertions below pass for
+        // the wrong reason.
+        assert_eq!(decode_field(&body, text), Value::String("W8".into()));
+        assert_eq!(decode_field(&body, flag), Value::Bool(true));
+
         let before = body.clone();
         let decoded = decode_settings(&body);
-        apply_settings(&mut body, &decoded.as_object().expect("an object").clone());
+        let settings = decoded.as_object().expect("an object").clone();
+        let applied = apply_settings(&mut body, &settings);
+        assert_eq!(applied, settings.len(), "every field should be accepted back");
 
         assert_eq!(
-            body[flag.byte as usize], 0x01,
-            "{}: a non-0/1 flag byte is normalised on a save nobody asked for",
-            flag.key
-        );
-        assert!(
-            body[at + 2..at + len as usize].iter().all(|&b| b == 0),
-            "{}: the 0xff tail is NUL-filled on a save nobody asked for",
+            &body[at..at + len],
+            &before[at..at + len],
+            "{}: the 0xff tail must survive a save nobody asked for",
             text.key
         );
+        assert_eq!(
+            body[flag.byte as usize], 0x01,
+            "{}: a flag is written canonically, so setting it always lands",
+            flag.key
+        );
 
-        // And nothing ELSE moves — the two cases above are the whole of it, so
-        // a third one appearing is a regression this test will catch.
+        // …and that flag byte is the ONLY thing that moves. A third case
+        // appearing is a regression this catches.
         let moved: Vec<usize> = (0..before.len())
-            .filter(|&i| before[i] != body[i])
-            .filter(|&i| i != flag.byte as usize && !(at..at + len as usize).contains(&i))
+            .filter(|&i| before[i] != body[i] && i != flag.byte as usize)
             .collect();
         assert!(
             moved.is_empty(),
-            "a third non-inert case appeared, first at {:#06x} — {}",
+            "{} unexpected byte(s) changed, first at {:#06x} — {}",
+            moved.len(),
             moved[0],
             THD75_SETTINGS_FIELDS
                 .iter()
