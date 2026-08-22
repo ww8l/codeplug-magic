@@ -730,6 +730,10 @@ export interface ImportPreviewRow {
   tone_mode: string;
   ctcss_uplink: number | null;
   ctcss_downlink: number | null;
+  /// TX/RX DCS codes, 3-digit octal. Only the free-tier CSV supplies these;
+  /// the premium "Full Data" JSON has no DCS field.
+  dcs_code: string | null;
+  dcs_rx_code: string | null;
   dmr_color_code: number | null;
   dstar_capable: boolean;
   ysf_capable: boolean;
@@ -751,10 +755,13 @@ export interface ImportPreviewRow {
   latitude: number | null;
   longitude: number | null;
   notes: string | null;
-  ares: boolean;
-  races: boolean;
-  skywarn: boolean;
-  canwarn: boolean;
+  /// null means "this export has no such column", which is not the same as
+  /// false — the free-tier CSV carries none of the four, and a re-import
+  /// leaves whatever a premium import already established.
+  ares: boolean | null;
+  races: boolean | null;
+  skywarn: boolean | null;
+  canwarn: boolean | null;
 }
 
 export interface ImportPreview {
