@@ -358,3 +358,146 @@ mod tests {
         assert!(checked >= 76, "expected the 38 captured slots, saw {checked} lines");
     }
 }
+
+/// The radio's whole menu, as the single `MU` line carries it.
+///
+/// 42 comma-separated parameters, measured on the radio — the count and the
+/// order both. `p1` is Menu 000 KEY BEEP and `p26` is Menu 501 BRIGHTNESS, each
+/// pinned by changing that one control and watching that one field move.
+///
+/// Fields are kept as **text**, never as numbers, for the same reason memories
+/// are: `p29`–`p34` (the PF key assignments) are two-digit **hex**, and the
+/// widths are part of the line. A field re-emitted as `8` where the radio said
+/// `08` is a different line.
+///
+/// ⚠ `MU` is **not** exhaustive. p28 is Menu 503 and p29 is Menu 507, so Menus
+/// 504 CONTRAST, 505 DISPLAY REVERSE and 506 have no parameter here at all.
+/// A menu missing from this line cannot be read or written through it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Menu {
+    fields: Vec<String>,
+}
+
+/// Measured on the radio: the `MU` line carries exactly this many parameters.
+pub(crate) const MENU_FIELDS: usize = 42;
+
+impl Menu {
+    pub(crate) fn parse(line: &str) -> Result<Self, String> {
+        let body = line
+            .strip_prefix("MU ")
+            .ok_or_else(|| format!("not an MU reply: {line:?}"))?;
+        let fields: Vec<String> = body.split(',').map(str::to_string).collect();
+        if fields.len() != MENU_FIELDS {
+            return Err(format!(
+                "expected {MENU_FIELDS} menu fields, got {} — this is a different model or a \
+                 different firmware, and guessing which fields moved is how a wrong value gets \
+                 written to a real radio",
+                fields.len()
+            ));
+        }
+        Ok(Menu { fields })
+    }
+
+    pub(crate) fn to_line(&self) -> String {
+        format!("MU {}", self.fields.join(","))
+    }
+
+    /// One parameter, 1-based to match `p1`…`p42` as everything documenting
+    /// this radio numbers them.
+    pub(crate) fn field(&self, p: usize) -> Result<&str, String> {
+        self.fields
+            .get(p.wrapping_sub(1))
+            .map(String::as_str)
+            .ok_or_else(|| format!("p{p} is outside the {MENU_FIELDS} menu fields"))
+    }
+
+    /// A copy with one parameter changed, **padded to the width the radio
+    /// used**.
+    ///
+    /// The padding is the point. Writing `8` where the radio said `08` sends a
+    /// line whose fields no longer line up, and this command sets all 42 at
+    /// once — so one badly formatted field is not one wrong setting, it is
+    /// potentially forty-two.
+    pub(crate) fn with_field(&self, p: usize, value: &str) -> Result<Self, String> {
+        let current = self.field(p)?;
+        if value.len() > current.len() {
+            return Err(format!(
+                "p{p} is {} characters on this radio ({current:?}); {value:?} is wider and would \
+                 shift every field after it",
+                current.len()
+            ));
+        }
+        let mut fields = self.fields.clone();
+        fields[p - 1] = format!("{value:0>width$}", width = current.len());
+        Ok(Menu { fields })
+    }
+
+    /// Which parameters differ, as `(p, mine, theirs)`. The basis of every
+    /// measurement pass: change one control, diff, and exactly one row should
+    /// come back.
+    pub(crate) fn diff(&self, other: &Menu) -> Vec<(usize, String, String)> {
+        self.fields
+            .iter()
+            .zip(&other.fields)
+            .enumerate()
+            .filter(|(_, (a, b))| a != b)
+            .map(|(i, (a, b))| (i + 1, a.clone(), b.clone()))
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod menu_tests {
+    use super::*;
+
+    /// The real line off Tim's radio, before anything was changed.
+    const REAL_MU: &str = "MU 0,4,0,1,0,4,1,0,10,0,0,0,0,0,0,2,0,0,0,0,2,0,1,0,0,8,0,0,00,02,14,15,0C,0E,0,1,0,1,0,4,1,1";
+
+    #[test]
+    fn the_real_menu_line_re_emits_identically() {
+        let m = Menu::parse(REAL_MU).unwrap();
+        assert_eq!(m.to_line(), REAL_MU);
+        assert_eq!(m.field(1).unwrap(), "0"); // Menu 000 KEY BEEP, off
+        assert_eq!(m.field(26).unwrap(), "8"); // Menu 501 BRIGHTNESS, level 8
+        assert_eq!(m.field(33).unwrap(), "0C"); // a PF key, in hex
+    }
+
+    /// ★ The measured pair. Turning KEY BEEP on moved p1 and nothing else;
+    /// setting BRIGHTNESS to LEVEL 3 moved p26 and nothing else.
+    #[test]
+    fn the_two_measured_changes_move_exactly_one_field_each() {
+        let before = Menu::parse(REAL_MU).unwrap();
+        let beep_on = Menu::parse("MU 1,4,0,1,0,4,1,0,10,0,0,0,0,0,0,2,0,0,0,0,2,0,1,0,0,8,0,0,00,02,14,15,0C,0E,0,1,0,1,0,4,1,1").unwrap();
+        assert_eq!(before.diff(&beep_on), vec![(1, "0".into(), "1".into())]);
+
+        let bright3 = Menu::parse("MU 1,4,0,1,0,4,1,0,10,0,0,0,0,0,0,2,0,0,0,0,2,0,1,0,0,3,0,0,00,02,14,15,0C,0E,0,1,0,1,0,4,1,1").unwrap();
+        assert_eq!(beep_on.diff(&bright3), vec![(26, "8".into(), "3".into())]);
+    }
+
+    /// Setting a field keeps the radio's width — `08`, not `8`.
+    #[test]
+    fn a_changed_field_keeps_the_radios_width() {
+        let m = Menu::parse(REAL_MU).unwrap();
+        let changed = m.with_field(33, "1").unwrap();
+        assert_eq!(changed.field(33).unwrap(), "01");
+        assert_eq!(m.diff(&changed), vec![(33, "0C".into(), "01".into())]);
+    }
+
+    /// A value too wide for its field would shift everything after it, turning
+    /// one intended change into forty-two unintended ones. Refused.
+    #[test]
+    fn a_too_wide_value_is_refused_rather_than_shifting_the_line() {
+        let m = Menu::parse(REAL_MU).unwrap();
+        let err = m.with_field(1, "12").unwrap_err();
+        assert!(err.contains("shift every field"), "{err}");
+        assert!(m.with_field(99, "1").is_err());
+    }
+
+    /// A line with the wrong field count is a different radio, and is refused
+    /// rather than parsed into whatever lines up.
+    #[test]
+    fn a_wrong_field_count_is_refused() {
+        let err = Menu::parse("MU 0,4,0").unwrap_err();
+        assert!(err.contains("42 menu fields"), "{err}");
+    }
+}

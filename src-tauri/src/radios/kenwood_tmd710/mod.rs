@@ -131,6 +131,76 @@ pub(crate) fn ask_settling(p: &mut dyn SerialPort, cmd: &str) -> Result<String, 
     }
 }
 
+/// Write one memory, then **prove it landed** by reading the slot back and
+/// comparing the whole line.
+///
+/// The read-back is not belt-and-braces, it is the only evidence there is.
+/// This radio has no checksum and no commit step: a malformed line draws `?`,
+/// but a *well-formed* line the radio chooses to interpret differently draws
+/// nothing at all. On the D890UV a settings field turned out to be owned by the
+/// firmware and silently reverted after a write — read-back is what makes that
+/// visible instead of a lie in the report.
+// ⚠ Reachable only from the measurement harness until a capability trait calls
+// it — see the same note in `memory.rs`. The write path is deliberately proven
+// by the campaign that uses it before it is offered to an operator.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn write_memory(p: &mut dyn SerialPort, m: &memory::Memory) -> Result<(), String> {
+    let intended = m.to_line();
+    ask(p, &intended)?;
+    let after = ask(p, &format!("ME {:03}", m.slot))?;
+    if after != intended {
+        return Err(format!(
+            "memory {:03} did not take the write.\n  sent: {intended}\n  read: {after}",
+            m.slot
+        ));
+    }
+    Ok(())
+}
+
+/// Write a memory's name, and read it back for the same reason.
+// ⚠ Reachable only from the measurement harness until a capability trait calls
+// it — see the same note in `memory.rs`. The write path is deliberately proven
+// by the campaign that uses it before it is offered to an operator.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn write_name(p: &mut dyn SerialPort, n: &memory::MemoryName) -> Result<(), String> {
+    let intended = n.to_line();
+    ask(p, &intended)?;
+    let after = ask(p, &format!("MN {:03}", n.slot))?;
+    if after != intended {
+        return Err(format!(
+            "name for {:03} did not take.\n  sent: {intended}\n  read: {after}",
+            n.slot
+        ));
+    }
+    Ok(())
+}
+
+/// Write the whole menu line and report **which parameters did not take**.
+///
+/// ⚠ `MU` sets all 42 at once. There is no way to write one menu item alone, so
+/// every write here is a write of everything — which is exactly why
+/// [`memory::Menu::with_field`] refuses a value too wide for its field, and why
+/// a caller should build from a line just read off the radio rather than from a
+/// remembered one.
+///
+/// Returns the parameters that differ after the write, as `(p, wanted, got)`.
+/// **Empty means clean.** A non-empty result is not necessarily an error — a
+/// field the firmware owns can revert on its own, and that is a finding worth
+/// seeing rather than an exception worth throwing.
+// ⚠ Reachable only from the measurement harness until a capability trait calls
+// it — see the same note in `memory.rs`. The write path is deliberately proven
+// by the campaign that uses it before it is offered to an operator.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn write_menu(
+    p: &mut dyn SerialPort,
+    menu: &memory::Menu,
+) -> Result<Vec<(usize, String, String)>, String> {
+    let intended = menu.to_line();
+    ask(p, &intended)?;
+    let after = memory::Menu::parse(&ask(p, "MU")?)?;
+    Ok(menu.diff(&after))
+}
+
 pub(crate) struct KenwoodTmD710;
 
 pub(crate) static DRIVER: KenwoodTmD710 = KenwoodTmD710;
@@ -199,6 +269,11 @@ mod tests {
     /// capture proved it answers.
     struct FakeD710 {
         model: &'static str,
+        /// Slots the fake is holding, so a write can be read back.
+        slots: std::collections::BTreeMap<u16, String>,
+        /// Accept the write but keep the old value — the "firmware owns this
+        /// field" behaviour seen on another radio in this project.
+        stubborn: bool,
         /// Answer the first command with `?` regardless — the settling
         /// behaviour measured during the rate sweep.
         garbled_first: bool,
@@ -209,6 +284,8 @@ mod tests {
         fn new() -> Self {
             Self {
                 model: "TM-D710",
+                slots: std::collections::BTreeMap::new(),
+                stubborn: false,
                 garbled_first: false,
                 seen: Vec::new(),
             }
@@ -229,8 +306,25 @@ mod tests {
                 format!("ID {}", self.model)
             } else if cmd == "ME 999" {
                 memory::EMPTY_REPLY.to_string()
-            } else if cmd == "ME 000" {
-                "ME 000,0447275000,0,2,0,0,1,0,12,12,000,05000000,0,0000000000,0,0".to_string()
+            } else if let Some(rest) = cmd.strip_prefix("ME ") {
+                if rest.contains(',') {
+                    // A write: keep it (unless stubborn) and echo it back.
+                    let slot: u16 = rest[..3].parse().unwrap();
+                    if !self.stubborn {
+                        self.slots.insert(slot, cmd.clone());
+                    }
+                    cmd.clone()
+                } else {
+                    let slot: u16 = rest.parse().unwrap_or(999);
+                    self.slots.get(&slot).cloned().unwrap_or_else(|| {
+                        if slot == 0 {
+                            "ME 000,0447275000,0,2,0,0,1,0,12,12,000,05000000,0,0000000000,0,0"
+                                .to_string()
+                        } else {
+                            memory::EMPTY_REPLY.to_string()
+                        }
+                    })
+                }
             } else {
                 "?".to_string()
             };
@@ -288,5 +382,35 @@ mod tests {
         // identify() itself needs a real port; the refusal it applies to this
         // reply is the branch under test, so exercise the same condition.
         assert!(reply.strip_prefix("ID ").unwrap() == "TM-D710G");
+    }
+
+    /// A write is only believed after the radio says it back. This is the
+    /// happy path: write an empty slot, read it, get the same line.
+    #[test]
+    fn a_memory_write_is_verified_by_reading_it_back() {
+        let mut p = FakePort::new(FakeD710::new());
+        let m = memory::Memory::parse(
+            "ME 500,0146520000,0,0,0,0,0,0,00,00,000,00000000,0,0000000000,0,0",
+        )
+        .unwrap();
+        write_memory(&mut p, &m).unwrap();
+        assert_eq!(ask(&mut p, "ME 500").unwrap(), m.to_line());
+    }
+
+    /// ★ The failure this exists to catch: the radio accepts the command and
+    /// keeps its own value. Nothing errors on the wire, so without the
+    /// read-back the report would claim a write that never happened.
+    #[test]
+    fn a_write_the_radio_quietly_ignores_is_reported_not_believed() {
+        let mut radio = FakeD710::new();
+        radio.stubborn = true;
+        let mut p = FakePort::new(radio);
+        let m = memory::Memory::parse(
+            "ME 500,0146520000,0,0,0,0,0,0,00,00,000,00000000,0,0000000000,0,0",
+        )
+        .unwrap();
+        let err = write_memory(&mut p, &m).unwrap_err();
+        assert!(err.contains("did not take"), "{err}");
+        assert!(err.contains("sent:") && err.contains("read:"), "{err}");
     }
 }

@@ -281,3 +281,154 @@ fn d710_dump_memories() {
 
     std::fs::write("../scratchpad/kenwood_tmd710/memories.txt", &log).expect("write");
 }
+
+// ⚠ Everything below WRITES to the radio. Above this line nothing does.
+// The safety net is that `memories.txt` and `mu-log.txt` hold the radio's
+// entire state as it was found, so `d710_restore` can put any of it back.
+
+/// **Hardware ladder step 1 — identity write.** Read a memory, write the
+/// identical line back, read it again, and require that nothing moved.
+///
+/// Proves the write path with nothing at risk: the radio ends holding exactly
+/// what it already held. It does **not** prove there is no checksum — an
+/// identical line carries any digest along unchanged — but on an ASCII protocol
+/// with no commit step there is nothing for a checksum to live in. Step 2 is
+/// the real test.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_identity_write() {
+    use crate::radios::kenwood_tmd710::{memory::Memory, write_memory};
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+
+    let slot: u16 = std::env::var("D710_SLOT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let before = ask(&mut *p, &format!("ME {slot:03}")).expect("read").0;
+    println!("\nbefore: {before}");
+    let m = Memory::parse(&before).expect("parse");
+
+    write_memory(&mut *p, &m).expect("identity write");
+    let after = ask(&mut *p, &format!("ME {slot:03}")).expect("re-read").0;
+    println!("after:  {after}\n");
+    assert_eq!(after, before, "an identity write changed the slot");
+    println!("--- identity write clean on slot {slot:03}\n");
+}
+
+/// **Ladder step 2, and the measurement instrument.** Write one memory built
+/// from `D710_LINE`, verified by read-back.
+///
+/// Used to put a known tone index into an empty slot so the operator can read
+/// the tone off the radio's own screen — the half no cable can answer.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_write_memory() {
+    use crate::radios::kenwood_tmd710::{memory::Memory, write_memory, write_name};
+    let line = std::env::var("D710_LINE").expect("set D710_LINE to a full ME line");
+    let m = Memory::parse(&line).expect("D710_LINE does not parse");
+
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+
+    let was = ask(&mut *p, &format!("ME {:03}", m.slot)).expect("read").0;
+    println!("\nslot {:03} was: {was}", m.slot);
+    write_memory(&mut *p, &m).expect("write");
+    println!("slot {:03} now: {}", m.slot, m.to_line());
+
+    if let Ok(name) = std::env::var("D710_NAME") {
+        let n = crate::radios::kenwood_tmd710::memory::MemoryName {
+            slot: m.slot,
+            text: name,
+        };
+        write_name(&mut *p, &n).expect("name");
+        println!("name: {}", n.to_line());
+    }
+    println!();
+}
+
+/// Change **one** menu parameter and prove only that one moved.
+///
+/// `D710_P` is 1-based (`p1`…`p42`), `D710_VALUE` the new value. The line is
+/// built from a `MU` read taken moments earlier, never from a remembered one:
+/// this command writes all 42 at once.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_set_menu() {
+    use crate::radios::kenwood_tmd710::{memory::Menu, write_menu};
+    let field: usize = std::env::var("D710_P")
+        .expect("set D710_P to the 1-based menu parameter")
+        .parse()
+        .expect("D710_P");
+    let value = std::env::var("D710_VALUE").expect("set D710_VALUE");
+
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+
+    let before = Menu::parse(&ask(&mut *p, "MU").expect("MU").0).expect("parse");
+    let wanted = before.with_field(field, &value).expect("with_field");
+    println!("\np{field}: {:?} -> {:?}", before.field(field).unwrap(), value);
+
+    let failed = write_menu(&mut *p, &wanted).expect("write");
+    let after = Menu::parse(&ask(&mut *p, "MU").expect("MU").0).expect("parse");
+    let moved = before.diff(&after);
+
+    println!("moved: {moved:?}");
+    if !failed.is_empty() {
+        println!("⚠ did not take: {failed:?}");
+    }
+    assert_eq!(
+        moved.len(),
+        1,
+        "expected exactly one field to move; a second means the line shifted"
+    );
+    assert_eq!(moved[0].0, field, "the wrong field moved");
+    println!();
+}
+
+/// Put the radio back exactly as it was found, from the captured transcript.
+///
+/// The reason writing to Tim's radio is a reasonable thing to do at all.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_restore() {
+    use crate::radios::kenwood_tmd710::{
+        memory::{Memory, MemoryName, Menu},
+        write_memory, write_menu, write_name,
+    };
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+
+    let text = std::fs::read_to_string("../scratchpad/kenwood_tmd710/memories.txt")
+        .expect("no captured memories to restore from");
+    let mut restored = 0;
+    for line in text.lines().filter(|l| !l.starts_with('#')) {
+        if line.starts_with("ME ") {
+            write_memory(&mut *p, &Memory::parse(line).expect("parse")).expect("write");
+            restored += 1;
+        } else if line.starts_with("MN ") {
+            write_name(&mut *p, &MemoryName::parse(line).expect("parse")).expect("write");
+        }
+    }
+
+    // The menu line as first read, before anything in this campaign touched it.
+    let log = std::fs::read_to_string("../scratchpad/kenwood_tmd710/mu-log.txt").expect("mu log");
+    let first = log
+        .lines()
+        .find(|l| l.starts_with("noise-floor-1\t"))
+        .and_then(|l| l.split_once('\t'))
+        .map(|(_, line)| line)
+        .expect("no noise-floor-1 row to restore the menu from");
+    let failed = write_menu(&mut *p, &Menu::parse(first).expect("parse")).expect("write");
+
+    println!("\n--- restored {restored} memories and the menu line");
+    if failed.is_empty() {
+        println!("--- menu clean\n");
+    } else {
+        println!("⚠ menu fields that did not take: {failed:?}\n");
+    }
+}
