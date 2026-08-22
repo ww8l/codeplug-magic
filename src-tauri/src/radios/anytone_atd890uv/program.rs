@@ -800,9 +800,11 @@ fn scan_count_in(windows: &std::collections::BTreeMap<u32, Vec<u8>>) -> usize {
         .iter()
         .flat_map(|(addr, data)| {
             let first = ((addr - SCAN_LIST_BASE) as usize) / SCAN_LIST_STEP as usize;
-            data.chunks_exact(SCAN_LIST_STEP as usize)
+            data.as_chunks::<{ SCAN_LIST_STEP as usize }>()
+                .0
+                .iter()
                 .enumerate()
-                .filter(|(_, rec)| !is_empty_record(rec))
+                .filter(|(_, rec)| !is_empty_record(*rec))
                 .map(move |(i, _)| first + i + 1)
                 .collect::<Vec<_>>()
         })

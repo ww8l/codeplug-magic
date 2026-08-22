@@ -508,7 +508,7 @@ mod tests {
         assert_eq!(rec.len(), 6 + field_bytes, "record length is exactly the parsed content");
         assert_eq!(&rec[rec.len() - 2..], &[0x00, 0x00], "comment terminator, no pad");
         // Six fields' worth of NUL terminators (0x0000) are present.
-        let seps = rec[6..].chunks_exact(2).filter(|c| c == &[0x00, 0x00]).count();
+        let seps = rec[6..].as_chunks::<2>().0.iter().filter(|c| **c == [0x00, 0x00]).count();
         assert_eq!(seps, 6);
     }
 

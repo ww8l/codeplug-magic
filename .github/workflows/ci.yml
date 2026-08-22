@@ -29,6 +29,12 @@ concurrency:
 jobs:
   build-and-test:
     name: ${{ matrix.platform }}
+    # Dependabot's PRs don't run this. The first batch it opened was 8 PRs on
+    # one day, and at 2 platforms each (Windows bills 2x) that came to roughly
+    # 280 of the month's 2,000 quota-minutes for dependency bumps nobody had
+    # asked for yet. A bump that breaks the build is caught by the release PR
+    # that actually carries it, so the matrix runs there instead.
+    if: github.actor != 'dependabot[bot]'
     runs-on: ${{ matrix.platform }}
     strategy:
       fail-fast: false

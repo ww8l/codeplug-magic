@@ -1215,7 +1215,9 @@ pub(crate) fn decode_name(rec: &[u8]) -> String {
 /// code units, stopping at the first NUL/0xFFFF terminator. Used for both channel
 /// names (at an offset) and zone names (a standalone region).
 pub(crate) fn decode_utf16_name(data: &[u8], chars: usize) -> String {
-    data.chunks_exact(2)
+    data.as_chunks::<2>()
+        .0
+        .iter()
         .take(chars)
         .map(|p| u16::from_le_bytes([p[0], p[1]]))
         .take_while(|&c| c != 0 && c != 0xFFFF)
@@ -1425,7 +1427,9 @@ pub(crate) fn decode_zone(
     index: usize,
 ) -> AnytoneDecodedZone {
     let member_slots: Vec<u16> = data
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|p| u16::from_le_bytes([p[0], p[1]]))
         .take_while(|&idx| idx != 0xFFFF)
         .collect();
@@ -2964,7 +2968,9 @@ mod tests {
         assert_eq!(u16::from_le_bytes([def[0x0C], def[0x0D]]), 31); // dwell
         assert_eq!(decode_utf16_name(&def[SCAN_NAME..], SCAN_NAME_CHARS), "NOCO SCAN");
         let members: Vec<u16> = def[SCAN_MEMBERS..SCAN_MEMBERS + SCAN_MEMBER_SLOTS * 2]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|p| u16::from_le_bytes([p[0], p[1]]))
             .collect();
         assert_eq!(&members[..3], &[0, 118, 0x0120]);
@@ -3114,7 +3120,9 @@ mod tests {
         assert_eq!(rec, expect);
         // Decodes back to the same 20 entries.
         let decoded: Vec<u16> = rec
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|p| u16::from_le_bytes([p[0], p[1]]))
             .take_while(|&x| x != 0xFFFF)
             .collect();

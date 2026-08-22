@@ -1,7 +1,9 @@
 # Dependabot keeps npm and cargo dependency alerts flowing without spending any
 # Actions minutes — the update PRs are opened by GitHub, not by a workflow run.
-# CI is pull_request-triggered, so each PR Dependabot opens DOES cost a CI run;
-# monthly batching plus an open-PR cap keeps that bounded.
+# CI is pull_request-triggered, so these PRs would each cost a full matrix run;
+# ci.yml therefore skips anything authored by dependabot[bot]. The caps below
+# still matter: they bound how many PRs are open at once, and all three
+# ecosystems fill their cap on the first run after this file lands.
 version: 2
 updates:
   - package-ecosystem: npm
