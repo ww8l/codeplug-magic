@@ -551,10 +551,11 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../scratchpad/id52/auto23.icf"
         );
-        let Ok(text) = std::fs::read_to_string(path) else {
-            eprintln!("skipped: no capture at {path}");
-            return;
-        };
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            panic!("this test needs the capture at {path} ({e}). It is #[ignore]d because \
+                    scratchpad/ is gitignored — running it without the file must FAIL, not \
+                    quietly pass having asserted nothing. (#89)")
+        });
         let icf = super::super::icf::IcfFile::parse(&text).expect("a real ID-52 file parses");
         let got = decode_settings(icf.image());
         let got = got.as_object().expect("decode returns an object");
@@ -649,6 +650,181 @@ mod tests {
         );
     }
 
+    // ============================================================
+    // Synthetic no-op guards (#88) — no capture needed, so these run in CI
+    // ============================================================
+
+    /// An image filled with a pattern that has no long `0x00`/`0xff` runs, so a
+    /// field that writes outside its declared extent cannot hide a stray 0 or
+    /// 0xff in the spare bytes the way it would on a real `.icf`.
+    fn patterned_image() -> Vec<u8> {
+        let len = ID52_SETTINGS_FIELDS
+            .iter()
+            .map(field_end)
+            .max()
+            .expect("the table is not empty")
+            + 64;
+        (0..len).map(|i| (i.wrapping_mul(31) ^ 0xA5) as u8).collect()
+    }
+
+    /// A deterministic, in-range value for one field, and what decoding it back
+    /// must give. They differ for an option list that maps two labels to the
+    /// same raw value: `label_for` hands back the FIRST of them.
+    fn probe_value(image: &[u8], f: &SF, n: usize) -> Option<(Value, Value)> {
+        Some(match &f.kind {
+            SK::Bool | SK::BoolBit { .. } => {
+                let cur = decode_field(image, f).as_bool().unwrap_or(false);
+                let v = Value::Bool(!cur);
+                (v.clone(), v)
+            }
+            SK::Uint { width } => {
+                let max = (1u64 << (8 * *width as u64)) - 1;
+                let v = Value::from((n as u64).wrapping_mul(2_654_435_761) % (max + 1));
+                (v.clone(), v)
+            }
+            SK::Int { width } => {
+                // Two's complement range for this width, exercising both signs.
+                let bits = 8 * *width as u32;
+                let span = 1i64 << (bits - 1);
+                let v = Value::from((n as i64).wrapping_mul(97) % span - span / 2);
+                (v.clone(), v)
+            }
+            SK::Enum { labels, .. } => {
+                if labels.is_empty() {
+                    return None;
+                }
+                let (raw, label) = labels[n % labels.len()];
+                (Value::from(label), label_for(labels, raw))
+            }
+            SK::IntEnum { labels, .. } => {
+                if labels.is_empty() {
+                    return None;
+                }
+                let (raw, label) = labels[n % labels.len()];
+                let first = labels
+                    .iter()
+                    .find(|(v, _)| *v == raw)
+                    .map(|(_, l)| *l)
+                    .unwrap_or(label);
+                (Value::from(label), Value::from(first))
+            }
+            SK::Text { len } => {
+                if *len == 0 {
+                    return None;
+                }
+                let take = (*len as usize).min(5);
+                let s: String = (0..take)
+                    .map(|i| (b'A' + ((n + i) % 26) as u8) as char)
+                    .collect();
+                let v = Value::from(s);
+                (v.clone(), v)
+            }
+        })
+    }
+
+    /// Every field must encode as the exact inverse of its decode, and must
+    /// write NOTHING outside the extent `field_end` declares for it.
+    ///
+    /// The extent half is the one a read-back test cannot see: get a width or
+    /// an address wrong and the writer clobbers the setting living next door,
+    /// while every assertion about the bytes it got right still passes.
+    ///
+    /// The probe value is always chosen to DIFFER from what the patterned image
+    /// holds, which is what gets past `apply_settings`' "already matches, leave
+    /// it alone" short-circuit — see the note on the no-op test below.
+    ///
+    /// ⚠ Does NOT prove these encodings match what the RADIO writes; only a real
+    /// capture can, which is what the `#[ignore]`d test below is for.
+    #[test]
+    fn every_field_round_trips_and_stays_inside_its_own_extent() {
+        let mut image = patterned_image();
+        let mut exercised = 0;
+
+        for (n, f) in ID52_SETTINGS_FIELDS.iter().enumerate() {
+            let Some((apply, expect)) = probe_value(&image, f, n) else {
+                continue;
+            };
+            let before = image.clone();
+
+            let mut one = Map::new();
+            one.insert(f.key.to_string(), apply.clone());
+            let written = apply_settings(&mut image, &one);
+            assert_eq!(written, 1, "{} was not accepted (sent {apply})", f.key);
+
+            let got = decode_field(&image, f);
+            assert_eq!(got, expect, "{} did not survive a round trip", f.key);
+
+            let (lo, hi) = (f.byte as usize, field_end(f));
+            for (i, (a, b)) in before.iter().zip(&image).enumerate() {
+                assert!(
+                    a == b || (lo..hi).contains(&i),
+                    "{} claims bytes {lo:#06x}..{hi:#06x} but writing it changed \
+                     {i:#06x} ({a:#04x} -> {b:#04x})",
+                    f.key
+                );
+            }
+            exercised += 1;
+        }
+
+        assert!(exercised > 150, "only {exercised} fields exercised");
+    }
+
+    /// Saving a profile nobody edited must move zero bytes — even when the
+    /// stored bytes are ones this encoder would never have written.
+    ///
+    /// The patterned image is full of them: a `Bool` byte holding 0x5A (decodes
+    /// true, and the canonical encoding of true is 0x01), and enum raw values
+    /// with no label (which decode to a bare number string). Re-encoding either
+    /// one changes bytes on a save the operator did not ask for — the FT5D
+    /// regression that sent a real radio back to its first-boot call-sign
+    /// prompt was this exact shape.
+    ///
+    /// What holds the property here is `apply_settings`' "already matches, leave
+    /// it alone" short-circuit. Delete it and this test fails.
+    ///
+    /// ⚠ Its consequence: the sibling `decode_then_apply_changes_nothing` below
+    /// cannot fail its byte assertion. A value straight out of `decode_settings`
+    /// always equals `decode_field`, so the short-circuit skips every field and
+    /// zero bytes move whatever the image holds. The coverage that test looks
+    /// like it provides actually lives in the round-trip test above.
+    #[test]
+    fn a_no_op_save_leaves_non_canonical_bytes_alone() {
+        let mut image = patterned_image();
+
+        // Prove the fixture really does contain values the encoder would
+        // rewrite, or the test below would pass for the wrong reason.
+        let non_canonical = ID52_SETTINGS_FIELDS
+            .iter()
+            .filter(|f| match &f.kind {
+                SK::Bool => image[f.byte as usize] > 1,
+                SK::Enum { width, labels } => {
+                    let raw = read_uint(&image, f.byte as usize, *width);
+                    !labels.iter().any(|(v, _)| *v == raw)
+                }
+                _ => false,
+            })
+            .count();
+        assert!(non_canonical > 20, "only {non_canonical} non-canonical fields");
+
+        let before = image.clone();
+        let decoded = decode_settings(&image);
+        let settings = decoded.as_object().expect("an object").clone();
+        let applied = apply_settings(&mut image, &settings);
+        assert_eq!(applied, settings.len(), "every field should be accepted back");
+
+        let moved: Vec<usize> = (0..before.len()).filter(|&i| before[i] != image[i]).collect();
+        assert!(
+            moved.is_empty(),
+            "{} bytes changed on a no-op save, first at {:06X} — {}",
+            moved.len(),
+            moved.first().copied().unwrap_or(0),
+            ID52_SETTINGS_FIELDS
+                .iter()
+                .find(|f| moved[0] >= f.byte as usize && moved[0] < field_end(f))
+                .map_or("<no field claims it>", |f| f.key)
+        );
+    }
+
     /// Decoding a real image and applying the result back must not move a
     /// single byte.
     ///
@@ -667,10 +843,11 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../scratchpad/id52/auto23.icf"
         );
-        let Ok(text) = std::fs::read_to_string(path) else {
-            eprintln!("skipped: no capture at {path}");
-            return;
-        };
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            panic!("this test needs the capture at {path} ({e}). It is #[ignore]d because \
+                    scratchpad/ is gitignored — running it without the file must FAIL, not \
+                    quietly pass having asserted nothing. (#89)")
+        });
         let mut icf = super::super::icf::IcfFile::parse(&text).expect("a real ID-52 file parses");
         let before = icf.image().to_vec();
         let decoded = decode_settings(&before);

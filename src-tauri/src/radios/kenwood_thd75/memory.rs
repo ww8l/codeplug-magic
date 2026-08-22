@@ -1348,25 +1348,69 @@ mod tests {
         println!("{exact} exact, {allowed_only} differing only in fields the database has no value for");
     }
 
-    /// ★ The one that matters, and it needs a real radio save: everything
-    /// outside the four memory arrays has to come back byte-identical. That is
-    /// the whole patch-don't-generate bargain — the file carries APRS beacons,
-    /// call sign history, the repeater list and every MENU setting, none of
-    /// which this codeplug describes.
+    /// ★ The one that matters — now runnable in CI, on a synthetic file.
+    ///
+    /// Everything outside the four memory arrays has to come back
+    /// byte-identical. That is the whole patch-don't-generate bargain: the file
+    /// carries APRS beacons, call sign history, the repeater list and every MENU
+    /// setting, none of which this codeplug describes.
+    ///
+    /// Get a stride wrong by one and the writer clobbers the WX and Call
+    /// channels that live in these same arrays above slot 999 — while every
+    /// other test passes, because each of them checks bytes the writer got
+    /// right.
+    ///
+    /// The fixture is `synth_patterned`, NOT `synth`: `synth` fills with 0xFF,
+    /// which is also what this writer clears an unused slot with, so a stray
+    /// 0xFF write would be invisible. The real-capture twin below stays
+    /// `#[ignore]`d — it additionally proves the parse/rebuild round trip
+    /// against a file the radio actually wrote, which no synthetic body can.
+    /// (#88)
     #[test]
-    #[ignore = "needs a real .d75 under scratchpad/thd75/card/"]
-    fn only_the_memory_arrays_change() {
-        let raw = std::fs::read(REAL_SAVE).expect("real save");
+    fn only_the_memory_arrays_change_on_a_synthetic_save() {
+        let raw = super::super::d75::tests::synth_patterned(
+            super::super::d75::RADIO_WRITER,
+            super::super::d75::MODEL,
+            super::super::d75::RADIO_BODY_LEN,
+        );
         let before = D75File::parse(&raw).expect("parse");
         let mut after = before.clone();
         let ec = expanded(channel("W0UPS", 146.850));
         write_codeplug(&mut after, &[&ec], &[], &model()).expect("write");
 
-        // Exactly the bytes this writer claims, slot by slot — not "the pool",
-        // which would hide the worst version of getting the stride wrong:
-        // clobbering the WX and Call channels that share these same arrays
-        // above slot 999.
-        let mut claimed = vec![false; before.body().len()];
+        let strays = strays_outside_the_memory_arrays(before.body(), after.body());
+        assert!(
+            strays.is_empty(),
+            "{} bytes changed outside the memory arrays, first at {:#X}",
+            strays.len(),
+            strays.first().copied().unwrap_or(0)
+        );
+
+        // The fixture has to be one a stray write could actually show up in, or
+        // the assertion above passes for the wrong reason.
+        let body = before.body();
+        let runs = body.windows(64).filter(|w| w.iter().all(|&b| b == 0xFF)).count();
+        assert_eq!(runs, 0, "the patterned body still has 0xFF runs to hide in");
+
+        // …and it must be capable of failing: a write one byte past the last
+        // name slot is exactly the stride bug this guards, and it is caught.
+        let mut sabotaged = after.body().to_vec();
+        let past_end = NAMES + (GROUP_NAME_BASE + GROUPS) * NAME_LEN;
+        sabotaged[past_end] ^= 0xFF;
+        assert_eq!(
+            strays_outside_the_memory_arrays(before.body(), &sabotaged),
+            vec![past_end],
+            "the guard did not notice a write past the last name slot"
+        );
+    }
+
+    /// Byte indices that differ and that the memory writer does NOT claim.
+    ///
+    /// Claimed slot by slot rather than as "the pool", because the pool version
+    /// hides the worst way to get a stride wrong: clobbering the WX and Call
+    /// channels that share these arrays above slot 999.
+    fn strays_outside_the_memory_arrays(a: &[u8], b: &[u8]) -> Vec<usize> {
+        let mut claimed = vec![false; a.len()];
         for slot in 0..SLOTS {
             for i in 0..FLAG_LEN {
                 claimed[FLAGS + slot * FLAG_LEN + i] = true;
@@ -1383,10 +1427,24 @@ mod tests {
                 claimed[NAMES + (GROUP_NAME_BASE + g) * NAME_LEN + i] = true;
             }
         }
+        (0..a.len()).filter(|&i| a[i] != b[i] && !claimed[i]).collect()
+    }
 
-        let (a, b) = (before.body(), after.body());
-        let touched = |i: usize| claimed[i];
-        let strays: Vec<usize> = (0..a.len()).filter(|&i| a[i] != b[i] && !touched(i)).collect();
+    /// ★ The one that matters, and it needs a real radio save: everything
+    /// outside the four memory arrays has to come back byte-identical. That is
+    /// the whole patch-don't-generate bargain — the file carries APRS beacons,
+    /// call sign history, the repeater list and every MENU setting, none of
+    /// which this codeplug describes.
+    #[test]
+    #[ignore = "needs a real .d75 under scratchpad/thd75/card/"]
+    fn only_the_memory_arrays_change() {
+        let raw = std::fs::read(REAL_SAVE).expect("real save");
+        let before = D75File::parse(&raw).expect("parse");
+        let mut after = before.clone();
+        let ec = expanded(channel("W0UPS", 146.850));
+        write_codeplug(&mut after, &[&ec], &[], &model()).expect("write");
+
+        let strays = strays_outside_the_memory_arrays(before.body(), after.body());
         assert!(
             strays.is_empty(),
             "{} bytes changed outside the memory arrays, first at {:#X}",

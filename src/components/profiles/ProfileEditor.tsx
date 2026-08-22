@@ -700,10 +700,19 @@ export function ProfileEditor({
     subTabs?.find((t) => t.key === subTab) ?? subTabs?.[0] ?? null;
   // Programmed from its own memory card, which means its settings are patched
   // into a file that already holds the operator's — see the seeding note below.
+  //
+  // ⚠ Keyed on the MEDIA-WRITE map, not on CARD_SETTINGS_READERS. Whether a
+  // settings *reader* happens to be wired yet says nothing about whether this
+  // radio's file already holds the operator's settings — and the state where
+  // they diverge (a card radio with a schema but no decoder yet) is the normal
+  // intermediate state of every new-radio branch. Keying on the reader made
+  // that state seed ~300 schema defaults into a file the radio itself wrote.
+  // (#90)
+  const isCardRadio = mediaWriteForFormat(model?.export_format ?? null) !== null;
+  // Separately: whether "Download from radio" can be offered at all.
   const cardReader = model?.export_format
     ? CARD_SETTINGS_READERS[model.export_format]
     : undefined;
-  const isCardRadio = cardReader !== undefined;
   // What this model's driver can actually do — gates the read-from-radio bar.
   const caps = useDriverCapabilities(model?.driver_key ?? null);
 

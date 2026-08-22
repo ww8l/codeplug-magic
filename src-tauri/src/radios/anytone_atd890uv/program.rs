@@ -1156,6 +1156,60 @@ mod tests {
         }
     }
 
+    /// ⚠ FINDING, pinned rather than fixed (#89): `build_channel_bank_plans`
+    /// stops at the FIRST fully-empty bank past the plan, so stale records in
+    /// any bank beyond it are neither cleared nor counted.
+    ///
+    /// The stop rule reasons that the radio allocates channels sequentially, so
+    /// an empty bank means there is nothing further to clear. That holds for a
+    /// radio only ever written by this app. What it assumes about a radio that
+    /// has also been written by AnyTone's CPS, or edited from the front panel,
+    /// is not something any test or hardware session here has established.
+    ///
+    /// This is the first test to run that loop at all — it needs a radio to
+    /// answer bank reads, which is what [`FakePort`] now provides. It asserts
+    /// the CURRENT behaviour, including the under-count, so the cost is visible
+    /// and a change to the rule shows up as a failing test rather than a silent
+    /// difference in what reaches flash.
+    #[test]
+    fn a_hole_in_the_bank_allocation_leaves_the_banks_past_it_alone() {
+        use crate::radios::fake_port::{FakeAnytone, FakePort};
+
+        let mut radio = FakeAnytone::new();
+        // Bank 0: one programmed record (which the plan will replace).
+        // Bank 1: erased — the hole.
+        // Bank 2: a stale programmed record from some earlier write.
+        let stale = vec![0x42u8; CH_REC_LEN];
+        radio.seed(CHANNEL_BASE, &vec![0x11u8; CH_REC_LEN]);
+        let bank2 = CHANNEL_BASE + 2 * BANK_STEP;
+        radio.seed(bank2, &stale);
+
+        let mut p = FakePort::new(radio);
+        enter_program_and_ident(&mut p).expect("handshake");
+
+        let plan = [planned(1, "ONE", false)];
+        let mut cleared = ClearCounts::default();
+        let plans = build_channel_bank_plans(&mut p, &plan, &mut cleared).expect("plans");
+
+        // Only bank 0 is planned for a write.
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].base, CHANNEL_BASE);
+
+        // It read bank 0, then bank 1, then stopped — bank 2 was never even
+        // looked at, so its stale record cannot be cleared.
+        assert!(
+            !p.radio.reads.iter().any(|&a| a >= bank2),
+            "bank 2 was read after all; the stop rule may have changed"
+        );
+        assert_eq!(
+            cleared.slots, 0,
+            "the stale record in bank 2 is not counted as cleared"
+        );
+
+        // And it is still there, untouched, after the plan is built.
+        assert_eq!(p.radio.peek(bank2, CH_REC_LEN), stale);
+    }
+
     fn contact(index: u16, tg_number: u32, name: &str) -> PlannedContact {
         PlannedContact {
             index,

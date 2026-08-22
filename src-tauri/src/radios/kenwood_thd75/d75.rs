@@ -198,6 +198,21 @@ pub(crate) mod tests {
         out
     }
 
+    /// [`synth`] with a body that has no long `0xFF` runs.
+    ///
+    /// `synth` fills with `0xFF`, which is the flash-empty pattern AND the
+    /// pattern the memory writer clears an unused slot with — so a stray write
+    /// of `0xFF` outside the arrays it claims is completely invisible against
+    /// it. That is the single failure the memory guard exists to catch, so the
+    /// guard needs this background instead. (#88)
+    pub(crate) fn synth_patterned(writer: &str, model: &str, body_len: usize) -> Vec<u8> {
+        let mut out = synth(writer, model, body_len);
+        for (i, b) in out[HEADER_LEN..].iter_mut().enumerate() {
+            *b = (i.wrapping_mul(31) ^ 0xA5) as u8;
+        }
+        out
+    }
+
     /// The property the whole patch-don't-generate approach rests on: a file
     /// that goes in unchanged comes out identical, header included.
     #[test]
