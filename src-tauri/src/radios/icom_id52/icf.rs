@@ -331,10 +331,21 @@ fn model_magic(model: &[u8]) -> Vec<u8> {
     ]
 }
 
+/// MD5 of `bytes` as 32 uppercase hex characters, no separators — the exact
+/// shape Icom writes after `#CD=`.
 fn digest_of(bytes: &[u8]) -> String {
     let mut h = Md5::new();
     h.update(bytes);
-    format!("{:X}", h.finalize())
+    // md-5 0.11 returns a hybrid_array::Array, which does not implement
+    // UpperHex the way the old GenericArray did, so the hex is written out
+    // here. Byte-for-byte the same 32 uppercase characters as `{:X}` produced —
+    // pinned by digest_is_uppercase_md5_and_stays_that_way, which checks
+    // published MD5 constants rather than anything this function returns.
+    h.finalize().iter().fold(String::with_capacity(32), |mut acc, b| {
+        use std::fmt::Write as _;
+        let _ = write!(acc, "{b:02X}");
+        acc
+    })
 }
 
 fn unhex(s: &str) -> Result<Vec<u8>, String> {
@@ -387,6 +398,17 @@ mod tests {
     /// The whole safety argument for patching a real radio's file rests on
     /// this: parse then render, change nothing, get the same bytes back. If
     /// that does not hold, every byte we did not mean to touch is at risk.
+    #[test]
+    fn digest_is_uppercase_md5_and_stays_that_way() {
+        // Ground truth, not a value this module produced: MD5("abc") is a
+        // published constant. The round-trip tests below compute their expected
+        // digest with digest_of itself, so they agree with any implementation,
+        // including a wrong one. This one cannot.
+        assert_eq!(digest_of(b"abc"), "900150983CD24FB0D6963F7D28E17F72");
+        assert_eq!(digest_of(b"").len(), 32, "32 hex chars, no separators");
+        assert_eq!(digest_of(b""), "D41D8CD98F00B204E9800998ECF8427E");
+    }
+
     #[test]
     fn an_untouched_file_round_trips_byte_for_byte() {
         let text = synth("32200000", &[[0xDE, 0xAD, 0xBE, 0xEF], [0, 1, 2, 3]]);
