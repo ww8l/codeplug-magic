@@ -54,6 +54,11 @@ pub struct PortInfo {
 #[tauri::command]
 pub async fn list_serial_ports() -> Result<Vec<PortInfo>, String> {
     let ports = serialport::available_ports().estr()?;
+    // `mut` is used only by the macOS supplement below, so on every other
+    // platform this binding is never mutated. Scoped to not(macos) rather than a
+    // blanket allow, so the day the mut genuinely becomes dead on macOS too, the
+    // lint still says so.
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut out: Vec<PortInfo> = ports
         .into_iter()
         .map(|p| {
