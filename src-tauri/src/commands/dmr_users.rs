@@ -8,7 +8,7 @@
 //! radio a subset ends up on, and how it gets there, is out of scope here.
 
 use serde::Deserialize;
-use sqlx::{Acquire, Sqlite, Transaction};
+use sqlx::Acquire;
 use tauri::State;
 
 use crate::db::AppState;
@@ -20,9 +20,25 @@ use crate::models::{
 
 const USERS_JSON_URL: &str = "https://database.radioid.net/static/users.json";
 
-/// Rows are upserted in batches inside one transaction so a ~350k-row refresh
-/// doesn't hold a single enormous statement or a lock for the whole import.
+/// Rows are upserted in batches, **each its own transaction**, so a ~350k-row
+/// refresh never holds one enormous write. The loop was already chunked; the
+/// transaction was not, so the whole import ran inside a single transaction
+/// that far outgrew the page cache, took an EXCLUSIVE lock early and held it —
+/// and every other query waited out the 10 s busy timeout and failed with
+/// "database is locked" (#72).
 const UPSERT_BATCH: usize = 2000;
+
+/// How long the whole dump download may take, and how long to wait for the
+/// connection itself. `reqwest`'s default client has **no timeout at all**, so
+/// a captive portal or a half-open connection left the refresh button spinning
+/// forever with no cancel and the app killable only from outside (#78).
+const DUMP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+const DUMP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Hard ceiling on the downloaded dump. It is tens of MB; this is generous
+/// headroom and still small enough that a misconfigured CDN edge or an
+/// error-page chain cannot exhaust memory and take the session with it.
+const MAX_DUMP_BYTES: u64 = 200 * 1024 * 1024;
 
 /// Cap on rows sent to the UI for a single browse page.
 const MAX_PAGE_SIZE: i64 = 500;
@@ -66,20 +82,28 @@ fn norm(s: Option<String>) -> Option<String> {
     })
 }
 
-/// Upsert a batch of parsed dump rows into an open transaction, chunked so a
-/// ~350k-row refresh doesn't hold one enormous statement. Returns
-/// `(added, updated)`. Split out from `refresh_dmr_users` so it can be
-/// exercised in tests without a network round-trip.
+/// Upsert parsed dump rows, **committing every [`UPSERT_BATCH`] rows**, so the
+/// write lock is released between chunks and the rest of the app keeps running
+/// through a refresh. Returns `(added, updated)`. Split out from
+/// `refresh_dmr_users` so it can be exercised without a network round-trip.
+///
+/// The trade for releasing the lock is that a refresh interrupted partway
+/// leaves the rows it already wrote. That is the right way round for this
+/// table: it is a rebuildable public snapshot keyed on `dmr_id`, every write is
+/// an idempotent upsert, and re-running the refresh converges — whereas an
+/// unusable UI for the length of the import is not recoverable by retrying.
 async fn upsert_dmr_users(
-    tx: &mut Transaction<'_, Sqlite>,
+    pool: &sqlx::SqlitePool,
     users: &[RadioIdUser],
 ) -> Result<(usize, usize), String> {
     let before: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dmr_users")
-        .fetch_one(&mut **tx)
+        .fetch_one(pool)
         .await
         .estr()?;
 
     for chunk in users.chunks(UPSERT_BATCH) {
+        let mut conn = pool.acquire().await.estr()?;
+        let mut tx = conn.begin().await.estr()?;
         for u in chunk {
             sqlx::query(
                 "INSERT INTO dmr_users
@@ -103,14 +127,15 @@ async fn upsert_dmr_users(
             .bind(norm(u.state.clone()))
             .bind(norm(u.country.clone()))
             .bind(norm(u.remarks.clone()))
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .estr()?;
         }
+        tx.commit().await.estr()?;
     }
 
     let after: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dmr_users")
-        .fetch_one(&mut **tx)
+        .fetch_one(pool)
         .await
         .estr()?;
 
@@ -119,26 +144,83 @@ async fn upsert_dmr_users(
     Ok((added, updated))
 }
 
-#[tauri::command]
-pub async fn refresh_dmr_users(
-    state: State<'_, AppState>,
-) -> Result<DmrUsersRefreshSummary, String> {
-    let resp = reqwest::get(USERS_JSON_URL)
+/// Download the radioid.net dump, bounded in time and in size.
+///
+/// The three failures this closes (#78): a request that never returns, a
+/// truncated body reported as "could not parse" so the user retries the wrong
+/// thing, and a response larger than memory. It also identifies the app, which
+/// the bare `reqwest::get` did not do at all — the geocoder path already takes
+/// that care.
+async fn fetch_radioid_dump() -> Result<RadioIdDump, String> {
+    use futures_util::StreamExt;
+
+    let client = reqwest::Client::builder()
+        .user_agent(concat!(
+            "WW8LCodeplugMagic/",
+            env!("CARGO_PKG_VERSION"),
+            " (amateur-radio codeplug editor)"
+        ))
+        .connect_timeout(DUMP_CONNECT_TIMEOUT)
+        .timeout(DUMP_TIMEOUT)
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let resp = client
+        .get(USERS_JSON_URL)
+        .send()
         .await
         .map_err(|e| format!("Could not reach radioid.net: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("radioid.net returned HTTP {}", resp.status()));
     }
-    let dump: RadioIdDump = resp
-        .json()
-        .await
-        .map_err(|e| format!("Could not parse radioid.net response: {e}"))?;
+    let mb = |n: u64| n / (1024 * 1024);
+    if let Some(len) = resp.content_length() {
+        if len > MAX_DUMP_BYTES {
+            return Err(format!(
+                "radioid.net offered a {} MB download, far larger than the expected user \
+                 database. Refusing it.",
+                mb(len)
+            ));
+        }
+    }
+
+    // Streamed rather than buffered whole, so a response that declares no
+    // Content-Length is capped too.
+    let mut body: Vec<u8> = Vec::with_capacity(64 * 1024 * 1024);
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| {
+            format!(
+                "The download from radioid.net was interrupted after {} MB: {e}",
+                mb(body.len() as u64)
+            )
+        })?;
+        if body.len() as u64 + chunk.len() as u64 > MAX_DUMP_BYTES {
+            return Err(format!(
+                "The download from radioid.net passed {} MB, far larger than the expected \
+                 user database. Stopped.",
+                mb(MAX_DUMP_BYTES)
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    serde_json::from_slice(&body).map_err(|e| {
+        format!(
+            "radioid.net's reply was not the user database we expected ({} MB received): {e}",
+            mb(body.len() as u64)
+        )
+    })
+}
+
+#[tauri::command]
+pub async fn refresh_dmr_users(
+    state: State<'_, AppState>,
+) -> Result<DmrUsersRefreshSummary, String> {
+    let dump = fetch_radioid_dump().await?;
     let fetched = dump.users.len();
 
-    let mut conn = state.pool.acquire().await.estr()?;
-    let mut tx = conn.begin().await.estr()?;
-    let (added, updated) = upsert_dmr_users(&mut tx, &dump.users).await?;
-    tx.commit().await.estr()?;
+    let (added, updated) = upsert_dmr_users(&state.pool, &dump.users).await?;
 
     let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dmr_users")
         .fetch_one(&state.pool)
@@ -697,15 +779,68 @@ mod tests {
         }
     }
 
+    /// Issue #72, half one: sqlx 0.8 does not set `journal_mode`, so the app
+    /// ran in SQLite's DELETE mode — where a writer that outgrows its page
+    /// cache takes an EXCLUSIVE lock that blocks READERS too, and every other
+    /// query waits out the 10 s busy timeout and fails "database is locked".
+    #[tokio::test]
+    async fn the_database_runs_in_wal_mode() {
+        let pool = test_pool().await;
+        let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(mode.to_lowercase(), "wal");
+    }
+
+    /// Issue #72, half two: the refresh loop was chunked but the TRANSACTION
+    /// was not, so ~350k upserts ran as one write that held the lock for the
+    /// whole import. Proved here by the boundary itself — a failure in the
+    /// second chunk must leave the first chunk committed, which can only be
+    /// true if each chunk commits on its own.
+    #[tokio::test]
+    async fn each_chunk_commits_on_its_own() {
+        let pool = test_pool().await;
+
+        // A trigger that aborts on one specific row, so the failure lands in a
+        // known chunk instead of depending on timing.
+        sqlx::query(
+            "CREATE TRIGGER refuse_boom BEFORE INSERT ON dmr_users
+             WHEN NEW.callsign = 'BOOM'
+             BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // One full chunk of good rows, then a second chunk of exactly one bad one.
+        let mut batch: Vec<RadioIdUser> = (0..UPSERT_BATCH)
+            .map(|i| user(1_000_000 + i as i64, "GOOD", "United States"))
+            .collect();
+        batch.push(user(9_000_001, "BOOM", "United States"));
+
+        let err = upsert_dmr_users(&pool, &batch)
+            .await
+            .expect_err("the trigger must abort the second chunk");
+        assert!(err.to_lowercase().contains("boom"), "unexpected error: {err}");
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM dmr_users")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            count, UPSERT_BATCH as i64,
+            "the first chunk must already be committed — one transaction for the whole \
+             refresh would have rolled all {UPSERT_BATCH} rows back with it"
+        );
+    }
+
     #[tokio::test]
     async fn upsert_adds_then_updates_on_reimport() {
         let pool = test_pool().await;
-        let mut conn = pool.acquire().await.unwrap();
 
         let batch1 = vec![user(3112345, "W0CPH", "United States"), user(2345678, "G0ABC", "United Kingdom")];
-        let mut tx = conn.begin().await.unwrap();
-        let (added, updated) = upsert_dmr_users(&mut tx, &batch1).await.unwrap();
-        tx.commit().await.unwrap();
+        let (added, updated) = upsert_dmr_users(&pool, &batch1).await.unwrap();
         assert_eq!((added, updated), (2, 0));
 
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dmr_users")
@@ -719,9 +854,7 @@ mod tests {
         let mut changed = user(3112345, "W0CPH-2", "United States");
         changed.state = Some("CO".to_string());
         let batch2 = vec![changed, user(9999999, "NEWCALL", "Canada")];
-        let mut tx = conn.begin().await.unwrap();
-        let (added2, updated2) = upsert_dmr_users(&mut tx, &batch2).await.unwrap();
-        tx.commit().await.unwrap();
+        let (added2, updated2) = upsert_dmr_users(&pool, &batch2).await.unwrap();
         assert_eq!((added2, updated2), (1, 1));
 
         let count2: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dmr_users")
@@ -742,16 +875,13 @@ mod tests {
     #[tokio::test]
     async fn select_prioritized_caps_and_orders_by_priority() {
         let pool = test_pool().await;
-        let mut conn = pool.acquire().await.unwrap();
         let batch = vec![
             user(1000001, "US1", "United States"),
             user(1000002, "US2", "United States"),
             user(2000001, "GB1", "United Kingdom"),
             user(3000001, "CA1", "Canada"),
         ];
-        let mut tx = conn.begin().await.unwrap();
-        upsert_dmr_users(&mut tx, &batch).await.unwrap();
-        tx.commit().await.unwrap();
+        upsert_dmr_users(&pool, &batch).await.unwrap();
 
         // Priority UK first, cap at 2: the single UK op then the lowest-dmr-id
         // filler (US1), never a third row.

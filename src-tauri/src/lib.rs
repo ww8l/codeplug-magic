@@ -6,8 +6,76 @@ mod radios;
 mod seed;
 mod util;
 
+use std::path::Path;
+
 use db::AppState;
 use tauri::Manager;
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+
+/// Turn a database startup failure into something the user can act on.
+///
+/// The one that matters is a DOWNGRADE, which is a normal thing to do after a
+/// bad release: the older binary embeds fewer migrations than the database has
+/// applied, and the app used to panic before any window existed (#73).
+///
+/// **The error is `VersionMissing`, not `VersionNotPresent`.** The issue named
+/// the latter; simulating a real downgrade against the dev database showed sqlx
+/// returns "migration N was previously applied but is missing in the resolved
+/// migrations", so the downgrade branch never fired and the dialog offered
+/// read-only/disk-full advice for a downgrade. `VersionNotPresent` belongs to a
+/// different path (`undo`).
+fn explain_startup_failure(db_path: &Path, e: &sqlx::Error) -> String {
+    use sqlx::migrate::MigrateError;
+    let path = db_path.display();
+    if let sqlx::Error::Migrate(m) = e {
+        match **m {
+            MigrateError::VersionMissing(v) => {
+                return format!(
+                    "Your database was last used by a NEWER version of WW8L Codeplug Magic \
+                     (it records update {v}, which this version does not have).\n\n\
+                     Nothing has been changed and your data is intact at:\n{path}\n\n\
+                     Install the newer version again to keep using it. To start over with an \
+                     empty database instead, move that file somewhere safe first."
+                );
+            }
+            MigrateError::VersionMismatch(v) => {
+                return format!(
+                    "One of this app's database updates (number {v}) does not match the one \
+                     already applied to your database.\n\n\
+                     Nothing has been changed and your data is intact at:\n{path}\n\n\
+                     This usually means a damaged install — reinstalling WW8L Codeplug Magic \
+                     is the fix."
+                );
+            }
+            _ => {}
+        }
+    }
+    format!(
+        "WW8L Codeplug Magic could not open its database.\n\n{path}\n\n{e}\n\n\
+         No data has been changed. If that folder is read-only or the disk is full, \
+         fixing that and reopening the app is all that is needed."
+    )
+}
+
+/// Report a startup failure the user can see, then exit.
+///
+/// `setup` runs BEFORE the event loop, so a dialog cannot be shown
+/// synchronously from here — the plugin's `run_on_main_thread` queues it and it
+/// appears once the loop starts. So the windows are hidden (a window with no
+/// database can only show errors), the dialog is queued, and the process exits
+/// when it is dismissed. `.expect` here instead killed the process before any
+/// window existed: the app bounced in the Dock and vanished, with no dialog and
+/// no log the user could find (#73).
+fn fatal_startup_error(app: &tauri::App, message: String) {
+    for (_, window) in app.webview_windows() {
+        let _ = window.hide();
+    }
+    app.dialog()
+        .message(message)
+        .kind(MessageDialogKind::Error)
+        .title("WW8L Codeplug Magic could not start")
+        .show(|_| std::process::exit(1));
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -16,17 +84,27 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Database lives in the platform app-data directory.
-            let data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("failed to resolve app data dir");
+            let data_dir = match app.path().app_data_dir() {
+                Ok(dir) => dir,
+                Err(e) => {
+                    fatal_startup_error(
+                        app,
+                        format!(
+                            "WW8L Codeplug Magic could not work out where to keep its data.\n\n{e}"
+                        ),
+                    );
+                    return Ok(());
+                }
+            };
             let db_path = data_dir.join(db::DB_FILENAME);
 
             // Block on pool init during setup so commands always have state.
-            let pool = tauri::async_runtime::block_on(db::init_pool(&db_path))
-                .expect("failed to initialize database");
-
-            app.manage(AppState { pool });
+            match tauri::async_runtime::block_on(db::init_pool(&db_path)) {
+                Ok(pool) => {
+                    app.manage(AppState { pool });
+                }
+                Err(e) => fatal_startup_error(app, explain_startup_failure(&db_path, &e)),
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -161,4 +239,68 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Issue #73: a downgrade is a normal thing to do after a bad release, and
+    /// it used to kill the process before any window existed. The dialog itself
+    /// needs a running event loop, but the message it carries does not — and
+    /// the message is the whole point: WHERE the data is and WHAT to do.
+    #[test]
+    fn a_downgrade_is_explained_as_a_downgrade() {
+        let path = Path::new("/Users/op/Library/Application Support/x/codeplug_manager.sqlite3");
+        // The variant a REAL downgrade produces, confirmed by putting a version
+        // this binary does not have into the dev database's ledger and
+        // launching the app. The issue named `VersionNotPresent`, which belongs
+        // to a different path and never fires here — with that in the match,
+        // the dialog fell through to the generic message and told the operator
+        // to check their disk space.
+        let err = sqlx::Error::Migrate(Box::new(sqlx::migrate::MigrateError::VersionMissing(99)));
+        let msg = explain_startup_failure(path, &err);
+
+        assert!(msg.contains("NEWER version"), "must name the cause: {msg}");
+        assert!(msg.contains("99"), "must name the version it found: {msg}");
+        assert!(msg.contains("codeplug_manager.sqlite3"), "must name the file: {msg}");
+        assert!(msg.contains("intact"), "must say the data is safe: {msg}");
+        assert!(!msg.contains("disk is full"), "a downgrade is not a disk problem: {msg}");
+    }
+
+    /// Anything else still names the path and the underlying error rather than
+    /// disappearing — trigger 2 is an unwritable app-data directory.
+    #[test]
+    fn any_other_failure_still_names_the_path_and_the_error() {
+        let path = Path::new("/locked/codeplug_manager.sqlite3");
+        let err = sqlx::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "permission denied",
+        ));
+        let msg = explain_startup_failure(path, &err);
+        assert!(msg.contains("/locked/codeplug_manager.sqlite3"));
+        assert!(msg.contains("permission denied"));
+    }
+
+    /// `create_dir_all` failing used to be swallowed with `.ok()`, so an
+    /// unwritable location surfaced as an opaque connect error instead of the
+    /// real one.
+    #[tokio::test]
+    async fn an_unusable_data_directory_reports_the_real_error() {
+        // A regular file where the parent directory should be: create_dir_all
+        // cannot make a directory there.
+        let blocker = std::env::temp_dir().join(format!("cpm_notadir_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&blocker);
+        std::fs::write(&blocker, b"not a directory").unwrap();
+
+        let err = db::init_pool(&blocker.join("codeplug_manager.sqlite3"))
+            .await
+            .expect_err("a file cannot be a parent directory");
+        assert!(
+            matches!(err, sqlx::Error::Io(_)),
+            "the directory error must surface as itself, not as a connect failure: {err}"
+        );
+
+        let _ = std::fs::remove_file(&blocker);
+    }
 }
