@@ -816,25 +816,31 @@ mod tests {
     #[test]
     fn radioid_dump_shape_deserializes() {
         let json = r#"{"count": 2, "users": [
-            {"id": 3112345, "callsign": "W0CPH", "fname": "Tim", "surname": "Op",
-             "city": "Denver", "state": "CO", "country": "United States", "remarks": ""},
-            {"id": 2345678, "callsign": "G0ABC", "fname": "", "surname": "",
-             "city": "", "state": "", "country": "United Kingdom", "remarks": null}
+            {"id": 9999001, "callsign": "QQ0AAA", "fname": "Example", "surname": "Operator",
+             "city": "Anytown", "state": "ZZ", "country": "Example Country", "remarks": ""},
+            {"id": 9999002, "callsign": "QQ0BBB", "fname": "", "surname": "",
+             "city": "", "state": "", "country": "Second Country", "remarks": null}
         ]}"#;
         let dump: RadioIdDump = serde_json::from_str(json).unwrap();
         assert_eq!(dump.users.len(), 2);
-        assert_eq!(dump.users[0].callsign, "W0CPH");
-        assert_eq!(dump.users[1].country.as_deref(), Some("United Kingdom"));
+        assert_eq!(dump.users[0].callsign, "QQ0AAA");
+        assert_eq!(dump.users[1].country.as_deref(), Some("Second Country"));
     }
 
-    /// A real trimmed sample pulled live from
-    /// `https://database.radioid.net/static/users.json` during development —
-    /// confirms the top-level key is `users` (not `results`, which an older
-    /// third-party script implied) and that the extra fields the live API
-    /// actually sends (`name`, `radio_id`, `has_valid_callsign`, ...) are
-    /// harmlessly ignored by serde's default (non-strict) deserialization.
+    /// The full field set the live `https://database.radioid.net/static/users.json`
+    /// dump sends, so the shape is exercised end to end: it confirms the
+    /// top-level key is `users` (not `results`, which an older third-party
+    /// script implied) and that the extra fields (`name`, `radio_id`,
+    /// `has_valid_callsign`, ...) are harmlessly ignored by serde's default
+    /// (non-strict) deserialization.
+    ///
+    /// The VALUES are synthetic on purpose. A radioid.net record is a named
+    /// person's licence record, and a call sign resolves through the national
+    /// licence database to a mailing address, so no real record is checked in
+    /// here — the call sign uses the Q prefix block (reserved for Q-codes, never
+    /// issued to a station) and the DMR ID sits above the assigned user range.
     #[test]
-    fn real_radioid_sample_deserializes() {
+    fn radioid_full_field_set_deserializes() {
         let json = r#"{"users":[{"name":"Example Operator","fname":"Example Operator","surname":"",
             "country":"Example Country","callsign":"QQ0CCC","city":"Anytown","radio_id":9999003,
             "id":9999003,"state":"Example Province","has_valid_callsign":"1","has_valid_email":0,
