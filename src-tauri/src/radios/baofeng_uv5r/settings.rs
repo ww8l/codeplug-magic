@@ -483,6 +483,28 @@ fn read_value(image: &[u8], loc: &Loc, def: &FieldDef) -> Option<Value> {
                 + (hi & 0x0F) as i64 * 100
                 + (lo >> 4) as i64 * 10
                 + (lo & 0x0F) as i64;
+            // The only Bbcd fields are the four band TX limits, and 0 MHz is
+            // not a limit — it is a `limits_new` block the radio has never
+            // filled in. Eighteen of the nineteen UV-5R backups this app has
+            // taken read 00 00 00 00 00 across the whole block (the one that
+            // does not reads 136/174/400/520), so the empty state is the normal
+            // one for this radio.
+            //
+            // Decoding that as the NUMBER 0 put a 0 in the profile, which the
+            // form then showed as a real setting and the encoder wrote back as
+            // BCD 0000 on the next settings write — the app pushing a limit of
+            // 000 MHz onto a radio whose block was simply unset. Unset decodes
+            // as unset: the form leaves it blank and the writer skips it.
+            //
+            // ★ Hardware-proven on Tim's UV-5R, 2026-08-21. Read from the radio
+            // the four fields came back blank, saved blank, and the program that
+            // followed changed exactly five bytes of the image — four of them the
+            // power-on message it was meant to change. Image 0x1908 read
+            // 00 00 00 00 00 both before and after, so nothing was pushed at a
+            // block the radio has never filled in.
+            if n == 0 {
+                return Some(Value::String(String::new()));
+            }
             numeric(n)
         }
         Loc::Freq { off, .. } => Some(Value::String(read_digits_mhz(image, *off, 8, 10))),
@@ -555,6 +577,50 @@ mod tests {
     fn blank() -> Vec<u8> {
         // Large enough to cover all aux offsets (limits end ~0x1912).
         vec![0u8; 0x1A00]
+    }
+
+    /// An unfilled `limits_new` block is unset, not a band limit of 0 MHz.
+    ///
+    /// The real backups say this is the normal state of the radio: 18 of the 19
+    /// UV-5R images this app has taken read the whole block as zeros. Decoding
+    /// that as the number 0 put a 0 in the profile, the form showed it as a
+    /// setting, and the next settings write pushed BCD 0000 back at the radio.
+    #[test]
+    fn an_unfilled_band_limit_decodes_as_unset_and_is_never_written_back() {
+        let schema = r#"[
+            {"key":"limits.vhf.lower","type":"integer","min":1,"max":1000},
+            {"key":"limits.vhf.upper","type":"integer","min":1,"max":1000}
+        ]"#;
+
+        // All zeros — what the radio actually reads back.
+        let img = blank();
+        let decoded = decode_settings_from_image(&img, schema).unwrap();
+        assert_eq!(decoded["limits.vhf.lower"], Value::String(String::new()));
+        assert_eq!(decoded["limits.vhf.upper"], Value::String(String::new()));
+
+        // A filled block still decodes as the number it is — the bytes from the
+        // one backup that had them: 01 36 / 01 74 = 136 / 174 MHz.
+        let mut filled = blank();
+        filled[LIMITS + 1] = 0x01;
+        filled[LIMITS + 2] = 0x36;
+        filled[LIMITS + 3] = 0x01;
+        filled[LIMITS + 4] = 0x74;
+        let decoded = decode_settings_from_image(&filled, schema).unwrap();
+        assert_eq!(decoded["limits.vhf.lower"], Value::from(136));
+        assert_eq!(decoded["limits.vhf.upper"], Value::from(174));
+
+        // And an unset value written back moves nothing: the encoder skips a
+        // value it cannot resolve to a number, so a profile read off a radio
+        // with no limits does not push 000 MHz onto the next one.
+        let mut round = filled.clone();
+        let applied = apply_profile_settings(
+            &mut round,
+            schema,
+            &serde_json::to_string(&decode_settings_from_image(&blank(), schema).unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(applied, 0, "an unset limit is not a field to write");
+        assert_eq!(round, filled, "no byte moved");
     }
 
     #[test]
