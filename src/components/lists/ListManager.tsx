@@ -220,22 +220,42 @@ export function ListManager({ adapter }: { adapter: ListAdapter }) {
     if (res === undefined) return;
     setChannels((prev) => prev.filter((c) => c.id !== channelId));
     adjustCount(selected.id, -1);
-    // Clear a priority pointer that referenced the removed channel.
-    if (adapter.saveScanSettings) {
-      setLists((prev) =>
-        prev.map((l) =>
-          l.id === selected.id
-            ? {
-                ...l,
-                priority_channel_id:
-                  l.priority_channel_id === channelId ? null : l.priority_channel_id,
-                priority_channel_2_id:
-                  l.priority_channel_2_id === channelId
-                    ? null
-                    : l.priority_channel_2_id,
-              }
-            : l,
+    // Clear a priority pointer that referenced the removed channel. This has to
+    // be persisted, not just dropped from React state: the row kept the
+    // reference, so the pointer reappeared on the next load and the channel
+    // refused to delete with a raw "FOREIGN KEY constraint failed".
+    const pointsAtRemoved =
+      selected.priority_channel_id === channelId ||
+      selected.priority_channel_2_id === channelId;
+    if (adapter.saveScanSettings && pointsAtRemoved) {
+      const cleared: ScanListSettings = {
+        priority_channel_id:
+          selected.priority_channel_id === channelId
+            ? null
+            : (selected.priority_channel_id ?? null),
+        priority_channel_2_id:
+          selected.priority_channel_2_id === channelId
+            ? null
+            : (selected.priority_channel_2_id ?? null),
+        priority_select: selected.priority_select ?? 0,
+        look_back_a: selected.look_back_a ?? 20,
+        look_back_b: selected.look_back_b ?? 30,
+        dropout_delay: selected.dropout_delay ?? 31,
+        dwell_time: selected.dwell_time ?? 31,
+        revert_channel: selected.revert_channel ?? 4,
+      };
+      const saved = await withToast(
+        adapter.saveScanSettings(
+          selected,
+          selected.name,
+          selected.description,
+          cleared,
         ),
+        { error: "Could not clear the priority channel" },
+      );
+      if (saved === undefined) return;
+      setLists((prev) =>
+        prev.map((l) => (l.id === selected.id ? { ...l, ...cleared } : l)),
       );
     }
   };

@@ -651,8 +651,11 @@ fn s_notes_from(
 // ============================================================
 #[derive(Debug, Deserialize)]
 struct JsonExport {
-    #[serde(default)]
-    records: Vec<HashMap<String, Value>>,
+    /// Optional so a document without the key is a clear rejection rather than
+    /// a silent empty import — defaulting it to `[]` made every non-RepeaterBook
+    /// JSON (a channel backup, an `.icf`, a settings export) parse cleanly to
+    /// zero records and report success.
+    records: Option<Vec<HashMap<String, Value>>>,
 }
 
 /// Pull a trimmed, non-empty string value out of a JSON record (string or
@@ -674,9 +677,13 @@ fn parse_repeaterbook_json(path: &str) -> Result<Vec<ParsedChannel>, String> {
         std::fs::read_to_string(path).map_err(|e| format!("Could not open JSON: {e}"))?;
     let export: JsonExport =
         serde_json::from_str(&text).map_err(|e| format!("Could not parse JSON: {e}"))?;
+    let records = export.records.ok_or_else(|| {
+        "This JSON has no \"records\" list, so it is not a RepeaterBook export."
+            .to_string()
+    })?;
 
     let mut out = Vec::new();
-    for rec in &export.records {
+    for rec in &records {
         let rx_freq = match jstr(rec, "freq_mhz").and_then(|s| parse_leading_f64(&s)) {
             Some(f) => f,
             None => continue,
@@ -1159,6 +1166,27 @@ mod tests {
         assert_eq!((t.tone_mode.as_str(), t.cross_mode.as_str()), ("Cross", "->Tone"));
         // neither -> off
         assert_eq!(fin(None, None).tone_mode, "off");
+    }
+
+    /// A JSON document with no `records` key is rejected outright. It used to
+    /// default to an empty list, so a channel backup, an `.icf` or any other
+    /// JSON parsed to zero records and reported "Imported 0 channels" as a
+    /// success.
+    #[test]
+    fn json_without_a_records_key_is_rejected() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("cpm_no_records_{}.json", std::process::id()));
+
+        std::fs::write(&path, r#"{"format":"73plug-channels","channels":[]}"#).unwrap();
+        let err = parse_repeaterbook_json(path.to_str().unwrap())
+            .expect_err("a document with no records list must not parse");
+        assert!(err.contains("records"), "error should name the missing key: {err}");
+
+        // An export that genuinely carries the key still parses, empty or not.
+        std::fs::write(&path, r#"{"records":[]}"#).unwrap();
+        assert_eq!(parse_repeaterbook_json(path.to_str().unwrap()).unwrap().len(), 0);
+
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
