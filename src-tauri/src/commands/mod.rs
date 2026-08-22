@@ -13,5 +13,6 @@ pub mod import;
 pub mod lists;
 pub mod profiles;
 pub mod program;
+pub mod radio_backups;
 pub mod standard_lists;
 pub mod talkgroups;

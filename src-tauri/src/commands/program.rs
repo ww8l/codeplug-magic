@@ -936,15 +936,6 @@ pub struct RestoreResult {
     pub source: String,
 }
 
-/// Absolute path of the radio-backups directory, so the UI can default the
-/// "Restore backup…" file picker there (it lives under the app data dir, which
-/// is otherwise awkward to find in Finder).
-#[tauri::command]
-pub async fn backups_dir(app: AppHandle) -> Result<String, String> {
-    let dir = app.path().app_data_dir().estr()?.join("radio-backups");
-    Ok(dir.to_string_lossy().to_string())
-}
-
 /// Restore a previously-saved backup `.img` to the radio. Writes the full main
 /// block (channels, names, DTMF, and all settings) plus the aux ranges we ever
 /// touch, straight from the file — the recovery path for a bad write. The file
