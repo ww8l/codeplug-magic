@@ -103,12 +103,20 @@ export function AnytoneProgramDialog({
   // Which write's pre-write backup Verify and Restore are pointed at. Only one
   // of these can be set at a time — `doProgram` clears the others (#63) — so
   // this names the real target rather than guessing at the ?? chain's winner.
+  // The on-disk fallback can be either kind of write — `latest_anytone_program`
+  // scans both prefixes — and the two back up disjoint parts of the radio. A
+  // settings backup described as "the last program" contradicts the filename
+  // right above it in the confirm, which is the one place that has to be exact.
+  const latestKind =
+    latest && fileName(latest.backup_path).startsWith("anytone-settings-write-")
+      ? "settings write"
+      : "channel-set program";
   const backupSource = result
     ? "the channel-set program"
     : settingsResult
       ? "the settings write"
       : latest
-        ? `the last program on disk (${latest.stamp})`
+        ? `the last ${latestKind} on disk (${latest.stamp})`
         : null;
 
   const refreshPorts = async () => {
@@ -762,8 +770,8 @@ export function AnytoneProgramDialog({
             <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
               {usingLatest && (
                 <p>
-                  Using the most recent program image on disk
-                  {latest?.stamp ? ` (${latest.stamp})` : ""}. If the last Program
+                  Using the most recent {latestKind} image on disk
+                  {latest?.stamp ? ` (${latest.stamp})` : ""}. If that write
                   looked like it failed, the radio likely still committed — it
                   reboots and drops off USB before the app gets its reply. Rescan,
                   reselect the port, then Verify.
