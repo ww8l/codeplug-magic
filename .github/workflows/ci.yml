@@ -1,27 +1,26 @@
 name: CI
 
-# Fast breakage check on every PR: build the frontend and check/test/lint the
-# Rust backend. No app bundling here — that lives in release.yml.
+# Build the frontend and check/test/lint the Rust backend. No app bundling —
+# that lives in release.yml.
 #
-# Two deliberate omissions, both because the free Actions allowance is metered
-# in quota-minutes = wall-clock x runner multiplier (macOS 10x, Windows 2x):
-#
-#   * No push-to-main trigger. main is only reached by merging a PR that already
-#     passed this matrix, so it just re-ran an identical check.
-#   * No macos-latest leg. Development happens on macOS and scripts/ci-local.sh
-#     runs these exact steps there via the pre-push hook, so a hosted Mac would
-#     re-run what already passed locally — at 30 of the 48 quota-minutes a
-#     3-OS run costs. release.yml still builds and bundles macOS on every tag,
-#     so macOS packaging is verified before anything ships.
-#
-# What's left is the two platforms a Mac laptop genuinely cannot check. If the
-# dev platform ever changes, revisit which leg is the redundant one.
+# This file used to be shaped by the free tier's 2,000 quota-minute cap: no
+# push trigger, no macOS leg, no runs on Dependabot's PRs. The repo is public
+# now, so standard runners are free and unmetered, and every one of those
+# omissions was costing verification to save money that is no longer spent.
+# What is here now is what the project actually needs checked.
 
 on:
   pull_request:
+  # main is reached by local merges, not only by PRs, and a merge of two green
+  # branches is not itself green — two real bugs have shipped here that existed
+  # only in the combination. CI never saw them because it only ever tested the
+  # branches. This trigger is what closes that gap.
+  push:
+    branches: [main]
   workflow_dispatch:
 
-# Cancel superseded runs on the same ref to save CI minutes.
+# Superseded commits do not need finishing; this is about feedback latency, not
+# cost.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -29,17 +28,17 @@ concurrency:
 jobs:
   build-and-test:
     name: ${{ matrix.platform }}
-    # Dependabot's PRs don't run this. The first batch it opened was 8 PRs on
-    # one day, and at 2 platforms each (Windows bills 2x) that came to roughly
-    # 280 of the month's 2,000 quota-minutes for dependency bumps nobody had
-    # asked for yet. A bump that breaks the build is caught by the release PR
-    # that actually carries it, so the matrix runs there instead.
-    if: github.actor != 'dependabot[bot]'
     runs-on: ${{ matrix.platform }}
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-latest, windows-latest]
+        # macOS is the development and primary release target and was the one
+        # platform with no hosted check at all — scripts/ci-local.sh in the
+        # pre-push hook stood in for it. That hook runs whatever toolchain the
+        # Mac happens to have, and on 2026-08-22 that was Rust 1.96 while CI
+        # resolved 1.98: the hook passed, main was red, and nobody knew until a
+        # dependency PR ran. A hosted leg removes that single point of failure.
+        platform: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v7
