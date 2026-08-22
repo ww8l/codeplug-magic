@@ -7,16 +7,9 @@ import { Modal } from "../overlays";
 import { Button, Spinner } from "../ui";
 import { fmtFreq, fmtOffset } from "../../lib/constants";
 
-// A checkmark for boolean fields, dim dot when false. `null` is a third state
-// and must not look like "no": the free-tier RepeaterBook CSV has no column for
-// ARES/RACES/SKYWARN at all, and an import from it leaves whatever a premium
-// import already established rather than clearing it.
-const yn = (b: boolean | null): ReactNode =>
-  b == null ? (
-    <span className="text-slate-300 dark:text-slate-600" title="not in this export">
-      –
-    </span>
-  ) : b ? (
+// A checkmark for boolean fields, dim dot when false.
+const yn = (b: boolean): ReactNode =>
+  b ? (
     <span className="font-semibold text-emerald-600 dark:text-emerald-400">✓</span>
   ) : (
     <span className="text-slate-300 dark:text-slate-600">·</span>
@@ -67,10 +60,6 @@ const COLUMNS: Col[] = [
   { label: "Country", render: (r) => r.country ?? "" },
   { label: "Lat", mono: true, render: (r) => (r.latitude != null ? r.latitude.toFixed(4) : "") },
   { label: "Lon", mono: true, render: (r) => (r.longitude != null ? r.longitude.toFixed(4) : "") },
-  { label: "ARES", center: true, render: (r) => yn(r.ares) },
-  { label: "RACES", center: true, render: (r) => yn(r.races) },
-  { label: "SKYWARN", center: true, render: (r) => yn(r.skywarn) },
-  { label: "CANWARN", center: true, render: (r) => yn(r.canwarn) },
   { label: "Notes", render: (r) => r.notes ?? "" },
 ];
 

@@ -27,7 +27,7 @@ fn normalize_freq_term(term: &str) -> String {
     trimmed.trim_end_matches('.').to_string()
 }
 
-const CHANNEL_COLUMNS: &str = "id, rb_name, name_long, name_short, callsign, rx_freq, tx_freq, offset, duplex, band, mode, tone_mode, ctcss_uplink, ctcss_downlink, dcs_code, dcs_rx_code, dcs_polarity, cross_mode, power, dmr_color_code, dmr_timeslot, dmr_talkgroup, dstar_capable, dstar_ur_call, dstar_rpt1, dstar_rpt2, ysf_capable, nxdn_capable, p25_capable, p25_nac, m17_capable, m17_can, tetra_capable, allstar_node, echolink_node, irlp_node, wires_node, ares, races, skywarn, canwarn, use_type, operational_status, service_type, city, county, state, country, latitude, longitude, notes, source, repeaterbook_id, rb_ctcss_uplink, rb_ctcss_downlink, rb_operational_status, rb_notes, ctcss_uplink_overridden, ctcss_downlink_overridden, operational_status_overridden, notes_overridden, has_overrides, last_rb_update, last_user_edit, created_at";
+const CHANNEL_COLUMNS: &str = "id, rb_name, name_long, name_short, callsign, rx_freq, tx_freq, offset, duplex, band, mode, tone_mode, ctcss_uplink, ctcss_downlink, dcs_code, dcs_rx_code, dcs_polarity, cross_mode, power, dmr_color_code, dmr_timeslot, dmr_talkgroup, dstar_capable, dstar_ur_call, dstar_rpt1, dstar_rpt2, ysf_capable, nxdn_capable, p25_capable, p25_nac, m17_capable, m17_can, tetra_capable, allstar_node, echolink_node, irlp_node, wires_node, use_type, operational_status, service_type, city, county, state, country, latitude, longitude, notes, source, repeaterbook_id, rb_ctcss_uplink, rb_ctcss_downlink, rb_operational_status, rb_notes, ctcss_uplink_overridden, ctcss_downlink_overridden, operational_status_overridden, notes_overridden, has_overrides, last_rb_update, last_user_edit, created_at";
 
 #[tauri::command]
 pub async fn list_channels(
@@ -791,7 +791,6 @@ async fn duplicate_impl(pool: &sqlx::SqlitePool, id: i64) -> Result<i64, String>
             ysf_capable, nxdn_capable, p25_capable, p25_nac,
             m17_capable, m17_can, tetra_capable,
             allstar_node, echolink_node, irlp_node, wires_node,
-            ares, races, skywarn, canwarn,
             use_type, operational_status, service_type,
             city, county, state, country, latitude, longitude, notes, source,
             rb_ctcss_uplink, rb_ctcss_downlink, rb_operational_status, rb_notes,
@@ -808,7 +807,6 @@ async fn duplicate_impl(pool: &sqlx::SqlitePool, id: i64) -> Result<i64, String>
             ysf_capable, nxdn_capable, p25_capable, p25_nac,
             m17_capable, m17_can, tetra_capable,
             allstar_node, echolink_node, irlp_node, wires_node,
-            ares, races, skywarn, canwarn,
             use_type, operational_status, service_type,
             city, county, state, country, latitude, longitude, notes, source,
             rb_ctcss_uplink, rb_ctcss_downlink, rb_operational_status, rb_notes,

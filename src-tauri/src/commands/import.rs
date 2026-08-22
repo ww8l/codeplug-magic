@@ -64,14 +64,6 @@ pub struct ParsedChannel {
     latitude: Option<f64>,
     longitude: Option<f64>,
     notes: Option<String>,
-    /// `None` means "this export has no such column", which is not the same as
-    /// `Some(false)`. The standard CSV carries none of the four, so a re-import
-    /// must leave whatever the premium JSON already established rather than
-    /// clearing it — see the COALESCE in `merge_existing`.
-    ares: Option<bool>,
-    races: Option<bool>,
-    skywarn: Option<bool>,
-    canwarn: Option<bool>,
 }
 
 /// The full parsed result shown before confirming an import. `rows` is capped
@@ -211,21 +203,21 @@ async fn insert_parsed(
                 allstar_node, echolink_node, irlp_node, wires_node,
                 use_type, operational_status, service_type,
                 city, county, state, country, latitude, longitude, notes,
-                ares, races, skywarn, canwarn, source, repeaterbook_id,
+                source, repeaterbook_id,
                 rb_ctcss_uplink, rb_ctcss_downlink, rb_operational_status,
                 rb_notes, cross_mode, last_rb_update
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6,
                 ?7, ?8, ?9, ?10, ?11, ?12,
-                ?13, ?45, ?46,
-                ?14, ?15, ?16,
-                ?17, ?18, ?19, ?20, ?21,
-                ?22, ?23, ?24, ?25,
-                ?26, ?27, 'Amateur',
-                ?28, ?29, ?30, ?31, ?32, ?33, ?34,
-                ?35, ?36, ?37, ?38, 'repeaterbook', ?39,
-                ?40, ?41, ?42,
-                ?43, ?44, CURRENT_TIMESTAMP
+                ?13, ?14, ?15,
+                ?16, ?17, ?18,
+                ?19, ?20, ?21, ?22, ?23,
+                ?24, ?25, ?26, ?27,
+                ?28, ?29, 'Amateur',
+                ?30, ?31, ?32, ?33, ?34, ?35, ?36,
+                'repeaterbook', ?37,
+                ?38, ?39, ?40,
+                ?41, ?42, CURRENT_TIMESTAMP
             )
             "#,
         )
@@ -242,6 +234,8 @@ async fn insert_parsed(
         .bind(&p.tone_mode)
         .bind(p.ctcss_uplink)
         .bind(p.ctcss_downlink)
+        .bind(&p.dcs_code)
+        .bind(&p.dcs_rx_code)
         .bind(p.dmr_color_code)
         .bind(p.dstar_capable)
         .bind(p.ysf_capable)
@@ -263,18 +257,12 @@ async fn insert_parsed(
         .bind(p.latitude)
         .bind(p.longitude)
         .bind(&p.notes)
-        .bind(p.ares.unwrap_or(false))
-        .bind(p.races.unwrap_or(false))
-        .bind(p.skywarn.unwrap_or(false))
-        .bind(p.canwarn.unwrap_or(false))
         .bind(&p.repeaterbook_id)
         .bind(p.ctcss_uplink) // rb_ctcss_uplink snapshot
         .bind(p.ctcss_downlink) // rb_ctcss_downlink snapshot
         .bind(&p.operational_status) // rb_operational_status snapshot
         .bind(&p.notes) // rb_notes snapshot
         .bind(&p.cross_mode)
-        .bind(&p.dcs_code) // ?45
-        .bind(&p.dcs_rx_code) // ?46
         .execute(&mut *tx)
         .await
         .estr()?;
@@ -364,22 +352,19 @@ async fn merge_existing(
             use_type = COALESCE(?24, use_type),
             operational_status = ?25,
             city = ?26, county = ?27, country = ?28,
+            -- COALESCE, not a straight write: an export with no such column
+            -- reports None and must leave what another export established.
+            -- The free-tier CSV carries neither a Use column nor coordinates.
             latitude = COALESCE(?29, latitude),
             longitude = COALESCE(?30, longitude),
-            dcs_code = COALESCE(?45, dcs_code),
-            dcs_rx_code = COALESCE(?46, dcs_rx_code),
-            notes = ?31,
-            -- COALESCE, not a straight write: an export that has no such column
-            -- reports None, and must leave what another export established.
-            ares = COALESCE(?32, ares),
-            races = COALESCE(?33, races),
-            skywarn = COALESCE(?34, skywarn),
-            canwarn = COALESCE(?35, canwarn),
-            rb_ctcss_uplink = ?36, rb_ctcss_downlink = ?37,
-            rb_operational_status = ?38, rb_notes = ?39,
-            ctcss_uplink_overridden = ?40, ctcss_downlink_overridden = ?41,
-            operational_status_overridden = ?42, notes_overridden = ?43,
-            has_overrides = ?44,
+            dcs_code = COALESCE(?31, dcs_code),
+            dcs_rx_code = COALESCE(?32, dcs_rx_code),
+            notes = ?33,
+            rb_ctcss_uplink = ?34, rb_ctcss_downlink = ?35,
+            rb_operational_status = ?36, rb_notes = ?37,
+            ctcss_uplink_overridden = ?38, ctcss_downlink_overridden = ?39,
+            operational_status_overridden = ?40, notes_overridden = ?41,
+            has_overrides = ?42,
             last_rb_update = CURRENT_TIMESTAMP
         WHERE id = ?1
         "#,
@@ -414,11 +399,9 @@ async fn merge_existing(
     .bind(&p.country)
     .bind(p.latitude)
     .bind(p.longitude)
+    .bind(&p.dcs_code)
+    .bind(&p.dcs_rx_code)
     .bind(&notes)
-    .bind(p.ares)
-    .bind(p.races)
-    .bind(p.skywarn)
-    .bind(p.canwarn)
     .bind(rb_up)
     .bind(rb_dn)
     .bind(&rb_status)
@@ -428,8 +411,6 @@ async fn merge_existing(
     .bind(status_over)
     .bind(notes_over)
     .bind(has_overrides)
-    .bind(&p.dcs_code) // ?45
-    .bind(&p.dcs_rx_code) // ?46
     .execute(&mut *tx)
     .await
     .estr()?;
@@ -677,11 +658,6 @@ fn parse_repeaterbook_full_csv(path: &str) -> Result<Vec<ParsedChannel>, String>
             latitude: get(&rec, "Lat").and_then(|s| parse_leading_f64(&s)),
             longitude: get(&rec, "Long").and_then(|s| parse_leading_f64(&s)),
             notes: s_notes_from(&rec, &get),
-            // This shape has the columns, so a blank cell really does mean no.
-            ares: Some(parse_bool(get(&rec, "ARES"))),
-            races: Some(parse_bool(get(&rec, "RACES"))),
-            skywarn: Some(parse_bool(get(&rec, "SKYWARN"))),
-            canwarn: Some(parse_bool(get(&rec, "CANWARN"))),
         });
     }
 
@@ -1015,10 +991,6 @@ fn parse_repeaterbook_standard_csv(path: &str) -> Result<Vec<ParsedChannel>, Str
             latitude: None,
             longitude: None,
             notes,
-            ares: None,
-            races: None,
-            skywarn: None,
-            canwarn: None,
         });
     }
 
@@ -1164,11 +1136,6 @@ fn parse_repeaterbook_json(path: &str) -> Result<Vec<ParsedChannel>, String> {
             latitude: jstr(rec, "lat").and_then(|s| parse_leading_f64(&s)),
             longitude: jstr(rec, "lon").and_then(|s| parse_leading_f64(&s)),
             notes: s_notes_json(rec),
-            // The Full Data export carries every field, so blank means no.
-            ares: Some(parse_bool(jstr(rec, "ares"))),
-            races: Some(parse_bool(jstr(rec, "races"))),
-            skywarn: Some(parse_bool(jstr(rec, "skywarn"))),
-            canwarn: Some(parse_bool(jstr(rec, "canwarn"))),
         });
     }
 
@@ -1750,8 +1717,7 @@ mod tests {
         let json = r#"{"records":[{
             "freq_mhz":"145.110","input_freq":"144.510","callsign":"QQ0AAA",
             "state":"CO","city":"Anytown","pl_tone":"100.0",
-            "ares":"Yes","races":"Yes","skywarn":"Yes",
-            "use":"OPEN","lat":"39.00000","lon":"-105.00000"
+            "lat":"39.00000","lon":"-105.00000"
         }]}"#;
         let jpath = dir.join("rb.json");
         std::fs::write(&jpath, json).expect("write json");
@@ -1772,7 +1738,6 @@ mod tests {
         .fetch_one(&pool)
         .await
         .expect("row");
-        assert!(before.ares && before.races && before.skywarn);
         assert_eq!(before.latitude, Some(39.0));
         assert_eq!(before.use_type.as_deref(), Some("OPEN"));
 
@@ -1792,11 +1757,8 @@ mod tests {
         .await
         .expect("row");
 
-        // The failure this test exists for: a straight write of the four flags
-        // clears every one of them, silently, on every matched channel.
-        assert!(after.ares, "ARES cleared by an export that has no ARES column");
-        assert!(after.races, "RACES cleared the same way");
-        assert!(after.skywarn, "SKYWARN cleared the same way");
+        // The failure this test exists for: a straight write of a column this
+        // export does not have clears it, silently, on every matched channel.
         assert_eq!(after.use_type.as_deref(), Some("OPEN"), "Use cleared");
         assert_eq!(after.latitude, Some(39.0), "coordinates cleared");
 
@@ -2099,15 +2061,12 @@ mod tests {
             "../sample-data/repeaterbook-standard-sample.csv",
         )
         .expect("parse failed");
-        // This export has no ARES/RACES/SKYWARN/Use/Lat/Long columns at all.
-        // None, not false: merge_existing COALESCEs on it, so reporting false
+        // This export has no Use, Status or Lat/Long columns at all. None, not
+        // a default: merge_existing COALESCEs on them, so reporting a value
         // here would clear whatever a premium import had established.
         for p in &parsed {
-            assert_eq!(p.ares, None, "{} reported a value it cannot know", p.callsign);
-            assert_eq!(p.races, None);
-            assert_eq!(p.skywarn, None);
-            assert_eq!(p.canwarn, None);
-            assert_eq!(p.use_type, None);
+            assert_eq!(p.use_type, None, "{} reported a Use it cannot know", p.callsign);
+            assert_eq!(p.operational_status, None);
             assert_eq!(p.latitude, None);
             assert_eq!(p.longitude, None);
         }

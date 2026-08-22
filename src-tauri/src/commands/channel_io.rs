@@ -92,10 +92,6 @@ pub struct BackupPreviewRow {
     latitude: Option<f64>,
     longitude: Option<f64>,
     notes: Option<String>,
-    ares: bool,
-    races: bool,
-    skywarn: bool,
-    canwarn: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -299,7 +295,7 @@ async fn insert_backup(
                 power, dmr_color_code, dmr_timeslot, dmr_talkgroup, dstar_capable,
                 ysf_capable, nxdn_capable, p25_capable, p25_nac, m17_capable,
                 m17_can, tetra_capable, allstar_node, echolink_node, irlp_node,
-                wires_node, ares, races, skywarn, canwarn, use_type,
+                wires_node, use_type,
                 operational_status, service_type, city, county, state, country,
                 latitude, longitude, notes, source, repeaterbook_id,
                 rb_ctcss_uplink, rb_ctcss_downlink, rb_operational_status,
@@ -310,18 +306,14 @@ async fn insert_backup(
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6,
                 ?7, ?8, ?9, ?10, ?11, ?12,
-                ?13, ?14, ?15, ?16, ?17,
-                ?18, ?19, ?20, ?21, ?22,
-                ?23, ?24, ?25, ?26, ?27,
-                ?28, ?29, ?30, ?31, ?32,
-                ?33, ?34, ?35, ?36, ?37, ?38,
-                ?39, ?40, ?41, ?42, ?43, ?44,
-                ?45, ?46, ?47, ?48, ?49,
-                ?50, ?51, ?52,
-                ?53, ?54, ?55,
-                ?56, ?57, ?58,
-                ?59, ?60,
-                ?61, ?62, ?63
+                ?13, ?14, ?15, ?16, ?17, ?18,
+                ?19, ?20, ?21, ?22, ?23, ?24,
+                ?25, ?26, ?27, ?28, ?29, ?30,
+                ?31, ?32, ?33, ?34, ?35, ?36,
+                ?37, ?38, ?39, ?40, ?41, ?42,
+                ?43, ?44, ?45, ?46, ?47, ?48,
+                ?49, ?50, ?51, ?52, ?53, ?54,
+                ?55, ?56, ?57, ?58, ?59
             )
             "#,
         )
@@ -358,10 +350,6 @@ async fn insert_backup(
         .bind(&c.echolink_node)
         .bind(&c.irlp_node)
         .bind(&c.wires_node)
-        .bind(c.ares)
-        .bind(c.races)
-        .bind(c.skywarn)
-        .bind(c.canwarn)
         .bind(&c.use_type)
         .bind(&c.operational_status)
         .bind(&c.service_type)
@@ -478,10 +466,6 @@ fn preview_row(c: &Channel) -> BackupPreviewRow {
         latitude: c.latitude,
         longitude: c.longitude,
         notes: c.notes.clone(),
-        ares: c.ares,
-        races: c.races,
-        skywarn: c.skywarn,
-        canwarn: c.canwarn,
     }
 }
 

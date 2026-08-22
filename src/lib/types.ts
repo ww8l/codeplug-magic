@@ -44,10 +44,6 @@ export interface Channel {
   echolink_node: string | null;
   irlp_node: string | null;
   wires_node: string | null;
-  ares: boolean;
-  races: boolean;
-  skywarn: boolean;
-  canwarn: boolean;
   use_type: string | null;
   operational_status: string | null;
   service_type: string | null;
@@ -755,13 +751,6 @@ export interface ImportPreviewRow {
   latitude: number | null;
   longitude: number | null;
   notes: string | null;
-  /// null means "this export has no such column", which is not the same as
-  /// false — the free-tier CSV carries none of the four, and a re-import
-  /// leaves whatever a premium import already established.
-  ares: boolean | null;
-  races: boolean | null;
-  skywarn: boolean | null;
-  canwarn: boolean | null;
 }
 
 export interface ImportPreview {
