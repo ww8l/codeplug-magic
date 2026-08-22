@@ -44,7 +44,7 @@ reqwest = { version = "0.12", features = ["json", "stream"] }
 # Icom `.icf` files carry an MD5 over their own contents (`#CD=`); the radio
 # rejects a file whose digest does not match. Already in the tree as a
 # transitive dependency, so naming it here adds no new code to the build.
-md-5 = "0.10"
+md-5 = "0.11"
 # Streaming the radioid.net dump with a hard byte cap needs `StreamExt::next`
 # over `reqwest`'s `bytes_stream()`. reqwest already depends on it, so naming it
 # here adds no new code to the build.
