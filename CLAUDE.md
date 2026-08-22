@@ -23,11 +23,19 @@ substantial work under `src-tauri/src/radios/`.
 
 - **Verify in dev, then commit, then push.** `npm run tauri:dev` runs against a
   separate `.dev` app identifier, so dev never shares the production database.
-- **Don't open a PR to land finished work.** Push the branch and leave it.
-  PRs exist to batch accumulated branches when a release is cut — the free
-  Actions allowance is metered, CI runs on pull requests only, and there is no
-  hosted macOS leg, so the pre-push hook (`npm run ci`) is the macOS check.
-  "Done" means pushed, not merged.
+- **CI is free and unmetered.** The repo went public on 2026-08-22, so standard
+  runners cost nothing. Don't shape work around saving Actions minutes; the old
+  rules here did, and they cost verification instead. CI now runs on pull
+  requests, on pushes to `main`, and across all three OSes including macOS.
+- **Landing a branch is a local merge, not a PR.** `git merge --no-ff` into
+  `main` and push; CI verifies the merge commit itself, which is what catches a
+  bug that exists only in the combination of two green branches. A PR is still
+  fine when you want review or discussion before landing — it is no longer an
+  expense, just a choice.
+- **The pre-push hook is still worth having.** `npm run ci` gives you the answer
+  in 40 seconds instead of waiting on runners, but it is no longer the *only*
+  macOS check, so a local toolchain that has drifted from CI's `stable` is no
+  longer silently authoritative. `rustup update stable` when they disagree.
 - **Never run `cargo fmt`.** It reformats 44 files and nothing in CI or the hook
   checks formatting. Hand-format new code to match its surroundings.
 - **Migrations are immutable once applied.** Editing one panics the app at
