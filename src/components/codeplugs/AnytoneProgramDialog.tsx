@@ -189,6 +189,15 @@ export function AnytoneProgramDialog({
     setVerify(null);
     setRestored(null);
     setAck(false);
+    // Clear EVERY payload's previous result, not just this one's. Verify and
+    // Restore resolve their target as `result ?? settingsResult ?? latest`, so a
+    // leftover result from an earlier payload in the same dialog session wins
+    // the chain and Restore hands the radio the wrong backup — a settings write
+    // followed by Restore would replay the channel program's pre-write image and
+    // wipe the channel set. (#63)
+    setResult(null);
+    setSettingsResult(null);
+    setCallsignResult(null);
     try {
       if (payload === "profile" || payload === "userdb") {
         if (profileId == null) {

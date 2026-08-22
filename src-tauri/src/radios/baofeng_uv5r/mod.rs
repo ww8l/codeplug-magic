@@ -54,6 +54,46 @@ const NAME_LEN: usize = 7;
 
 /// Minimum plausible image: ident prefix + main block + names (no aux).
 pub(crate) const MIN_IMAGE_LEN: usize = 0x1808;
+/// Full image as [`download`] writes it: `MIN_IMAGE_LEN` plus the aux block,
+/// which is read from radio 0x1EC0 to 0x2000 whichever of the two read shapes
+/// the firmware needs. Every backup this app takes is exactly this long.
+pub(crate) const FULL_IMAGE_LEN: usize = MIN_IMAGE_LEN + 0x140;
+/// Last byte of the 8-byte ident prefix. Both ident read paths terminate on it
+/// (`do_ident` breaks at 0xDD and compresses a 12-byte reply to bytes
+/// `[0, 3, 5, 7..]`, whose last element is that same 0xDD), so an image carrying
+/// a real ident always has it here.
+const IDENT_TERMINATOR: u8 = 0xDD;
+
+/// Reject a file that is not a UV-5R image before uploading a byte of it.
+///
+/// `restore_image` already proves a UV-5R is on the CABLE; this proves the FILE
+/// is one too. They are independent, and `radio-backups/` holds images for every
+/// radio this app talks to — a TD-H3 backup is 0x2008 bytes and carries its own
+/// 0xDD-terminated ident, so length is what separates them.
+///
+/// Deliberately checks SHAPE, not which unit the image came from: uploading a
+/// backup taken from another UV-5R of the same family is a normal thing to do,
+/// and this is the path an operator reaches for after a bad write. The lengths
+/// are the two [`download`] produces (`0x1948`) and the aux-less CHIRP form
+/// (`0x1808`) — the same pair CHIRP's own `match_model` accepts.
+pub(crate) fn check_restore_image(image: &[u8]) -> Result<(), String> {
+    if image.len() != MIN_IMAGE_LEN && image.len() != FULL_IMAGE_LEN {
+        return Err(format!(
+            "this file is {} bytes — a UV-5R backup is {MIN_IMAGE_LEN} or {FULL_IMAGE_LEN}. \
+             Pick a .img taken from a UV-5R (radio-backups/ also holds images for other \
+             radios, which must not be written to this one).",
+            image.len()
+        ));
+    }
+    if image[7] != IDENT_TERMINATOR {
+        return Err(format!(
+            "this file does not start with a radio ident (byte 7 is 0x{:02X}, expected \
+             0x{IDENT_TERMINATOR:02X}) — it is not a UV-5R backup image.",
+            image[7]
+        ));
+    }
+    Ok(())
+}
 
 // Radio-address ranges we write on upload (buffer offset = addr + 8). We touch
 // ONLY the channel array and the name array — never settings/aux — to keep the
@@ -238,21 +278,29 @@ impl ImageProgrammer for BaofengUv5r {
         //    full read, so settle first, then retry the identify.
         std::thread::sleep(Duration::from_secs(1));
         reident_with_retry(&mut *p)?;
+        // Record every range as it goes out, and hand that same list to the
+        // verifier — so what is checked is exactly what was written, and the two
+        // cannot drift apart. (#62)
+        let mut written: Vec<WrittenRange> = Vec::new();
         if settings_written.is_some() {
-            for &(start, end) in settings::SETTINGS_MAIN_RANGES {
-                write_region(&mut *p, &image, start, end)?;
+            for &range in settings::SETTINGS_MAIN_RANGES {
+                write_region(&mut *p, &image, range.0, range.1)?;
+                written.push(WrittenRange::main(range));
             }
-            for &(start, end) in settings::SETTINGS_AUX_RANGES {
-                write_aux_region(&mut *p, &image, start, end)?;
+            for &range in settings::SETTINGS_AUX_RANGES {
+                write_aux_region(&mut *p, &image, range.0, range.1)?;
+                written.push(WrittenRange::aux(range));
             }
         } else {
-            write_region(&mut *p, &image, CHANNEL_ADDR.0, CHANNEL_ADDR.1)?;
-            write_region(&mut *p, &image, NAME_ADDR.0, NAME_ADDR.1)?;
+            for &range in &[CHANNEL_ADDR, NAME_ADDR] {
+                write_region(&mut *p, &image, range.0, range.1)?;
+                written.push(WrittenRange::main(range));
+            }
         }
 
         // 4. Read back and verify (non-fatal: a write that ack'd every block
         //    succeeded; verification is a best-effort confirmation).
-        let (verified, note, channels) = match verify_after_write(&mut *p, &image) {
+        let (verified, note, channels) = match verify_after_write(&mut *p, &image, &written) {
             Ok((ok, note, ch)) => (ok, note, ch),
             Err(e) => (
                 false,
@@ -628,28 +676,95 @@ pub(crate) fn backup_filename(kind: &str, label: &str, stamp: &impl std::fmt::Di
     }
 }
 
-/// Re-read the radio and compare the channel/name regions (by decoded content,
-/// which is robust to the radio massaging display-icon bits on save).
+/// Re-read the radio and compare the RAW bytes of the ranges this write pushed.
+///
+/// It used to compare `decode_channels(intended)` against `decode_channels(readback)`,
+/// which only ever looked at rx frequency, name, tone and power inside the
+/// channel array — so a wrong bandwidth, tx frequency, DTMF entry, power-on
+/// message or band limit read back as "verified". `DecodedChannel` has no field
+/// for most of those, so the comparison could not see them even in principle.
+/// Comparing the written ranges byte-for-byte is the only comparison that can
+/// fail for every byte the write claimed to place.
+///
+/// `written` must be exactly the ranges the caller uploaded: verifying a range
+/// this write did NOT push compares the downloaded image against itself, which
+/// is the failure this replaced. (#62)
+///
+/// Non-fatal by contract — every block was ack'd, so a mismatch is reported, not
+/// thrown. NOT hardware-confirmed: if a UV-5R firmware massages any byte inside
+/// these ranges on save, this will report it as a difference where the old
+/// decode-level compare would have shrugged. The note names the address so that
+/// case is diagnosable rather than mysterious.
 pub(crate) fn verify_after_write(
     p: &mut dyn SerialPort,
     intended: &[u8],
+    written: &[WrittenRange],
 ) -> Result<(bool, Option<String>, Vec<DecodedChannel>), String> {
     std::thread::sleep(Duration::from_secs(1));
     let (_m, ident) = reident_with_retry(p)?;
     let readback = download(p, &ident)?;
-
-    let expected = decode_channels(intended);
     let actual = decode_channels(&readback);
-    if expected == actual {
-        Ok((true, None, actual))
-    } else {
-        let note = format!(
-            "Read-back shows {} channels; {} were intended. The backup is saved if you need to revert.",
-            actual.len(),
-            expected.len()
-        );
-        Ok((false, Some(note), actual))
+    let (ok, note) = compare_written(intended, &readback, written);
+    Ok((ok, note, actual))
+}
+
+/// The pure half of [`verify_after_write`], so the comparison is testable
+/// without a radio.
+pub(crate) fn compare_written(
+    intended: &[u8],
+    readback: &[u8],
+    written: &[WrittenRange],
+) -> (bool, Option<String>) {
+    let mut total = 0usize;
+    let mut differing = 0usize;
+    let mut first: Option<(u16, u8, u8)> = None;
+    let mut unreadable: Option<u16> = None;
+
+    for r in written {
+        let len = r.len();
+        if r.offset + len > intended.len() || r.offset + len > readback.len() {
+            // The read-back is short — most often the aux block, which some
+            // firmwares do not return. Say so instead of scoring it as a match.
+            unreadable.get_or_insert(r.start);
+            continue;
+        }
+        total += len;
+        for i in 0..len {
+            let (want, got) = (intended[r.offset + i], readback[r.offset + i]);
+            if want != got {
+                differing += 1;
+                first.get_or_insert((r.start + i as u16, want, got));
+            }
+        }
     }
+
+    if let Some((addr, want, got)) = first {
+        return (
+            false,
+            Some(format!(
+                "Read-back differs from what was written: {differing} of {total} bytes, \
+                 first at radio address 0x{addr:04X} (wrote 0x{want:02X}, read back \
+                 0x{got:02X}). The backup is saved if you need to revert."
+            )),
+        );
+    }
+    if let Some(addr) = unreadable {
+        return (
+            false,
+            Some(format!(
+                "Every byte the read-back covered matched, but the radio did not return \
+                 the block holding radio address 0x{addr:04X}, so that range is \
+                 unverified. Power-cycle the radio and use Download to confirm."
+            )),
+        );
+    }
+    if total == 0 {
+        return (
+            false,
+            Some("Nothing was compared — no ranges were recorded as written.".to_string()),
+        );
+    }
+    (true, None)
 }
 
 /// Overwrite the channel + name regions of `image` so each included channel
@@ -850,6 +965,44 @@ fn decode_tone_summary(rxtone: u16, txtone: u16) -> String {
     }
 }
 
+/// Buffer offset of a MAIN-block radio address: the image carries the 8-byte
+/// ident prefix ahead of radio address 0x0000.
+pub(crate) fn main_offset(addr: u16) -> usize {
+    addr as usize + 8
+}
+
+/// Buffer offset of an AUX-block radio address. The aux block was read starting
+/// at radio [`settings::AUX_RADIO_BASE`] and stored at [`settings::AUX_IMAGE_BASE`],
+/// so it is NOT `addr + 8`.
+pub(crate) fn aux_offset(addr: u16) -> usize {
+    settings::AUX_IMAGE_BASE + (addr - settings::AUX_RADIO_BASE) as usize
+}
+
+/// One radio-address range a write actually pushed, paired with where its bytes
+/// live in the image buffer. [`verify_after_write`] reads back exactly these and
+/// nothing else — the point being that it can only claim to have verified bytes
+/// this write put on the wire.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WrittenRange {
+    /// Radio address range `[start, end)`, as sent.
+    pub start: u16,
+    pub end: u16,
+    /// Buffer offset of `start` in a downloaded image.
+    pub offset: usize,
+}
+
+impl WrittenRange {
+    pub fn main((start, end): (u16, u16)) -> Self {
+        Self { start, end, offset: main_offset(start) }
+    }
+    pub fn aux((start, end): (u16, u16)) -> Self {
+        Self { start, end, offset: aux_offset(start) }
+    }
+    fn len(&self) -> usize {
+        (self.end - self.start) as usize
+    }
+}
+
 /// Upload one main-block radio-address range [start, end) in 0x10-byte blocks.
 pub(crate) fn write_region(
     p: &mut dyn SerialPort,
@@ -859,7 +1012,7 @@ pub(crate) fn write_region(
 ) -> Result<(), String> {
     let mut addr = start;
     while addr < end {
-        let off = addr as usize + 8; // buffer offset = radio address + ident prefix
+        let off = main_offset(addr);
         send_block(p, addr, &image[off..off + 0x10])?;
         addr += 0x10;
     }
@@ -877,7 +1030,7 @@ pub(crate) fn write_aux_region(
 ) -> Result<(), String> {
     let mut addr = start;
     while addr < end {
-        let off = settings::AUX_IMAGE_BASE + (addr - settings::AUX_RADIO_BASE) as usize;
+        let off = aux_offset(addr);
         if off + 0x10 > image.len() {
             return Err(format!(
                 "aux block 0x{addr:04x} is past the downloaded image (no aux data read)"
@@ -923,6 +1076,100 @@ pub(crate) fn upload_full_image(p: &mut dyn SerialPort, image: &[u8]) -> Result<
 mod tests {
     use super::*;
     use crate::radios::driver::DriverCapabilities;
+
+    /// #62: the old verification decoded both sides and compared the decode, so
+    /// any byte `DecodedChannel` has no field for read back as "verified".
+    /// Bandwidth is the plainest case — the struct has no bandwidth field at
+    /// all, and `decoded_to_sample` hard-codes `mode: None`.
+    #[test]
+    fn verification_sees_a_byte_the_decode_cannot() {
+        let mut intended = vec![0u8; FULL_IMAGE_LEN];
+        // One programmed channel so the decode has something to look at.
+        intended[CHANNEL_BASE..CHANNEL_BASE + 4].copy_from_slice(&[0x00, 0x20, 0x65, 0x14]);
+        intended[NAME_BASE..NAME_BASE + 7].copy_from_slice(b"SIMPLEX");
+        // Byte 15 of the record is `(wide << 6) | (1 << 2)` (see `encode_channel`).
+        // Ask for NFM.
+        intended[CHANNEL_BASE + 15] = 0x04;
+
+        let mut readback = intended.clone();
+        readback[CHANNEL_BASE + 15] = 0x44; // radio kept it wide
+
+        // The decode is blind to it — this is what used to be compared.
+        assert!(decode_channels(&intended) == decode_channels(&readback));
+
+        let written = [WrittenRange::main(CHANNEL_ADDR), WrittenRange::main(NAME_ADDR)];
+        let (ok, note) = compare_written(&intended, &readback, &written);
+        assert!(!ok);
+        let note = note.unwrap();
+        assert!(note.contains("1 of 4096 bytes"), "{note}");
+        // Radio address, not buffer offset: CHANNEL_BASE is 0x0008 in the buffer.
+        assert!(note.contains("0x000F"), "{note}");
+        assert!(note.contains("wrote 0x04, read back 0x44"), "{note}");
+    }
+
+    /// A clean write reports verified, and an unchanged range is not silently
+    /// counted as one that was never written.
+    #[test]
+    fn verification_passes_only_when_every_written_byte_matches() {
+        let image = vec![0x5Au8; FULL_IMAGE_LEN];
+        let written = [
+            WrittenRange::main(CHANNEL_ADDR),
+            WrittenRange::main(NAME_ADDR),
+            WrittenRange::aux(settings::SETTINGS_AUX_RANGES[0]),
+        ];
+        assert_eq!(compare_written(&image, &image, &written), (true, None));
+
+        // An aux byte differs — the region the old decode never looked at.
+        let mut readback = image.clone();
+        let off = aux_offset(settings::SETTINGS_AUX_RANGES[0].0);
+        readback[off] = 0x00;
+        let (ok, note) = compare_written(&image, &readback, &written);
+        assert!(!ok);
+        assert!(note.unwrap().contains("0x1EE0"));
+
+        // An aux-less read-back leaves that range unverified rather than passing.
+        let short = image[..MIN_IMAGE_LEN].to_vec();
+        let (ok, note) = compare_written(&image, &short, &written);
+        assert!(!ok);
+        assert!(note.unwrap().contains("did not return the block"));
+
+        // And an empty written list never reports success.
+        assert!(!compare_written(&image, &image, &[]).0);
+    }
+
+    /// #61: the restore path used to accept any file of at least 0x1808 bytes.
+    /// `radio-backups/` sits right there in the picker holding TD-H3 images.
+    #[test]
+    fn restore_refuses_a_file_that_is_not_a_uv5r_image() {
+        let ident = |mut v: Vec<u8>| {
+            v[7] = IDENT_TERMINATOR;
+            v
+        };
+        // The two real shapes pass.
+        assert!(check_restore_image(&ident(vec![0u8; MIN_IMAGE_LEN])).is_ok());
+        assert!(check_restore_image(&ident(vec![0u8; FULL_IMAGE_LEN])).is_ok());
+
+        // A TD-H3 backup: 0x2008 bytes, and its ident is 0xDD-terminated too, so
+        // length is the only thing that separates them.
+        let tdh3 = ident(vec![0u8; 0x2008]);
+        let e = check_restore_image(&tdh3).unwrap_err();
+        assert!(e.contains("8200 bytes"), "{e}");
+
+        // The old check passed anything LONGER than the minimum, which is every
+        // one of these.
+        for len in [0x1809, 0x1947, 0x1949, 0x20000] {
+            assert!(
+                check_restore_image(&ident(vec![0u8; len])).is_err(),
+                "0x{len:X} should be refused"
+            );
+        }
+        // Too short, as before.
+        assert!(check_restore_image(&[0u8; 16]).is_err());
+
+        // Right length, no ident prefix.
+        let e = check_restore_image(&vec![0u8; FULL_IMAGE_LEN]).unwrap_err();
+        assert!(e.contains("does not start with a radio ident"), "{e}");
+    }
 
     #[test]
     fn capabilities_derive_image_programmer_and_settings_read() {

@@ -931,13 +931,10 @@ pub async fn backups_dir(app: AppHandle) -> Result<String, String> {
 pub async fn restore_image(port: String, path: String) -> Result<RestoreResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let image = std::fs::read(&path).map_err(|e| format!("could not read {path}: {e}"))?;
-        // Need at least the main block + names (image 0x1808) to be a real image.
-        if image.len() < uv5r::MIN_IMAGE_LEN {
-            return Err(format!(
-                "{path} is only {} bytes — not a UV-5R backup image.",
-                image.len()
-            ));
-        }
+        // Validate the FILE, not just the port: `radio-backups/` holds backups
+        // for every radio, and this path writes whatever it is handed straight
+        // into flash. (#61)
+        uv5r::check_restore_image(&image).map_err(|e| format!("{path}: {e}"))?;
 
         let mut p = uv5r::open_port(&port)?;
         let (magic, _ident) = uv5r::ident_radio(&mut *p)?;

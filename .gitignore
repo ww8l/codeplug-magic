@@ -41,7 +41,13 @@ PROJECT_STATE.md
 # Database backups. The app's "Backup database" writes a full copy of the
 # master database — every channel, call sign and location the operator has —
 # and the save dialog will happily land one inside the repo. Never committed.
+#
+# ⚠ This rule existed on a sibling branch and NOT on the one that mattered:
+# `ffb3a36` still committed a 43 MB backup (312,284 radioid.net records plus
+# the operator's own profiles) because the branch it was made on predated
+# these lines. A .gitignore rule only protects the branches that carry it.
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
 *.sqlite3.before-restore
+*.db

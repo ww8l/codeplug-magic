@@ -28,8 +28,8 @@ use crate::error::MapErrString;
 use crate::models::RadioModel;
 
 use super::anytone::{
-    diff_dumps, end_session, enter_program_and_ident, open_port, parse_dump, read_block,
-    write_block, AnytoneDumpDiff, AnytonePatchWriteResult, WRITE_WINDOW,
+    check_restore_blocks, diff_dumps, end_session, enter_program_and_ident, open_port, parse_dump,
+    read_block, write_block, AnytoneDumpDiff, AnytonePatchWriteResult,
 };
 // The plan/session half moved into the driver in 3.6b; the DTOs it returns are
 // the generic driver-level ones, so the wire shape (and the frontend) is
@@ -189,15 +189,7 @@ pub async fn restore_anytone_backup(
     if blocks.is_empty() {
         return Err(format!("{backup_path} contains no data blocks"));
     }
-    for (addr, data) in &blocks {
-        if !(*addr as usize).is_multiple_of(WRITE_WINDOW) || data.len() % WRITE_WINDOW != 0 {
-            return Err(format!(
-                "{backup_path}: block 0x{addr:08X}+0x{:X} is not 0x4000-aligned — not a \
-                 program backup",
-                data.len()
-            ));
-        }
-    }
+    check_restore_blocks(&blocks).map_err(|e| format!("{backup_path}: {e}"))?;
     tauri::async_runtime::spawn_blocking(move || {
         let mut p = open_port(&port)?;
         let _ident = enter_program_and_ident(&mut *p)?;
