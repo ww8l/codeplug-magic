@@ -2,41 +2,44 @@
 # 2,000 quota-minute cap made them expensive, and restored the same day once
 # the repo went public and standard runners became free.
 #
-# The cost is gone; the noise was real. The first run of the old config opened
-# eight PRs in one morning, because three ecosystems each filled a separate
-# per-package cap. Everything is grouped now, so a month's updates arrive as at
-# most one PR per ecosystem — three, not eight.
+# Grouping is minor+patch ONLY, deliberately. The first grouped run put ten
+# cargo bumps in one PR, three of them breaking majors — sqlx 0.8->0.9,
+# reqwest 0.12->0.13, md-5 0.10->0.11 — and 24 compile errors. The seven
+# harmless updates were stuck behind migrations nobody had scheduled, and the
+# PR could only say "the batch is broken".
 #
-# The trade for grouping: a red PR tells you something in the batch broke, not
-# which one. That is the right way round here. CI runs on these PRs again (the
-# dependabot[bot] guard in ci.yml is gone), so breakage is caught before a
-# release carries it, and splitting a bad group by hand is rarer work than
-# triaging eight PRs a month.
+# Majors therefore arrive as their own PRs. A routine batch merges on a green
+# tick; a breaking change shows up alone, correctly attributed, and waits until
+# someone wants to do the work. That is the split worth having: not by
+# ecosystem, but by whether a human has to think.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: "/"
     schedule:
       interval: monthly
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 5
     groups:
       npm:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: cargo
     directory: "/src-tauri"
     schedule:
       interval: monthly
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 5
     groups:
       cargo:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: monthly
-    open-pull-requests-limit: 1
+    open-pull-requests-limit: 3
     groups:
       actions:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
