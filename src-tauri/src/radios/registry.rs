@@ -32,6 +32,7 @@ static DRIVERS: [&dyn RadioDriver; 8] = [
     &super::icom_id52::DRIVER,
     &super::kenwood_thd75::DRIVER,
     &super::kenwood_thd72::DRIVER,
+    &super::kenwood_tmd710::DRIVER,
 ];
 
 pub(crate) fn all_drivers() -> &'static [&'static dyn RadioDriver] {
@@ -82,6 +83,8 @@ mod tests {
             "yaesu_ft5d",
             "icom_id52",
             "kenwood_thd75",
+            "kenwood_thd72",
+            "kenwood_tmd710",
         ] {
             let d = driver_for_key(key).unwrap_or_else(|| panic!("no driver for '{key}'"));
             assert_eq!(d.key(), key);
@@ -129,6 +132,14 @@ mod tests {
                 // caught anywhere downstream — this radio stored 127 in fields
                 // whose maxima are 9, 2, 3 and 1 (issue #43).
                 "binteradio_bt9000" => (true, true),
+                // The TM-D710 reads its whole menu in one `MU` line and could
+                // claim SettingsReader today. It does not, because the same
+                // capability flag would put a settings *write* in front of an
+                // operator, and **nothing has ever been written to this radio**
+                // (issue #113). Two of the published menu enums were already
+                // wrong when checked against the hardware. Identify only until
+                // the ladder in the `new-radio` skill has been climbed.
+                "kenwood_tmd710" => (false, false),
                 _ => (true, true),
             };
             assert_eq!(

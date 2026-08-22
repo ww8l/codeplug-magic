@@ -34,6 +34,12 @@ pub(crate) mod fake_port;
 pub(crate) mod icom_id52;
 pub(crate) mod kenwood_thd72;
 pub(crate) mod kenwood_thd75;
+pub(crate) mod kenwood_tmd710;
+/// Phase 1 capture harness for the TM-D710 (#113). Throwaway, like the FT5D's
+/// `hw_probe`: it measures, it is never linked into the app, and it goes when
+/// the driver it is informing exists.
+#[cfg(test)]
+mod kenwood_tmd710_probe;
 pub(crate) mod port_lock;
 pub(crate) mod registry;
 pub(crate) mod settings_bounds;
