@@ -17,6 +17,23 @@ use crate::util::{
     gen_name_long, gen_name_short, keeps_dcs, repair_truncated_tx, truncate,
 };
 
+/// Which optional columns the export a record came from actually carries.
+///
+/// `Option::None` is ambiguous on its own and the two readings need opposite
+/// handling on a re-import: in a column the export *has*, None means
+/// RepeaterBook reports nothing there and the stored value should follow it
+/// down; in a column the export does not have, None means we know nothing and
+/// whatever is stored must survive untouched.
+///
+/// Only the premium JSON carries link node numbers, and only the wide CSV
+/// carries Operational Status, so every export is missing something here.
+#[derive(Debug, Clone, Copy)]
+struct SourceColumns {
+    /// allstar_node, echolink_node, irlp_node, wires_node.
+    link_nodes: bool,
+    operational_status: bool,
+}
+
 /// A single RepeaterBook record (from CSV or JSON) parsed and mapped into our
 /// schema, ready to be inserted or previewed. Serialized directly to the import
 /// preview so the UI can show every field that will be imported.
@@ -64,6 +81,9 @@ pub struct ParsedChannel {
     latitude: Option<f64>,
     longitude: Option<f64>,
     notes: Option<String>,
+    /// Not part of the preview: this describes the *export*, not the channel.
+    #[serde(skip)]
+    covers: SourceColumns,
 }
 
 /// The full parsed result shown before confirming an import. `rows` is capped
@@ -305,11 +325,24 @@ async fn merge_existing(
         ex.ctcss_downlink,
         p.ctcss_downlink,
     );
-    let (operational_status, rb_status, status_over) = merge_tracked_str(
-        ex.operational_status_overridden,
-        ex.operational_status.clone(),
-        p.operational_status.clone(),
-    );
+    // An export with no Status column says nothing about status, so it must not
+    // drive the tracked triple: merge_tracked_str would read its None as "RB
+    // reports nothing", blank the field AND its rb_ snapshot, and reset the
+    // override flag — losing the baseline that decides future overrides. Both
+    // real exports lack the column, so this is the common path, not the corner.
+    let (operational_status, rb_status, status_over) = if p.covers.operational_status {
+        merge_tracked_str(
+            ex.operational_status_overridden,
+            ex.operational_status.clone(),
+            p.operational_status.clone(),
+        )
+    } else {
+        (
+            ex.operational_status.clone(),
+            None, // ignored by the CASE below; the stored snapshot is kept
+            ex.operational_status_overridden,
+        )
+    };
     let (notes, rb_notes, notes_over) =
         merge_tracked_str(ex.notes_overridden, ex.notes.clone(), p.notes.clone());
     let has_overrides = up_over || dn_over || status_over || notes_over;
@@ -347,10 +380,16 @@ async fn merge_existing(
             dmr_color_code = ?12, dstar_capable = ?13, ysf_capable = ?14,
             nxdn_capable = ?15, p25_capable = ?16, p25_nac = ?17,
             m17_capable = ?18, tetra_capable = ?19,
-            allstar_node = ?20, echolink_node = ?21, irlp_node = ?22,
-            wires_node = ?23,
+            -- Gated on ?43/?44, not COALESCE. COALESCE would also block the
+            -- one export that DOES carry these from ever clearing a value
+            -- RepeaterBook has removed; the flag distinguishes "the export
+            -- says empty" from "the export has no such column".
+            allstar_node = CASE WHEN ?43 THEN ?20 ELSE allstar_node END,
+            echolink_node = CASE WHEN ?43 THEN ?21 ELSE echolink_node END,
+            irlp_node = CASE WHEN ?43 THEN ?22 ELSE irlp_node END,
+            wires_node = CASE WHEN ?43 THEN ?23 ELSE wires_node END,
             use_type = COALESCE(?24, use_type),
-            operational_status = ?25,
+            operational_status = CASE WHEN ?44 THEN ?25 ELSE operational_status END,
             city = ?26, county = ?27, country = ?28,
             -- COALESCE, not a straight write: an export with no such column
             -- reports None and must leave what another export established.
@@ -361,7 +400,8 @@ async fn merge_existing(
             dcs_rx_code = COALESCE(?32, dcs_rx_code),
             notes = ?33,
             rb_ctcss_uplink = ?34, rb_ctcss_downlink = ?35,
-            rb_operational_status = ?36, rb_notes = ?37,
+            rb_operational_status = CASE WHEN ?44 THEN ?36 ELSE rb_operational_status END,
+            rb_notes = ?37,
             ctcss_uplink_overridden = ?38, ctcss_downlink_overridden = ?39,
             operational_status_overridden = ?40, notes_overridden = ?41,
             has_overrides = ?42,
@@ -411,6 +451,8 @@ async fn merge_existing(
     .bind(status_over)
     .bind(notes_over)
     .bind(has_overrides)
+    .bind(p.covers.link_nodes) // ?43
+    .bind(p.covers.operational_status) // ?44
     .execute(&mut *tx)
     .await
     .estr()?;
@@ -637,6 +679,7 @@ fn parse_repeaterbook_full_csv(path: &str) -> Result<Vec<ParsedChannel>, String>
             ctcss_downlink,
             dcs_code: None,
             dcs_rx_code: None,
+            covers: SourceColumns { link_nodes: false, operational_status: true },
             dmr_color_code,
             dstar_capable,
             ysf_capable,
@@ -967,6 +1010,7 @@ fn parse_repeaterbook_standard_csv(path: &str) -> Result<Vec<ParsedChannel>, Str
             ctcss_downlink,
             dcs_code,
             dcs_rx_code,
+            covers: SourceColumns { link_nodes: false, operational_status: false },
             dmr_color_code,
             dstar_capable: modes.dstar,
             ysf_capable: modes.ysf,
@@ -1115,6 +1159,7 @@ fn parse_repeaterbook_json(path: &str) -> Result<Vec<ParsedChannel>, String> {
             ctcss_downlink,
             dcs_code: None,
             dcs_rx_code: None,
+            covers: SourceColumns { link_nodes: true, operational_status: false },
             dmr_color_code,
             dstar_capable,
             ysf_capable,
@@ -1765,6 +1810,109 @@ mod tests {
         // What the CSV does carry is still applied.
         assert_eq!(after.city.as_deref(), Some("Anytown"));
         assert_eq!(after.notes.as_deref(), Some("Landmark: Sample Hill"));
+    }
+
+    #[tokio::test]
+    async fn a_free_csv_reimport_keeps_link_nodes_and_status_it_cannot_see() {
+        let dir = std::env::temp_dir().join(format!("cpm_csv_cover_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok();
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        // The premium JSON is the only export that carries link node numbers.
+        let json = r#"{"records":[{
+            "freq_mhz":"145.110","input_freq":"144.510","callsign":"QQ0AAA",
+            "state":"CO","city":"Anytown","pl_tone":"100.0",
+            "allstar_node":"48291","echolink_node":"12345",
+            "irlp_node_id":"7700","wires_node":"21001"
+        }]}"#;
+        let jpath = dir.join("rb.json");
+        std::fs::write(&jpath, json).expect("write json");
+        let from_json = parse_repeaterbook_json(jpath.to_str().unwrap()).expect("parse json");
+        insert_parsed(&pool, &from_json).await.expect("premium import");
+
+        // Operational Status comes only from the wide CSV, so seed it directly.
+        sqlx::query(
+            "UPDATE channels SET operational_status = 'On Air', \
+             rb_operational_status = 'On Air' WHERE callsign = 'QQ0AAA'",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed status");
+
+        // Now the same repeater from the free CSV, which has neither column.
+        let from_csv = parse_repeaterbook_standard_csv(
+            "../sample-data/repeaterbook-standard-sample.csv",
+        )
+        .expect("parse csv");
+        let summary = insert_parsed(&pool, &from_csv).await.expect("csv import");
+        assert_eq!(summary.updated, 1, "QQ0AAA merged rather than duplicating");
+
+        let after = sqlx::query_as::<_, crate::models::Channel>(
+            "SELECT * FROM channels WHERE callsign = 'QQ0AAA'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("row");
+
+        // The failure this exists for: the CSV reports None for all five
+        // because it has no such column, and a straight write turns that into
+        // a silent delete. None of these are editable in the UI, so the only
+        // way back would be another premium import.
+        assert_eq!(after.allstar_node.as_deref(), Some("48291"), "AllStar node wiped");
+        assert_eq!(after.echolink_node.as_deref(), Some("12345"), "EchoLink node wiped");
+        assert_eq!(after.irlp_node.as_deref(), Some("7700"), "IRLP node wiped");
+        assert_eq!(after.wires_node.as_deref(), Some("21001"), "Wires-X node wiped");
+        assert_eq!(after.operational_status.as_deref(), Some("On Air"), "Status wiped");
+        // The snapshot has to survive too, or the next override comparison has
+        // no baseline to work from.
+        let snap: Option<String> = sqlx::query_scalar(
+            "SELECT rb_operational_status FROM channels WHERE callsign = 'QQ0AAA'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(snap.as_deref(), Some("On Air"), "Status rb_ snapshot wiped");
+    }
+
+    #[tokio::test]
+    async fn the_export_that_does_carry_nodes_can_still_clear_one() {
+        // The other half of the rule: a flat COALESCE would have made these
+        // columns write-once, so an export that HAS the column must still be
+        // able to report that RepeaterBook dropped the node.
+        let dir = std::env::temp_dir().join(format!("cpm_csv_clear_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok();
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        let with_node = r#"{"records":[{
+            "freq_mhz":"145.110","input_freq":"144.510","callsign":"QQ0AAA",
+            "state":"CO","city":"Anytown","echolink_node":"12345"
+        }]}"#;
+        let p1 = dir.join("a.json");
+        std::fs::write(&p1, with_node).unwrap();
+        insert_parsed(&pool, &parse_repeaterbook_json(p1.to_str().unwrap()).unwrap())
+            .await
+            .expect("first");
+
+        let node_gone = r#"{"records":[{
+            "freq_mhz":"145.110","input_freq":"144.510","callsign":"QQ0AAA",
+            "state":"CO","city":"Anytown","echolink_node":""
+        }]}"#;
+        let p2 = dir.join("b.json");
+        std::fs::write(&p2, node_gone).unwrap();
+        insert_parsed(&pool, &parse_repeaterbook_json(p2.to_str().unwrap()).unwrap())
+            .await
+            .expect("second");
+
+        let node: Option<String> =
+            sqlx::query_scalar("SELECT echolink_node FROM channels WHERE callsign = 'QQ0AAA'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(node, None, "a delisted node must actually clear");
     }
 
     #[tokio::test]
