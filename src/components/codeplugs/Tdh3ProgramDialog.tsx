@@ -22,6 +22,7 @@ import type {
 } from "../../lib/types";
 import { Modal } from "../overlays";
 import { Button, Spinner, Select } from "../ui";
+import { WarningList } from "./ReportWarnings";
 import { Tdh3RadioOptions } from "./Tdh3RadioOptions";
 import {
   driverKeyOf,
@@ -327,6 +328,7 @@ export function Tdh3ProgramDialog({
                   : `Wrote ${program.channels_written} channel${program.channels_written === 1 ? "" : "s"} — verification warning`
               }
               note={program.note ?? undefined}
+              warnings={program.warnings}
               backupPath={program.backup_path}
               backupLabel="Pre-write backup"
               channels={program.channels}
@@ -350,6 +352,7 @@ function ResultBlock({
   ok,
   heading,
   note,
+  warnings,
   backupPath,
   backupLabel,
   channels,
@@ -358,6 +361,9 @@ function ResultBlock({
   ok: boolean;
   heading: string;
   note?: string;
+  /// What the write did differently from what was asked. The command layer
+  /// fills this for every driver; only the AnyTone dialog was reading it.
+  warnings?: string[];
   backupPath: string;
   backupLabel: string;
   // Both the generic download sample and the TD-H3 program result feed this;
@@ -383,6 +389,8 @@ function ResultBlock({
       </div>
 
       {note && <p className="text-[11px] text-amber-700 dark:text-amber-300">{note}</p>}
+
+      {warnings && warnings.length > 0 && <WarningList warnings={warnings} />}
 
       <div className="text-[11px] text-slate-500 dark:text-slate-400">
         {backupLabel}:{" "}

@@ -24,6 +24,7 @@ import type {
   RadioIdent,
 } from "../../lib/types";
 import { Modal } from "../overlays";
+import { WarningList } from "./ReportWarnings";
 import { Button, Spinner, Select } from "../ui";
 import {
   driverKeyOf,
@@ -551,6 +552,7 @@ export function ProgramRadioDialog({
                       : "")
                   }
                   note={program.note ?? undefined}
+                  warnings={program.warnings}
                   backupPath={program.backup_path}
                   backupLabel="Pre-write backup"
                   channels={program.channels}
@@ -638,6 +640,7 @@ function ResultBlock({
   ok,
   heading,
   note,
+  warnings,
   backupPath,
   backupLabel,
   channels,
@@ -645,6 +648,10 @@ function ResultBlock({
   ok: boolean;
   heading: string;
   note?: string;
+  /// Things the write did differently from what was asked — a settings value
+  /// outside its schema's range and left behind, for one. The command layer
+  /// fills these for every driver; only the AnyTone dialog was reading them.
+  warnings?: string[];
   backupPath: string;
   backupLabel: string;
   channels: { index: number; name: string; rx_mhz: number; tone: string; power: string }[];
@@ -669,6 +676,8 @@ function ResultBlock({
       {note && (
         <p className="text-[11px] text-amber-700 dark:text-amber-300">{note}</p>
       )}
+
+      {warnings && warnings.length > 0 && <WarningList warnings={warnings} />}
 
       <div className="text-[11px] text-slate-500 dark:text-slate-400">
         {backupLabel}:{" "}
