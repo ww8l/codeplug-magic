@@ -26,6 +26,19 @@ pub fn lookup(name: &str) -> Option<(&'static str, &'static str)> {
         .map(|(_, code, country)| (*code, *country))
 }
 
+/// Resolve a two-letter postal code to `(code, country)`.
+///
+/// [`lookup`] matches spelled-out names only, so a file that writes `Colorado`
+/// on one row and `CO` on the next used to get a country on the first and
+/// nothing on the second — one import, two countries, and country is a filter.
+pub fn lookup_code(code: &str) -> Option<(&'static str, &'static str)> {
+    let key = code.trim().to_ascii_uppercase();
+    TABLE
+        .iter()
+        .find(|(_, c, _)| *c == key)
+        .map(|(_, code, country)| (*code, *country))
+}
+
 const US: &str = "United States";
 const CA: &str = "Canada";
 

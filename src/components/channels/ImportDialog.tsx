@@ -216,7 +216,7 @@ export function ImportDialog({
   // merges, a mapped one skips.
   const mergeNote =
     kind === "native"
-      ? "duplicates (same RepeaterBook ID, or same name + frequency for manual channels) are skipped. Full details (DCS, power, talkgroups) are restored from the backup even though the preview shows only the common fields."
+      ? "duplicates (same RepeaterBook ID, or same name + frequency for manual channels) are skipped. Everything the backup holds is restored, including fields the preview has no column for."
       : kind === "mapped-csv"
         ? "channels you already have (same name + frequencies) are skipped, not merged — this file is not RepeaterBook data, so nothing here can tell a stale column from an edit you made in the app."
         : "existing channels (matched on RepeaterBook ID) are refreshed from this export — mode, tones, status and location are updated, while your custom names and any field edits you've made are preserved.";
