@@ -646,13 +646,52 @@ fn guess_mapping(columns: &[CsvColumn], samples: &[Vec<String>]) -> ColumnMappin
     let mut taken: HashSet<usize> = HashSet::new();
     let mut out = ColumnMapping::new();
 
+    // Pass 1: the shape has to agree, so a column whose values settle the
+    // question goes to the field those values belong to.
+    claim(columns, samples, &mut taken, &mut out, false);
+    // Pass 2: whatever is left may claim a column that is *blank in every
+    // sampled row*, which proves no shape either way.
+    //
+    // Leaving those unmapped was worse than picking. CHIRP's `Tone` column
+    // holds the tone mode and is empty on a channel with no tone; in a file
+    // whose first rows are all tone-free it is empty in every sampled row. Left
+    // unmapped, nothing said "no tone" — and CHIRP writes `DtcsCode` on every
+    // row whether or not it is live, so the derivation resurrected the inert
+    // code and the whole file imported squelched on DCS 023, unable to key.
+    //
+    // Catalogue order decides, and it is chosen for this: `tone_mode` precedes
+    // `ctcss_uplink`, so a blank `Tone` becomes the mode (whose blank cells
+    // then read as an explicit "off") rather than a tone frequency that is
+    // blank anyway.
+    claim(columns, samples, &mut taken, &mut out, true);
+    out
+}
+
+/// One matching pass. `empty_only` selects the fallback: with it off a
+/// shape-qualified alias needs the shape to match, with it on it needs the
+/// column to have had nothing to judge.
+fn claim(
+    columns: &[CsvColumn],
+    samples: &[Vec<String>],
+    taken: &mut HashSet<usize>,
+    out: &mut ColumnMapping,
+    empty_only: bool,
+) {
     for field in FIELDS {
+        if out.contains_key(field.def.key) {
+            continue;
+        }
         let found = field.aliases.iter().find_map(|alias| {
             columns.iter().position(|c| {
-                !taken.contains(&c.index)
-                    && normalize(&c.header) == alias.header
-                    && (alias.shape == Shape::Any
-                        || column_shape(&samples[c.index]) == Some(alias.shape))
+                if taken.contains(&c.index) || normalize(&c.header) != alias.header {
+                    return false;
+                }
+                let shape = column_shape(&samples[c.index]);
+                if empty_only {
+                    shape.is_none()
+                } else {
+                    alias.shape == Shape::Any || shape == Some(alias.shape)
+                }
             })
         });
         if let Some(index) = found {
@@ -660,7 +699,6 @@ fn guess_mapping(columns: &[CsvColumn], samples: &[Vec<String>]) -> ColumnMappin
             out.insert(field.def.key.to_string(), index);
         }
     }
-    out
 }
 
 // ============================================================
@@ -715,7 +753,7 @@ pub(crate) fn parse_mapped_csv(
 
         // No frequency, no channel. A blank line and a trailing total row both
         // land here, which is why this is a skip and not an error.
-        let rx_freq = match cell(&rec, "rx_freq").as_deref().and_then(parse_leading_f64) {
+        let rx_freq = match parse_freq_cell(cell(&rec, "rx_freq")) {
             Some(f) => f,
             None => continue,
         };
@@ -723,11 +761,11 @@ pub(crate) fn parse_mapped_csv(
         // TX comes from its own column when there is one. Otherwise it is built
         // from the offset, whose sign comes from the duplex column when the
         // offset itself is unsigned — which is how CHIRP writes it.
-        let tx_freq = match cell(&rec, "tx_freq").as_deref().and_then(parse_leading_f64) {
+        let tx_freq = match parse_freq_cell(cell(&rec, "tx_freq")) {
             Some(f) => Some(f),
             None => offset_to_tx(
                 rx_freq,
-                cell(&rec, "offset").as_deref().and_then(parse_leading_f64),
+                parse_freq_cell(cell(&rec, "offset")),
                 cell(&rec, "duplex").as_deref(),
             ),
         };
@@ -738,7 +776,11 @@ pub(crate) fn parse_mapped_csv(
         // A spelled-out region becomes its postal code, matching what the
         // RepeaterBook importer stores, so the two libraries filter alike.
         let raw_state = cell(&rec, "state");
-        let region = raw_state.as_deref().and_then(super::rb_regions::lookup);
+        // A spelled-out name first, then the postal code, so one file cannot
+        // resolve a country on its `Colorado` rows and none on its `CO` rows.
+        let region = raw_state.as_deref().and_then(|s| {
+            super::rb_regions::lookup(s).or_else(|| super::rb_regions::lookup_code(s))
+        });
         let state = match region {
             Some((code, _)) => Some(code.to_string()),
             None => raw_state,
@@ -1031,6 +1073,28 @@ impl Scheme {
     }
 }
 
+/// Read a frequency cell in MHz, refusing one whose number was cut short.
+///
+/// [`parse_leading_f64`] takes the leading run of digits and `.`/`+`/`-` and
+/// parses that, which turns a decimal-comma `145,110` into `145.0` — a channel
+/// 110 kHz off that looks entirely plausible in a preview of 300 rows. This is
+/// the one required field, and everywhere else the module prefers a blank the
+/// operator must fill over a confident wrong value, so it does the same here:
+/// if the character that stopped the parse is a comma or another digit, the
+/// number was cut in half and the cell is refused. A trailing unit (`146.520
+/// MHz`) took nothing out of the number and still reads.
+fn parse_freq_cell(cell: Option<String>) -> Option<f64> {
+    let raw = cell?;
+    let raw = raw.trim();
+    let end = raw
+        .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+'))
+        .unwrap_or(raw.len());
+    if raw[end..].starts_with([',', '\'']) || raw[end..].starts_with(|c: char| c.is_ascii_digit()) {
+        return None;
+    }
+    parse_leading_f64(&raw[..end])
+}
+
 /// Read a DCS cell as the 3-digit octal code the channels table stores.
 ///
 /// CHIRP writes a bare `023` where RepeaterBook writes `D023`; both are the
@@ -1040,6 +1104,10 @@ fn read_dcs(cell: Option<String>) -> Option<String> {
     let raw = cell?.trim().to_uppercase();
     let prefixed = if raw.starts_with('D') { raw } else { format!("D{raw}") };
     match parse_rb_tone(Some(prefixed)) {
+        // There is no DCS code 000 — the standard list starts at 023. `0` is
+        // how a spreadsheet spells "no DCS", and zero-padding it to a code
+        // would squelch every channel in the file on a tone no repeater sends.
+        RbTone::Dcs(code) if code == "000" => None,
         RbTone::Dcs(code) => Some(code),
         _ => None,
     }
@@ -1578,6 +1646,106 @@ mod tests {
         assert_eq!(rx_tone.samples, vec!["131.8"]);
     }
 
+    /// Write a CSV into a temp dir and return its path.
+    fn tmp_csv(tag: &str, body: &str) -> String {
+        let dir = std::env::temp_dir().join(format!("cpm_csvmap_{tag}_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("{tag}.csv"));
+        std::fs::write(&path, body).unwrap();
+        path.to_str().unwrap().to_string()
+    }
+
+    /// A column that is blank in every sampled row cannot prove its shape, and
+    /// used to go unmapped entirely. For CHIRP's `Tone` that is the worst
+    /// possible outcome: CHIRP writes `DtcsCode` on every row whether or not
+    /// it is live, so with no tone-mode column the derivation resurrects the
+    /// inert code and every channel imports squelched on DCS 023 — unable to
+    /// key its repeater. This is the exact failure the module exists to avoid.
+    #[tokio::test]
+    async fn a_tone_column_blank_in_every_sampled_row_is_still_the_tone_mode() {
+        let mut body = String::from("Location,Name,Frequency,Tone,rToneFreq,cToneFreq,DtcsCode\n");
+        for i in 0..30 {
+            body.push_str(&format!("{i},Ch {i},146.{:03},,88.5,88.5,023\n", 400 + i));
+        }
+        let path = tmp_csv("blank_tone", &body);
+
+        let ins = inspect(&path).await;
+        assert_eq!(mapped(&ins, "tone_mode"), Some("Tone"));
+
+        let rows = parse(&path, &ins.guess);
+        assert_eq!(rows.len(), 30);
+        for r in &rows {
+            assert_eq!(r.tone_mode, "off", "{} must not be squelched", r.name_long);
+            assert_eq!(r.dcs_code, None);
+        }
+    }
+
+    /// `0` is how a spreadsheet spells "no DCS". Zero-padding it to `000` and
+    /// treating that as a code puts DCS squelch on every channel in the file.
+    /// There is no DCS code 000 — the standard list starts at 023.
+    #[tokio::test]
+    async fn a_zero_in_a_dcs_column_is_no_code_not_code_000() {
+        assert_eq!(read_dcs(Some("0".to_string())), None);
+        assert_eq!(read_dcs(Some("000".to_string())), None);
+        assert_eq!(read_dcs(Some("D000".to_string())), None);
+        // A real code still reads, with or without the D.
+        assert_eq!(read_dcs(Some("023".to_string())).as_deref(), Some("023"));
+        assert_eq!(read_dcs(Some("D023".to_string())).as_deref(), Some("023"));
+
+        let path = tmp_csv(
+            "zero_dcs",
+            "Call,Frequency,DCS\nQQ0AAA,145.11,0\nQQ0BBB,145.13,023\n",
+        );
+        let ins = inspect(&path).await;
+        let rows = parse(&path, &ins.guess);
+        assert_eq!(rows[0].tone_mode, "off");
+        assert_eq!(rows[0].dcs_code, None);
+
+        // A lone DCS column with no tone-mode column beside it reads as TX DCS
+        // with RX open, not as the same code both ways. The code still goes out
+        // and keys the repeater; assuming the downlink code as well would mute
+        // the operator whenever the repeater sends a different one. This is the
+        // RepeaterBook path's own reading of an uplink-only DCS, unchanged.
+        assert_eq!(rows[1].tone_mode, "Cross");
+        assert_eq!(rows[1].cross_mode, "DTCS->");
+        assert_eq!(rows[1].dcs_code.as_deref(), Some("023"));
+    }
+
+    /// The required field is the one place a confident wrong value is worst: a
+    /// decimal-comma frequency parsed as its integer part imports a channel
+    /// 110 kHz off, which looks entirely plausible in a preview of 300 rows.
+    #[tokio::test]
+    async fn a_frequency_cut_short_by_a_separator_is_refused_not_truncated() {
+        let path = tmp_csv(
+            "comma_freq",
+            "Call,Frequency\nQQ0AAA,\"145,110\"\nQQ0BBB,145.130\nQQ0CCC,146.520 MHz\n",
+        );
+        let ins = inspect(&path).await;
+        let rows = parse(&path, &ins.guess);
+        // The decimal-comma row is skipped rather than imported at 145.0; a
+        // trailing unit is still fine, since nothing was cut out of the number.
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].rx_freq, 145.13);
+        assert_eq!(rows[1].rx_freq, 146.52);
+    }
+
+    /// One file must not produce two countries. `Colorado` resolves through the
+    /// region table and `CO` did not, so a mixed file imported half its rows
+    /// with a country and half without — and country is a filter.
+    #[tokio::test]
+    async fn a_postal_code_resolves_the_same_country_as_the_spelled_out_name() {
+        let rows = parse_with_guess(CLUB).await;
+        assert!(rows.iter().all(|r| r.state.as_deref() == Some("CO")));
+        for r in &rows {
+            assert_eq!(
+                r.country.as_deref(),
+                Some("United States"),
+                "{} disagrees with the rest of the file",
+                r.name_long,
+            );
+        }
+    }
+
     // ============================================================
     // Insert
     // ============================================================
@@ -1661,6 +1829,10 @@ mod tests {
         }
     }
 
+    /// Within a pass, no header may be claimable by two fields on shape alone —
+    /// otherwise the guess would depend on catalogue order rather than on the
+    /// values. (Order *is* the tie-break in the empty-column fallback pass, on
+    /// purpose; see `guess_mapping`.)
     #[test]
     fn no_two_fields_claim_the_same_header_and_shape() {
         let mut seen: Vec<(&str, Shape, &str)> = Vec::new();

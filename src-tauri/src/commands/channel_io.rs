@@ -74,6 +74,12 @@ pub struct BackupPreviewRow {
     dcs_code: Option<String>,
     dcs_rx_code: Option<String>,
     dmr_color_code: Option<i64>,
+    /// Carried so this row satisfies the same TS contract as the importers'
+    /// `ParsedChannel` — the preview table is shared, and a backup does hold
+    /// these three where a RepeaterBook export does not.
+    dmr_timeslot: Option<i64>,
+    dmr_talkgroup: Option<i64>,
+    power: Option<String>,
     dstar_capable: bool,
     ysf_capable: bool,
     nxdn_capable: bool,
@@ -447,6 +453,9 @@ fn preview_row(c: &Channel) -> BackupPreviewRow {
         tone_mode: c.tone_mode.clone().unwrap_or_default(),
         ctcss_uplink: c.ctcss_uplink,
         ctcss_downlink: c.ctcss_downlink,
+        dmr_timeslot: c.dmr_timeslot,
+        dmr_talkgroup: c.dmr_talkgroup,
+        power: c.power.clone(),
         dcs_code: c.dcs_code.clone(),
         dcs_rx_code: c.dcs_rx_code.clone(),
         dmr_color_code: c.dmr_color_code,
