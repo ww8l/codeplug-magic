@@ -77,8 +77,10 @@ export function ColumnMapper({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-3">
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          This CSV isn't a RepeaterBook export, so its columns were matched to
-          channel fields by name. Check them — anything left as{" "}
+          {inspection.recognized
+            ? `This is a ${inspection.recognized}, which has its own importer — mapping the columns yourself overrides it.`
+            : "This CSV isn't a RepeaterBook export, so its columns were matched to channel fields by name."}{" "}
+          Check them — anything left as{" "}
           <span className="italic">Not imported</span> is skipped.
         </p>
         <Button onClick={() => onChange(inspection.guess)}>
