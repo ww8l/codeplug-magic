@@ -1,0 +1,9 @@
+Location,Name,Frequency,Duplex,Offset,Tone,rToneFreq,cToneFreq,DtcsCode,DtcsPolarity,RxDtcsCode,CrossMode,Mode,TStep,Skip,Power,Comment,URCALL,RPT1CALL,RPT2CALL,DVCODE
+0,Anytown,145.110000,-,0.600000,Tone,100.0,88.5,023,NN,023,Tone->Tone,FM,5.00,,50W,QQ0AAA machine,,,,
+1,Testville,145.130000,-,0.600000,TSQL,88.5,88.5,023,NN,023,Tone->Tone,FM,5.00,,50W,QQ0BBB,,,,
+2,Sampleton,146.520000,,0.000000,,88.5,88.5,023,NN,023,Tone->Tone,FM,5.00,,5W,national simplex,,,,
+3,Nowhere,442.100000,+,5.000000,DTCS,88.5,88.5,073,NN,073,Tone->Tone,FM,5.00,,High,QQ0CCC DCS machine,,,,
+4,Sampleton DV,145.170000,-,0.600000,,88.5,88.5,023,NN,023,Tone->Tone,DV,5.00,,Low,QQ0DDD D-STAR,CQCQCQ,QQ0DDD B,QQ0DDD G,
+5,Nowhere NFM,446.000000,,0.000000,,88.5,88.5,023,NN,023,Tone->Tone,NFM,5.00,,Med,simplex narrow,,,,
+6,Cross Test,147.000000,-,0.600000,Cross,110.9,88.5,047,NN,051,Tone->DTCS,FM,5.00,,High,QQ0JJJ cross scheme,,,,
+7,Reverse Sql,147.030000,-,0.600000,TSQL-R,107.2,107.2,023,NN,023,Tone->Tone,FM,5.00,,High,reverse squelch,,,,

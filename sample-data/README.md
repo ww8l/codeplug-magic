@@ -10,6 +10,8 @@ whatever sits in here.
 | `repeaterbook-full-sample.json` | `parses_sample_repeaterbook_json` | The RepeaterBook "Full Data" JSON export *shape*, with invented records. |
 | `repeaterbook-sample.csv` | `parses_sample_repeaterbook_csv` | The wide RepeaterBook CSV shape, with invented records. No real export we have has this shape. |
 | `repeaterbook-standard-sample.csv` | `parses_sample_standard_csv` and the tone/mode tests | The free-tier CSV export shape, with invented records. Column names and value vocabulary match three real exports; every record is fabricated. |
+| `chirp-sample.csv` | the `csv_map` tests | A CHIRP export's column set, with invented channels. Exercises the header collisions the column guesser has to resolve by value (`Tone`, `Offset`, `Location`) and CHIRP's habit of filling every tone column whether or not it is live. |
+| `generic-club-sample.csv` | the `csv_map` tests | A plain club spreadsheet, with invented channels — the case issue #115 exists for. Includes a row with no frequency and a row with DMR columns filled on an FM channel. |
 | `talkgroups-sample.csv` | `parse_talkgroup_csv` test | Invented talkgroups, including two malformed rows the parser must skip. |
 
 ## Rules for anything added here

@@ -127,6 +127,10 @@ pub fn run() {
             commands::import::import_csv,
             commands::import::preview_json_import,
             commands::import::import_json,
+            // any other CSV: map its columns to channel fields (#115)
+            commands::csv_map::inspect_csv,
+            commands::csv_map::preview_mapped_csv,
+            commands::csv_map::import_mapped_csv,
             // native channel backup (export / re-import selected channels)
             commands::channel_io::export_channels,
             commands::channel_io::is_channel_backup,
