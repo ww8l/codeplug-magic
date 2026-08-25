@@ -731,6 +731,11 @@ export interface ImportPreviewRow {
   dcs_code: string | null;
   dcs_rx_code: string | null;
   dmr_color_code: number | null;
+  /// Only a mapped CSV import (#115) fills these; every RepeaterBook path
+  /// leaves them null.
+  dmr_timeslot: number | null;
+  dmr_talkgroup: number | null;
+  power: string | null;
   dstar_capable: boolean;
   ysf_capable: boolean;
   nxdn_capable: boolean;
@@ -756,6 +761,42 @@ export interface ImportPreviewRow {
 export interface ImportPreview {
   total: number;
   rows: ImportPreviewRow[];
+}
+
+// ============================================================
+// Mapping an arbitrary CSV's columns onto channel fields (#115)
+// ============================================================
+
+/** Mirrors the Rust `FieldKind`. */
+export type CsvFieldKind = "text" | "freq" | "tone" | "dcs" | "number" | "enum";
+
+/** A channel field a CSV column can be mapped onto. Mirrors `MappableField`. */
+export interface CsvMappableField {
+  key: string;
+  label: string;
+  group: string;
+  kind: CsvFieldKind;
+  required: boolean;
+  help: string;
+}
+
+export interface CsvColumn {
+  index: number;
+  header: string;
+  /** A few non-empty values from the top of the file. */
+  samples: string[];
+}
+
+/** Field key -> zero-based column index. A field absent here is not mapped. */
+export type ColumnMapping = Record<string, number>;
+
+export interface CsvInspection {
+  /** Set when the file is a RepeaterBook export and has its own importer. */
+  recognized: string | null;
+  columns: CsvColumn[];
+  row_count: number;
+  guess: ColumnMapping;
+  fields: CsvMappableField[];
 }
 
 export interface ImportSummary {

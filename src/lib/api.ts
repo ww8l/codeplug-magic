@@ -20,6 +20,8 @@ import type {
   ExportPreview,
   ImportPreview,
   ImportSummary,
+  CsvInspection,
+  ColumnMapping,
   StandardListInfo,
   StandardImportSummary,
   RadioModel,
@@ -103,6 +105,14 @@ export const api = {
   previewJsonImport: (path: string) =>
     invoke<ImportPreview>("preview_json_import", { path }),
   importJson: (path: string) => invoke<ImportSummary>("import_json", { path }),
+
+  // Any other CSV: inspect it, map its columns, then preview and import under
+  // that mapping (#115).
+  inspectCsv: (path: string) => invoke<CsvInspection>("inspect_csv", { path }),
+  previewMappedCsv: (path: string, mapping: ColumnMapping) =>
+    invoke<ImportPreview>("preview_mapped_csv", { path, mapping }),
+  importMappedCsv: (path: string, mapping: ColumnMapping) =>
+    invoke<ImportSummary>("import_mapped_csv", { path, mapping }),
 
   // ---- native channel backup (export / re-import selected channels) ----
   exportChannels: (ids: number[], path: string) =>

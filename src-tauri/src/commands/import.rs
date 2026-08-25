@@ -28,14 +28,14 @@ use crate::util::{
 /// Only the premium JSON carries link node numbers, and only the wide CSV
 /// carries Operational Status, so every export is missing something here.
 #[derive(Debug, Clone, Copy)]
-struct SourceColumns {
+pub(crate) struct SourceColumns {
     /// allstar_node, echolink_node, irlp_node, wires_node.
-    link_nodes: bool,
-    operational_status: bool,
+    pub(crate) link_nodes: bool,
+    pub(crate) operational_status: bool,
     /// Whether the tone columns can express DCS. Only the free-tier CSV can;
     /// for the other two a stored DCS scheme can only be an operator's edit,
     /// which is the assumption `keeps_dcs` was written on.
-    dcs: bool,
+    pub(crate) dcs: bool,
 }
 
 /// A single RepeaterBook record (from CSV or JSON) parsed and mapped into our
@@ -43,51 +43,57 @@ struct SourceColumns {
 /// preview so the UI can show every field that will be imported.
 #[derive(Debug, Clone, Serialize)]
 pub struct ParsedChannel {
-    repeaterbook_id: String,
-    rb_name: String,
-    name_long: String,
-    name_short: String,
-    callsign: String,
-    rx_freq: f64,
-    tx_freq: Option<f64>,
-    offset: f64,
-    duplex: String,
-    band: String,
-    mode: String,
-    tone_mode: String,
-    cross_mode: String,
-    ctcss_uplink: Option<f64>,
-    ctcss_downlink: Option<f64>,
+    pub(crate) repeaterbook_id: String,
+    pub(crate) rb_name: String,
+    pub(crate) name_long: String,
+    pub(crate) name_short: String,
+    pub(crate) callsign: String,
+    pub(crate) rx_freq: f64,
+    pub(crate) tx_freq: Option<f64>,
+    pub(crate) offset: f64,
+    pub(crate) duplex: String,
+    pub(crate) band: String,
+    pub(crate) mode: String,
+    pub(crate) tone_mode: String,
+    pub(crate) cross_mode: String,
+    pub(crate) ctcss_uplink: Option<f64>,
+    pub(crate) ctcss_downlink: Option<f64>,
     /// TX DCS code, 3-digit octal (migration 0008). Only the standard CSV
     /// supplies these — the "Full Data" JSON has no DCS field at all.
-    dcs_code: Option<String>,
+    pub(crate) dcs_code: Option<String>,
     /// RX DCS code, 3-digit octal. `None` with `dcs_code` set means the same
     /// code both ways, which is stored as tone_mode `DTCS`.
-    dcs_rx_code: Option<String>,
-    dmr_color_code: Option<i64>,
-    dstar_capable: bool,
-    ysf_capable: bool,
-    nxdn_capable: bool,
-    p25_capable: bool,
-    p25_nac: Option<String>,
-    m17_capable: bool,
-    tetra_capable: bool,
-    allstar_node: Option<String>,
-    echolink_node: Option<String>,
-    irlp_node: Option<String>,
-    wires_node: Option<String>,
-    use_type: Option<String>,
-    operational_status: Option<String>,
-    city: Option<String>,
-    county: Option<String>,
-    state: Option<String>,
-    country: Option<String>,
-    latitude: Option<f64>,
-    longitude: Option<f64>,
-    notes: Option<String>,
+    pub(crate) dcs_rx_code: Option<String>,
+    pub(crate) dmr_color_code: Option<i64>,
+    /// The three fields no RepeaterBook export has a column for. They stay
+    /// `None` on every RepeaterBook path and are filled only by a mapped
+    /// import of the operator's own CSV (`csv_map`).
+    pub(crate) dmr_timeslot: Option<i64>,
+    pub(crate) dmr_talkgroup: Option<i64>,
+    pub(crate) power: Option<String>,
+    pub(crate) dstar_capable: bool,
+    pub(crate) ysf_capable: bool,
+    pub(crate) nxdn_capable: bool,
+    pub(crate) p25_capable: bool,
+    pub(crate) p25_nac: Option<String>,
+    pub(crate) m17_capable: bool,
+    pub(crate) tetra_capable: bool,
+    pub(crate) allstar_node: Option<String>,
+    pub(crate) echolink_node: Option<String>,
+    pub(crate) irlp_node: Option<String>,
+    pub(crate) wires_node: Option<String>,
+    pub(crate) use_type: Option<String>,
+    pub(crate) operational_status: Option<String>,
+    pub(crate) city: Option<String>,
+    pub(crate) county: Option<String>,
+    pub(crate) state: Option<String>,
+    pub(crate) country: Option<String>,
+    pub(crate) latitude: Option<f64>,
+    pub(crate) longitude: Option<f64>,
+    pub(crate) notes: Option<String>,
     /// Not part of the preview: this describes the *export*, not the channel.
     #[serde(skip)]
-    covers: SourceColumns,
+    pub(crate) covers: SourceColumns,
 }
 
 /// The full parsed result shown before confirming an import. `rows` is capped
@@ -99,7 +105,7 @@ pub struct ImportPreview {
 }
 
 /// Cap on preview rows sent to the UI, to keep large state-wide exports light.
-const PREVIEW_CAP: usize = 1000;
+pub(crate) const PREVIEW_CAP: usize = 1000;
 
 // ============================================================
 // Tauri commands
@@ -133,7 +139,7 @@ pub async fn import_json(
 // ============================================================
 // Shared preview + insert
 // ============================================================
-fn build_preview(parsed: &[ParsedChannel]) -> ImportPreview {
+pub(crate) fn build_preview(parsed: &[ParsedChannel]) -> ImportPreview {
     ImportPreview {
         total: parsed.len(),
         rows: parsed.iter().take(PREVIEW_CAP).cloned().collect(),
@@ -508,7 +514,7 @@ async fn merge_existing(
 // ============================================================
 /// Build the derived/name/dedupe fields common to every parsed channel from the
 /// already-extracted primitive values.
-fn finalize(
+pub(crate) fn finalize(
     callsign: &str,
     rx_freq: f64,
     tx_freq: Option<f64>,
@@ -570,7 +576,7 @@ fn finalize(
 /// has no explicit mode column, so a repeater with no digital flag is plain "FM"
 /// and a digital one reports its protocol. A machine can be mixed-mode; we surface
 /// the first protocol in this fixed precedence so mode filtering/UI behaves.
-fn derive_mode(
+pub(crate) fn derive_mode(
     dmr: bool,
     dstar: bool,
     ysf: bool,
@@ -597,45 +603,99 @@ fn derive_mode(
 }
 
 /// The handful of derived fields produced by [`finalize`].
-struct ParsedChannelStub {
-    repeaterbook_id: String,
-    rb_name: String,
-    name_long: String,
-    name_short: String,
-    tx_freq: Option<f64>,
-    duplex: String,
-    offset: f64,
-    band: String,
-    tone_mode: String,
-    cross_mode: String,
+pub(crate) struct ParsedChannelStub {
+    pub(crate) repeaterbook_id: String,
+    pub(crate) rb_name: String,
+    pub(crate) name_long: String,
+    pub(crate) name_short: String,
+    pub(crate) tx_freq: Option<f64>,
+    pub(crate) duplex: String,
+    pub(crate) offset: f64,
+    pub(crate) band: String,
+    pub(crate) tone_mode: String,
+    pub(crate) cross_mode: String,
 }
 
 // ============================================================
 // CSV parser
 // ============================================================
-/// Route a `.csv` to the parser for its shape.
+/// Which RepeaterBook CSV shape a header row is, if either.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RbCsvShape {
+    /// The free-tier export: leads with `Output Freq`.
+    Standard,
+    /// The wide export: leads with `Frequency`, same field set as the premium
+    /// "Full Data" JSON.
+    Full,
+}
+
+impl RbCsvShape {
+    /// What to call the shape in the UI.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            RbCsvShape::Standard => "RepeaterBook CSV export",
+            RbCsvShape::Full => "RepeaterBook \"Full Data\" CSV export",
+        }
+    }
+}
+
+/// Recognise a header row as one of the two RepeaterBook CSV shapes.
 ///
-/// RepeaterBook's free export leads with `Output Freq`; the wide shape below
-/// leads with `Frequency`. Nothing else distinguishes them, and they share no
-/// column name for the frequency, so a file handed to the wrong parser yields
-/// zero channels without reporting an error — which is exactly what a real
-/// free-tier export did before this split existed.
-fn parse_repeaterbook_csv(path: &str) -> Result<Vec<ParsedChannel>, String> {
-    let mut probe = csv::ReaderBuilder::new()
-        .flexible(true)
-        .trim(csv::Trim::All)
-        .from_path(path)
-        .map_err(|e| format!("Could not open CSV: {e}"))?;
-    let headers = probe.headers().estr()?.clone();
+/// RepeaterBook's free export leads with `Output Freq`; the wide shape leads
+/// with `Frequency`. Nothing else distinguishes them, and they share no column
+/// name for the frequency, so a file handed to the wrong parser yields zero
+/// channels without reporting an error — which is exactly what a real free-tier
+/// export did before this split existed.
+///
+/// `Frequency` alone is *not* enough for the wide shape: it is also what CHIRP
+/// and half the world's own spreadsheets call their frequency column, and those
+/// files are the ones issue #115's column mapper exists for. Requiring `Call`
+/// plus one wide-shape-only column keeps them out. This is the single
+/// definition of "recognised" — [`super::csv_map::inspect_csv`] asks the same
+/// question before offering the mapper.
+pub(crate) fn recognize_csv(headers: &csv::StringRecord) -> Option<RbCsvShape> {
     let has = |name: &str| {
         headers
             .iter()
             .any(|h| h.trim().eq_ignore_ascii_case(name))
     };
     if has("Output Freq") {
-        parse_repeaterbook_standard_csv(path)
+        Some(RbCsvShape::Standard)
+    } else if has("Frequency")
+        && has("Call")
+        && (has("PL") || has("TSQ") || has("Operational Status"))
+    {
+        Some(RbCsvShape::Full)
     } else {
-        parse_repeaterbook_full_csv(path)
+        None
+    }
+}
+
+/// Read just the header row of a CSV.
+pub(crate) fn csv_headers(path: &str) -> Result<csv::StringRecord, String> {
+    let mut probe = csv::ReaderBuilder::new()
+        .flexible(true)
+        .trim(csv::Trim::All)
+        .from_path(path)
+        .map_err(|e| format!("Could not open CSV: {e}"))?;
+    Ok(probe.headers().estr()?.clone())
+}
+
+/// Route a `.csv` to the parser for its shape.
+///
+/// An unrecognised header row is an error rather than a guess: it used to fall
+/// through to the wide parser, which happily returned rows with an empty
+/// callsign and no tones for any CSV that merely had a `Frequency` column. The
+/// UI routes such a file to the column mapper instead and never gets here.
+pub(crate) fn parse_repeaterbook_csv(path: &str) -> Result<Vec<ParsedChannel>, String> {
+    match recognize_csv(&csv_headers(path)?) {
+        Some(RbCsvShape::Standard) => parse_repeaterbook_standard_csv(path),
+        Some(RbCsvShape::Full) => parse_repeaterbook_full_csv(path),
+        None => Err(
+            "This CSV is not a RepeaterBook export. Map its columns to channel \
+             fields instead."
+                .to_string(),
+        ),
     }
 }
 
@@ -724,6 +784,10 @@ fn parse_repeaterbook_full_csv(path: &str) -> Result<Vec<ParsedChannel>, String>
             dcs_rx_code: None,
             covers: SourceColumns { link_nodes: false, operational_status: true, dcs: false },
             dmr_color_code,
+            // No RepeaterBook export has a column for these three.
+            dmr_timeslot: None,
+            dmr_talkgroup: None,
+            power: None,
             dstar_capable,
             ysf_capable,
             nxdn_capable,
@@ -783,7 +847,7 @@ fn s_notes_from(
 /// One RepeaterBook tone cell. The column holds a CTCSS frequency, a DCS code
 /// written `D073`, the literal `CSQ` for carrier squelch, or nothing at all.
 #[derive(Debug, Clone, PartialEq)]
-enum RbTone {
+pub(crate) enum RbTone {
     /// Blank or `CSQ` — no tone. RepeaterBook uses both; they mean the same.
     None,
     Ctcss(f64),
@@ -798,7 +862,7 @@ enum RbTone {
 /// DCS: RepeaterBook does supply these, despite what the free-tier column
 /// header suggests, and dropping them leaves a channel that cannot key its
 /// repeater.
-fn parse_rb_tone(cell: Option<String>) -> RbTone {
+pub(crate) fn parse_rb_tone(cell: Option<String>) -> RbTone {
     let raw = match cell {
         Some(v) => v.trim().to_string(),
         None => return RbTone::None,
@@ -829,7 +893,7 @@ fn parse_rb_tone(cell: Option<String>) -> RbTone {
 /// replacement — and the DCS cases follow the storage convention already in the
 /// database: `DTCS` for the same code both ways with only `dcs_code` set, and
 /// `Cross` with an explicit `cross_mode` for anything mixed.
-fn derive_tone_mode_rb(
+pub(crate) fn derive_tone_mode_rb(
     up: &RbTone,
     dn: &RbTone,
 ) -> (String, String, Option<String>, Option<String>) {
@@ -1076,6 +1140,10 @@ fn parse_repeaterbook_standard_csv(path: &str) -> Result<Vec<ParsedChannel>, Str
             dcs_rx_code,
             covers: SourceColumns { link_nodes: false, operational_status: false, dcs: true },
             dmr_color_code,
+            // No RepeaterBook export has a column for these three.
+            dmr_timeslot: None,
+            dmr_talkgroup: None,
+            power: None,
             dstar_capable: modes.dstar,
             ysf_capable: modes.ysf,
             nxdn_capable: modes.nxdn,
@@ -1225,6 +1293,10 @@ fn parse_repeaterbook_json(path: &str) -> Result<Vec<ParsedChannel>, String> {
             dcs_rx_code: None,
             covers: SourceColumns { link_nodes: true, operational_status: false, dcs: false },
             dmr_color_code,
+            // No RepeaterBook export has a column for these three.
+            dmr_timeslot: None,
+            dmr_talkgroup: None,
+            power: None,
             dstar_capable,
             ysf_capable,
             nxdn_capable,
@@ -1586,7 +1658,7 @@ async fn import_anytone(
 // ============================================================
 /// Parse a float from the leading numeric portion of a string (e.g. "100.0 PL"
 /// -> 100.0).
-fn parse_leading_f64(s: &str) -> Option<f64> {
+pub(crate) fn parse_leading_f64(s: &str) -> Option<f64> {
     let trimmed: String = s
         .trim()
         .chars()

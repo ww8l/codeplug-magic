@@ -1,11 +1,17 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Upload, FileText } from "lucide-react";
+import { Upload, FileText, Columns3 } from "lucide-react";
 import { api, withToast } from "../../lib/api";
-import type { ImportPreview, ImportPreviewRow } from "../../lib/types";
+import type {
+  ColumnMapping,
+  CsvInspection,
+  ImportPreview,
+  ImportPreviewRow,
+} from "../../lib/types";
 import { Modal } from "../overlays";
 import { Button, Spinner } from "../ui";
 import { fmtFreq, fmtOffset } from "../../lib/constants";
+import { ColumnMapper } from "./ColumnMapper";
 
 // A checkmark for boolean fields, dim dot when false.
 const yn = (b: boolean): ReactNode =>
@@ -41,6 +47,9 @@ const COLUMNS: Col[] = [
   { label: "DCS↑", mono: true, render: (r) => r.dcs_code ?? "" },
   { label: "DCS↓", mono: true, render: (r) => r.dcs_rx_code ?? "" },
   { label: "DMR CC", center: true, render: (r) => (r.dmr_color_code != null ? r.dmr_color_code : "") },
+  { label: "TS", center: true, render: (r) => (r.dmr_timeslot != null ? r.dmr_timeslot : "") },
+  { label: "TG", mono: true, render: (r) => (r.dmr_talkgroup != null ? r.dmr_talkgroup : "") },
+  { label: "Power", render: (r) => r.power ?? "" },
   { label: "D-STAR", center: true, render: (r) => yn(r.dstar_capable) },
   { label: "YSF", center: true, render: (r) => yn(r.ysf_capable) },
   { label: "NXDN", center: true, render: (r) => yn(r.nxdn_capable) },
@@ -74,9 +83,13 @@ export function ImportDialog({
 }) {
   const [path, setPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
-  // Which importer this file routes to: a RepeaterBook CSV/JSON export, or a
-  // native Codeplug Magic channel backup (a previously exported selection).
-  const [kind, setKind] = useState<"csv" | "rb-json" | "native">("csv");
+  // Which importer this file routes to: a RepeaterBook CSV/JSON export, a
+  // native Codeplug Magic channel backup (a previously exported selection), or
+  // any other CSV, whose columns the operator ties to channel fields (#115).
+  const [kind, setKind] = useState<"csv" | "rb-json" | "native" | "mapped-csv">("csv");
+  // Set for every CSV, recognised or not, so "Map columns" is always available.
+  const [inspection, setInspection] = useState<CsvInspection | null>(null);
+  const [mapping, setMapping] = useState<ColumnMapping>({});
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
 
@@ -86,6 +99,8 @@ export function ImportDialog({
       setPath(null);
       setPreview(null);
       setKind("csv");
+      setInspection(null);
+      setMapping({});
     }
   }, [isOpen]);
 
@@ -96,31 +111,71 @@ export function ImportDialog({
     const selected = await open({
       multiple: false,
       filters: [
-        { name: "Channel file (RepeaterBook export or Codeplug Magic backup)", extensions: ["csv", "json"] },
+        { name: "Channel file (CSV, RepeaterBook export or Codeplug Magic backup)", extensions: ["csv", "json"] },
       ],
     });
     if (typeof selected !== "string") return;
     setPath(selected);
+    setPreview(null);
+    setInspection(null);
     setLoading(true);
 
     // A .json file may be a RepeaterBook export or our own native backup; probe
     // it so we use the lossless native importer for our own files.
-    let nextKind: "csv" | "rb-json" | "native" = "csv";
     if (isJson(selected)) {
-      nextKind = (await api.isChannelBackup(selected).catch(() => false))
+      const nextKind = (await api.isChannelBackup(selected).catch(() => false))
         ? "native"
         : "rb-json";
+      setKind(nextKind);
+      const pv = await withToast(
+        nextKind === "native"
+          ? api.previewChannelImport(selected)
+          : api.previewJsonImport(selected),
+        { error: "Could not parse file" },
+      );
+      setLoading(false);
+      if (pv) setPreview(pv);
+      return;
     }
-    setKind(nextKind);
 
-    const pv = await withToast(
-      nextKind === "native"
-        ? api.previewChannelImport(selected)
-        : nextKind === "rb-json"
-          ? api.previewJsonImport(selected)
-          : api.previewCsvImport(selected),
-      { error: "Could not parse file" },
-    );
+    // A CSV is inspected first. A RepeaterBook export has a parser that knows
+    // its every column and goes straight to the preview; anything else stops at
+    // the column mapper, because guessing wrong there writes wrong frequencies
+    // to a radio.
+    const ins = await withToast(api.inspectCsv(selected), {
+      error: "Could not read CSV",
+    });
+    if (!ins) {
+      setLoading(false);
+      return;
+    }
+    setInspection(ins);
+    setMapping(ins.guess);
+    if (ins.recognized) {
+      setKind("csv");
+      const pv = await withToast(api.previewCsvImport(selected), {
+        error: "Could not parse file",
+      });
+      setLoading(false);
+      if (pv) setPreview(pv);
+    } else {
+      setKind("mapped-csv");
+      setLoading(false);
+    }
+  };
+
+  // Leave the preview and go (back) to the column mapper.
+  const editMapping = () => {
+    setKind("mapped-csv");
+    setPreview(null);
+  };
+
+  const previewMapping = async () => {
+    if (!path) return;
+    setLoading(true);
+    const pv = await withToast(api.previewMappedCsv(path, mapping), {
+      error: "Could not parse file with those columns",
+    });
     setLoading(false);
     if (pv) setPreview(pv);
   };
@@ -133,7 +188,9 @@ export function ImportDialog({
         ? api.importChannels(path)
         : kind === "rb-json"
           ? api.importJson(path)
-          : api.importCsv(path),
+          : kind === "mapped-csv"
+            ? api.importMappedCsv(path, mapping)
+            : api.importCsv(path),
       { error: "Import failed" },
     );
     setImporting(false);
@@ -150,6 +207,19 @@ export function ImportDialog({
   };
 
   const truncated = preview ? preview.rows.length < preview.total : false;
+  // The mapper is on screen whenever a mapped CSV has no preview yet.
+  const mapping_step = kind === "mapped-csv" && !preview && inspection != null;
+  const canPreview = mapping.rx_freq != null;
+
+  // What the confirm button does, and what a re-import will do to rows the
+  // library already has. The two CSV paths differ: a RepeaterBook re-import
+  // merges, a mapped one skips.
+  const mergeNote =
+    kind === "native"
+      ? "duplicates (same RepeaterBook ID, or same name + frequency for manual channels) are skipped. Full details (DCS, power, talkgroups) are restored from the backup even though the preview shows only the common fields."
+      : kind === "mapped-csv"
+        ? "channels you already have (same name + frequencies) are skipped, not merged — this file is not RepeaterBook data, so nothing here can tell a stale column from an edit you made in the app."
+        : "existing channels (matched on RepeaterBook ID) are refreshed from this export — mode, tones, status and location are updated, while your custom names and any field edits you've made are preserved.";
 
   return (
     <Modal open={isOpen} onClose={onClose} title="Import Channels" width="max-w-6xl">
@@ -159,12 +229,19 @@ export function ImportDialog({
             <FileText size={14} className="shrink-0" />
             <span className="truncate">
               {path ??
-                "Select a RepeaterBook CSV/JSON export or a Codeplug Magic channel backup to preview."}
+                "Select a CSV, a RepeaterBook JSON export, or a Codeplug Magic channel backup to preview."}
             </span>
           </div>
-          <Button onClick={pickFile}>
-            <Upload size={14} /> {path ? "Choose Different File" : "Choose File"}
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            {inspection && !mapping_step && (
+              <Button onClick={editMapping} title="Tie this file's columns to channel fields yourself">
+                <Columns3 size={14} /> Map Columns
+              </Button>
+            )}
+            <Button onClick={pickFile}>
+              <Upload size={14} /> {path ? "Choose Different File" : "Choose File"}
+            </Button>
+          </div>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col p-4">
@@ -172,6 +249,12 @@ export function ImportDialog({
             <div className="flex justify-center py-16">
               <Spinner className="h-6 w-6" />
             </div>
+          ) : mapping_step && inspection ? (
+            <ColumnMapper
+              inspection={inspection}
+              mapping={mapping}
+              onChange={setMapping}
+            />
           ) : preview ? (
             <>
               <p className="mb-2 shrink-0 text-xs text-slate-500 dark:text-slate-400">
@@ -180,9 +263,7 @@ export function ImportDialog({
                   ? `Showing first ${preview.rows.length} of ${preview.total} parsed rows.`
                   : `Showing all ${preview.total} parsed rows.`}{" "}
                 Scroll right to see every field. New channels are added;{" "}
-                {kind === "native"
-                  ? "duplicates (same RepeaterBook ID, or same name + frequency for manual channels) are skipped. Full details (DCS, power, talkgroups) are restored from the backup even though the preview shows only the common fields."
-                  : "existing channels (matched on RepeaterBook ID) are refreshed from this export — mode, tones, status and location are updated, while your custom names and any field edits you've made are preserved."}
+                {mergeNote}
               </p>
               <div className="min-h-0 flex-1 overflow-auto rounded-md border border-slate-200 dark:border-slate-700">
                 <table className="text-left text-[11px]">
@@ -236,13 +317,21 @@ export function ImportDialog({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            onClick={confirmImport}
-            disabled={!preview || importing || preview.total === 0}
-          >
-            {importing ? "Importing…" : `Import ${preview?.total ?? 0} Rows`}
-          </Button>
+          {mapping_step ? (
+            <Button variant="primary" onClick={previewMapping} disabled={!canPreview}>
+              {canPreview
+                ? `Preview ${inspection?.row_count ?? 0} Rows`
+                : "Map an RX frequency first"}
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              onClick={confirmImport}
+              disabled={!preview || importing || preview.total === 0}
+            >
+              {importing ? "Importing…" : `Import ${preview?.total ?? 0} Rows`}
+            </Button>
+          )}
         </div>
       </div>
     </Modal>

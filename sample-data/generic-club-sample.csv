@@ -1,0 +1,7 @@
+Channel Name,Callsign,RX Frequency,TX Frequency,CTCSS TX,CTCSS RX,Mode,Colour Code,Time Slot,Talkgroup,City,State,Power,Remarks
+Anytown Repeater,QQ0AAA,145.110,144.510,100.0,,FM,,,,Anytown,Colorado,High,club machine
+Testville DMR,QQ0EEE,442.500,447.500,,,DMR,7,2,3108,Testville,Colorado,High,DMR machine
+Sampleton Simplex,QQ0FFF,146.520,146.520,,,FM,,,,Sampleton,CO,Low,calling frequency
+Nowhere Split,QQ0GGG,145.900,146.900,131.8,131.8,FM,,,,Nowhere,Colorado,Med,odd split
+Stray CC,QQ0HHH,147.000,147.600,,,FM,7,1,3100,Anytown,Colorado,High,DMR columns filled on an FM row
+Bad Row,,not a frequency,,,,FM,,,,,,,,

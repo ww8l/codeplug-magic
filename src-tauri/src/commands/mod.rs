@@ -6,6 +6,7 @@ pub mod anytone_settings;
 pub mod channel_io;
 pub mod channels;
 pub mod codeplugs;
+pub mod csv_map;
 pub mod dashboard;
 pub mod dmr_users;
 pub mod export;
