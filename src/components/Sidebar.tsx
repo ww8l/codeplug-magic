@@ -11,6 +11,7 @@ import {
   Settings,
 } from "lucide-react";
 import { HandheldRadio } from "./icons/HandheldRadio";
+import { AppMark } from "./icons/AppMark";
 import { APP_VERSION } from "./ui";
 
 const NAV = [
@@ -29,9 +30,7 @@ export function Sidebar() {
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
       <div className="flex items-center gap-2 px-4 py-3.5">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-sky-600 text-white">
-          <Radio size={16} />
-        </div>
+        <AppMark size={28} className="shrink-0" />
         <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">
           WW8L Codeplug Magic
         </div>
