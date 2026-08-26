@@ -473,3 +473,152 @@ fn step2_one_name_write() {
     assert_eq!(count, 53, "no memory may be lost by a name write");
     println!("\n>>> Look at memory {slot} on the radio: it should read D72TEST (was {old:?}).");
 }
+
+/// **Ladder step 3 — the full codeplug.**
+///
+/// Writes the image `program::dev_export` built from the real dev database, so
+/// what reaches the radio is the app's own output and not a second
+/// implementation that happens to agree.
+///
+/// Reports the memory list **per group**, because the D72's groups are fixed
+/// positional blocks of 100 and a group that did not get written is invisible
+/// from the screen the radio powers up on.
+#[test]
+#[ignore = "OVERWRITES the radio's memories"]
+fn step3_full_codeplug() {
+    let dir = out_dir();
+    let built = std::fs::read(dir.join("ww8l-step3-built.img")).expect("built image");
+    let base = std::fs::read(dir.join("ww8l-step3-base.img")).expect("base image");
+    assert_eq!(built.len(), layout::IMAGE_LEN);
+
+    let blocks: Vec<usize> = (0..layout::BLOCK_COUNT)
+        .filter(|i| {
+            let r = i * layout::BLOCK_LEN..(i + 1) * layout::BLOCK_LEN;
+            base[r.clone()] != built[r]
+        })
+        .collect();
+    let intended = (0..layout::CHANNEL_COUNT)
+        .filter(|&s| memory::read_record(&built, s).is_some())
+        .count();
+    println!("{intended} memories in the built image; {} blocks differ from the radio", blocks.len());
+    assert!(!blocks.is_empty(), "nothing to write");
+
+    let mut p = protocol::open_port(&port()).expect("open");
+    println!("radio: {}", protocol::identify(&mut *p).expect("identify").matched);
+    protocol::upload(&mut *p, &built, &blocks).expect("upload the codeplug");
+    println!("uploaded {} blocks", blocks.len());
+    drop(p);
+
+    println!("reconnecting…");
+    let mut p = protocol::reconnect_after_clone(&port()).expect("reconnect");
+    let after = protocol::download(&mut *p).expect("download after");
+    std::fs::write(dir.join("ww8l-step3-after.img"), &after).expect("save");
+
+    // ★ Compare only the blocks we WROTE. The radio rewrites its own
+    // current-channel state in 0x0200-0x0400 when the memories underneath it
+    // change — 18 bytes on this run — and those are not ours to verify.
+    let bad: Vec<usize> = blocks
+        .iter()
+        .copied()
+        .filter(|i| {
+            let r = i * layout::BLOCK_LEN..(i + 1) * layout::BLOCK_LEN;
+            built[r.clone()] != after[r]
+        })
+        .collect();
+    let elsewhere = (0..built.len()).filter(|&i| built[i] != after[i]).count();
+    println!(
+        "read back: {} of {} written blocks differ; {elsewhere} bytes differ outside what we wrote",
+        bad.len(),
+        blocks.len()
+    );
+
+    // Per group, because the radio only shows one at a time.
+    let table = container::Thd72Image::parse(&after).unwrap().prog_vfo_table().unwrap();
+    let mut per_group = [0usize; layout::GROUP_COUNT];
+    let mut misbanded = Vec::new();
+    let mut on_radio = 0usize;
+    for slot in 0..layout::CHANNEL_COUNT {
+        let Some(rec) = memory::read_record(&after, slot) else { continue };
+        on_radio += 1;
+        per_group[layout::group_of(slot)] += 1;
+        let m = memory::decode_memory(&rec.memory);
+        if layout::prog_vfo_index(&table, m.freq_hz) != Some(rec.prog_vfo()) {
+            misbanded.push((slot, m.freq_hz));
+        }
+    }
+    println!("\n{on_radio} memories on the radio, by group:");
+    for (g, n) in per_group.iter().enumerate() {
+        if *n > 0 {
+            println!("  group {g} (memories {}-{}): {n}", g * 100, g * 100 + 99);
+        }
+    }
+    println!("\nmis-banded (would not transmit): {}", misbanded.len());
+    for (slot, hz) in misbanded.iter().take(10) {
+        println!("  memory {slot} at {:.4} MHz", *hz as f64 / 1e6);
+    }
+
+    // A sample for the screen check, first and last of each occupied group.
+    println!("\nCheck these on the radio:");
+    for (g, n) in per_group.iter().enumerate() {
+        if *n == 0 { continue }
+        for slot in [g * 100, g * 100 + n - 1] {
+            if let Some(rec) = memory::read_record(&after, slot) {
+                let name: String = rec.name.iter().take_while(|&&b| b != 0xFF).map(|&b| b as char).collect();
+                let m = memory::decode_memory(&rec.memory);
+                println!("  memory {slot}: {name:<9} {:9.4} MHz", m.freq_hz as f64 / 1e6);
+            }
+        }
+    }
+
+    assert!(bad.is_empty(), "the radio did not store {} of the blocks we wrote", bad.len());
+    assert!(misbanded.is_empty(), "{} memories cannot transmit", misbanded.len());
+    assert_eq!(on_radio, intended, "the radio holds a different number of memories than we built");
+}
+
+/// Put the radio back the way it was found, through the driver's own
+/// `ImageRestorer` — the same path a user reaches for after a bad write.
+///
+/// This is the one that matters most to the person whose radio it is, and it is
+/// deliberately verified by CONTENT rather than by the restore reporting
+/// success: a restore that wrote nothing at all would also "succeed".
+#[test]
+#[ignore = "writes to a real TH-D72"]
+fn restore_the_radio_as_found() {
+    let dir = out_dir();
+    let asfound = std::fs::read(dir.join("ww8l-asfound.img")).expect("the as-found image");
+
+    // The radio is currently holding the 49-channel codeplug, so this restore
+    // has real work to do — which is what makes it a test rather than a no-op.
+    let current = std::fs::read(dir.join("ww8l-step3-after.img")).expect("current image");
+    let before_count = (0..layout::CHANNEL_COUNT)
+        .filter(|&s| memory::read_record(&current, s).is_some())
+        .count();
+    let target_count = (0..layout::CHANNEL_COUNT)
+        .filter(|&s| memory::read_record(&asfound, s).is_some())
+        .count();
+    println!("radio holds {before_count} memories; restoring to {target_count}");
+    assert_ne!(before_count, target_count, "the restore must have something to undo");
+
+    super::DRIVER.restore_image(&port(), &asfound).expect("restore");
+    println!("restored; reconnecting…");
+
+    let mut p = protocol::reconnect_after_clone(&port()).expect("reconnect");
+    let after = protocol::download(&mut *p).expect("download after");
+    std::fs::write(dir.join("ww8l-restored.img"), &after).expect("save");
+
+    let diffs = real_differences(&asfound, &after);
+    let count = (0..layout::CHANNEL_COUNT)
+        .filter(|&s| memory::read_record(&after, s).is_some())
+        .count();
+    println!("{count} memories on the radio; {} bytes differ from the as-found image", diffs.len());
+    for &i in diffs.iter().take(12) {
+        println!("  0x{i:04X}: {:02x} -> {:02x}", asfound[i], after[i]);
+    }
+
+    let m59 = memory::read_record(&after, 59).expect("memory 59");
+    let name: String = m59.name.iter().take_while(|&&b| b != 0xFF).map(|&b| b as char).collect();
+    println!("memory 59 reads {name:?}");
+
+    assert_eq!(count, target_count, "the radio should hold its original memories again");
+    assert_eq!(name, "PO101-LO", "memory 59's original name must be back");
+}

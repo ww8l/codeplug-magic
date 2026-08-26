@@ -125,6 +125,28 @@ fn changed_blocks(base: &[u8], built: &[u8]) -> Vec<usize> {
         .collect()
 }
 
+/// Which of the blocks we wrote did not come back the way we sent them.
+///
+/// ★ Verification must be scoped to what we WROTE. Measured on a real TH-D72A,
+/// 2026-08-26: after a codeplug write the radio rewrites 18 bytes of its own in
+/// `0x0200-0x0400` — the current-channel and UI state — because the memories
+/// underneath it changed. Those bytes are not ours, we never sent them, and a
+/// whole-image `after == built` comparison would have reported `verified: false`
+/// on every successful program the app ever ran.
+///
+/// Comparing only the uploaded blocks is also self-maintaining: it stays correct
+/// if the set of regions this driver writes ever changes.
+fn mismatched_blocks(built: &[u8], after: &[u8], blocks: &[usize]) -> Vec<usize> {
+    blocks
+        .iter()
+        .copied()
+        .filter(|i| {
+            let r = i * BLOCK_LEN..(i + 1) * BLOCK_LEN;
+            built.get(r.clone()) != after.get(r)
+        })
+        .collect()
+}
+
 /// Every block this driver is allowed to write: all of them except the two the
 /// radio keeps its own data in. See [`layout::CALIBRATION_BASE`].
 fn writable_blocks() -> Vec<usize> {
@@ -240,16 +262,19 @@ impl ImageProgrammer for KenwoodThd72 {
         let reread = protocol::reconnect_after_clone(port)
             .and_then(|mut p| protocol::download(&mut *p));
         let (verified, note) = match reread {
-            Ok(after) if after == built => (true, None),
-            Ok(_) => (
-                false,
-                Some(
-                    "Write completed and every block was acknowledged, but the read-back \
-                     did not match. Power-cycle the radio and use Download to confirm what \
-                     it is holding."
-                        .to_string(),
+            Ok(after) => match mismatched_blocks(&built, &after, &blocks) {
+                bad if bad.is_empty() => (true, None),
+                bad => (
+                    false,
+                    Some(format!(
+                        "Write completed and every block was acknowledged, but {} of the {} \
+                         blocks written did not read back the same. Power-cycle the radio and \
+                         use Download to confirm what it is holding.",
+                        bad.len(),
+                        blocks.len()
+                    )),
                 ),
-            ),
+            },
             Err(e) => (
                 false,
                 Some(format!(

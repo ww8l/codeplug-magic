@@ -536,6 +536,13 @@ mod dev_export {
         };
 
         let out = build_image(&model, &slots, &base).expect("build the image");
+        // Hand the built image to the hardware ladder rather than rebuilding the
+        // pipeline there: step 3 must write the bytes THIS produced, not a
+        // second implementation that happens to agree.
+        if let Ok(path) = std::env::var("CPM_THD72_BUILD_OUT") {
+            std::fs::write(&path, &out).expect("save the built image");
+            println!("built image written to {path}");
+        }
         let decoded = decode_channels(&out);
         println!(
             "{} channels in -> {} memories present in the image",
