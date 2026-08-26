@@ -1,0 +1,195 @@
+[
+ {
+  "key": "section-display",
+  "label": "Display",
+  "type": "section"
+ },
+ {
+  "key": "lamp-timer",
+  "label": "Illumination timer (seconds)",
+  "type": "integer",
+  "min": 2,
+  "max": 10
+ },
+ {
+  "key": "section-battery",
+  "label": "Battery",
+  "type": "section"
+ },
+ {
+  "key": "battery-saver",
+  "label": "Battery saver",
+  "type": "select",
+  "options": [
+   "Off",
+   "0.03s",
+   "0.2s",
+   "0.4s",
+   "0.6s",
+   "0.8s",
+   "1.0s",
+   "2.0s",
+   "3.0s",
+   "4.0s",
+   "5.0s"
+  ]
+ },
+ {
+  "key": "apo",
+  "label": "Auto power off",
+  "type": "select",
+  "options": [
+   "Off",
+   "15 minutes",
+   "30 minutes",
+   "60 minutes"
+  ]
+ },
+ {
+  "key": "section-audio",
+  "label": "Audio",
+  "type": "section"
+ },
+ {
+  "key": "key-beep",
+  "label": "Key beep",
+  "type": "select",
+  "options": [
+   "Off",
+   "Radio & GPS",
+   "Radio only",
+   "GPS only"
+  ]
+ },
+ {
+  "key": "balance",
+  "label": "Volume balance (A/B)",
+  "type": "select",
+  "options": [
+   "A",
+   "A 50%",
+   "Center",
+   "B 50%",
+   "B"
+  ]
+ },
+ {
+  "key": "section-radio",
+  "label": "Radio",
+  "type": "section"
+ },
+ {
+  "key": "vhf-aip",
+  "label": "VHF AIP",
+  "type": "boolean"
+ },
+ {
+  "key": "uhf-aip",
+  "label": "UHF AIP",
+  "type": "boolean"
+ },
+ {
+  "key": "beat-shift",
+  "label": "Beat shift",
+  "type": "select",
+  "options": [
+   "Type 1",
+   "Type 2",
+   "Type 3",
+   "Type 4",
+   "Type 5",
+   "Type 6",
+   "Type 7",
+   "Type 8"
+  ]
+ },
+ {
+  "key": "tx-inhibit",
+  "label": "TX inhibit",
+  "type": "boolean"
+ },
+ {
+  "key": "auto-offset",
+  "label": "Automatic repeater offset",
+  "type": "boolean"
+ },
+ {
+  "key": "section-vox",
+  "label": "VOX",
+  "type": "section"
+ },
+ {
+  "key": "vox",
+  "label": "VOX",
+  "type": "boolean"
+ },
+ {
+  "key": "vox-gain",
+  "label": "VOX gain",
+  "type": "integer",
+  "min": 0,
+  "max": 9
+ },
+ {
+  "key": "vox-delay",
+  "label": "VOX delay",
+  "type": "select",
+  "options": [
+   "250 ms",
+   "500 ms",
+   "750 ms",
+   "1000 ms",
+   "1500 ms",
+   "2000 ms",
+   "3000 ms"
+  ]
+ },
+ {
+  "key": "vox-on-busy",
+  "label": "VOX on busy",
+  "type": "boolean"
+ },
+ {
+  "key": "section-memory",
+  "label": "Memory",
+  "type": "section"
+ },
+ {
+  "key": "recall-method",
+  "label": "Memory recall method",
+  "type": "select",
+  "options": [
+   "All band",
+   "Current band"
+  ]
+ },
+ {
+  "key": "section-scan",
+  "label": "Scan",
+  "type": "section"
+ },
+ {
+  "key": "scan-resume",
+  "label": "Scan resume",
+  "type": "select",
+  "options": [
+   "Time",
+   "Carrier",
+   "Seek"
+  ]
+ },
+ {
+  "key": "time-restart",
+  "label": "Scan time restart (seconds)",
+  "type": "integer",
+  "min": 1,
+  "max": 10
+ },
+ {
+  "key": "carrier-restart",
+  "label": "Scan carrier restart (seconds)",
+  "type": "integer",
+  "min": 1,
+  "max": 10
+ }
+]

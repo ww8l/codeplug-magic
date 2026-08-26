@@ -166,6 +166,16 @@ pub const ID52_SETTINGS_SCHEMA: &str = include_str!("id52_settings_schema.json")
 /// the two halves still describe the same fields.
 pub const THD75_SETTINGS_SCHEMA: &str = include_str!("thd75_settings_schema.json");
 
+/// The TH-D72 profile-settings schema, GENERATED alongside the Rust field table
+/// by `scratchpad/kenwood_thd72/gen_thd72_settings.py` from
+/// `scratchpad/kenwood_thd72/MEASURED.md`. One parse emits both, so a field
+/// cannot exist in the form and not in the encoder.
+///
+/// These are the 19 parameters of the radio's own `MU` menu command, not offsets
+/// into the clone image — see `radios/kenwood_thd72/settings.rs` for why, and
+/// for the six-of-six cross-check that showed the two carry the same values.
+pub const THD72_SETTINGS_SCHEMA: &str = include_str!("thd72_settings_schema.json");
+
 
 fn models() -> Vec<ModelSeed> {
     vec![
@@ -740,11 +750,14 @@ fn models() -> Vec<ModelSeed> {
         //    answers TY differently and would need its own row; such
         //    a radio is under-served by this one, which is the safe
         //    direction.
-        //    (e) the settings schema is EMPTY on purpose. Phase 4
-        //    measures the 19 MU parameters against the image's own
-        //    settings block; seeding guesses would push them at a
-        //    radio, and one published enum (audio balance) is
-        //    already known to be contradicted between sources.
+        //    (e) settings are the radio's own 19 MU menu parameters,
+        //    read and written over the ASCII command rather than
+        //    through the clone image: MU covers all 19 where CHIRP
+        //    names offsets for only 6, and the two agree on all six
+        //    they share. p2 contrast is deliberately NOT in the
+        //    schema — the manual, CHIRP and LA3QMA give three
+        //    different ranges for it and the radio has not settled
+        //    which. See radios/kenwood_thd72/settings.rs.
         // --------------------------------------------------------
         ModelSeed {
             manufacturer: "Kenwood",
@@ -783,8 +796,7 @@ fn models() -> Vec<ModelSeed> {
             // format any user is asked to hand around.
             export_format: "chirp_csv",
             connection_type: "USB cable (built-in mini-USB)",
-            // Empty until Phase 4 — see note (e).
-            non_channel_settings_schema: "[]",
+            non_channel_settings_schema: THD72_SETTINGS_SCHEMA,
         },
     ]
 }

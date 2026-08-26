@@ -110,11 +110,10 @@ mod tests {
                 // its `.icf` and the TH-D75's in its `.d75`, none of which goes
                 // through these traits.
                 "yaesu_ft5d" | "icom_id52" | "kenwood_thd75" => (false, false),
-                // TH-D72: a cable radio that WILL read and write settings, but
-                // not until Phase 4 has measured them. Its schema is seeded
-                // empty on purpose, and offering a settings action against an
-                // empty schema is worse than offering none.
-                "kenwood_thd72" => (false, false),
+                // TH-D72: reads and writes its 19 menu parameters over the
+                // `MU` ASCII command — no clone session involved, which is why
+                // it claims both halves where the card radios claim neither.
+                "kenwood_thd72" => (true, true),
                 _ => (true, true),
             };
             assert_eq!(

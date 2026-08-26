@@ -40,6 +40,7 @@ pub(crate) mod container;
 pub(crate) mod layout;
 pub(crate) mod memory;
 pub(crate) mod program;
+pub(crate) mod settings;
 pub(crate) mod protocol;
 #[cfg(test)]
 mod hw_phase1;
@@ -97,15 +98,22 @@ impl RadioDriver for KenwoodThd72 {
         Some(self)
     }
 
+    fn as_settings_reader(&self) -> Option<&dyn crate::radios::driver::SettingsReader> {
+        Some(self)
+    }
+
+    fn as_settings_writer(&self) -> Option<&dyn crate::radios::driver::SettingsWriter> {
+        Some(self)
+    }
+
     // `CodeplugProgrammer` is deliberately absent: that trait is for radios
     // programmed by targeted record writes (the AnyTone). A clone radio patches
     // and re-uploads an image, which is `ImageProgrammer::program_codeplug`.
     //
-    // Settings stay absent until Phase 4. The schema is seeded empty on
-    // purpose: the 19 `MU` parameters have published enums, one of which
-    // (audio balance) is already known to be contradicted between two sources,
-    // and a guessed encoding is the one failure mode that writes a wrong value
-    // to a real radio.
+    // Settings are read and written over the `MU` command rather than through
+    // the clone image — `settings.rs` has the evidence and the reasoning. They
+    // are a separate operation from a codeplug write, which deliberately leaves
+    // the radio's own settings exactly as read.
 }
 
 /// Which 256-byte blocks differ between the image the radio gave us and the one
