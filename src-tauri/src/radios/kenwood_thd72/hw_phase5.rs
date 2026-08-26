@@ -622,3 +622,61 @@ fn restore_the_radio_as_found() {
     assert_eq!(count, target_count, "the radio should hold its original memories again");
     assert_eq!(name, "PO101-LO", "memory 59's original name must be back");
 }
+
+/// **Ladder step 5b — the settings WRITE, the last unproven path in the driver.**
+///
+/// Restores the contrast the measurement session left at maximum, through the
+/// driver's own `SettingsWriter`. Contrast is the right field to prove this on:
+/// it is the most harmless setting on the radio, its range was measured on this
+/// radio rather than inherited, and the change is visible from across the desk.
+///
+/// A working read path has twice hidden a dead write path in this codebase, so
+/// this asserts three separate things: that the radio *accepted* the line, that
+/// the read-back carries the new value, and — most importantly — that **nothing
+/// else moved**. `MU` sets all 19 parameters at once, so a formatting bug here
+/// would rewrite eighteen settings the operator never touched.
+#[test]
+#[ignore = "writes settings to a real TH-D72"]
+fn step5b_settings_write_restores_contrast() {
+    use crate::radios::driver::{SettingsReader, SettingsWriter};
+
+    let dir = out_dir();
+    let schema = crate::seed::THD72_SETTINGS_SCHEMA;
+
+    let before = super::DRIVER.read_settings(&port(), schema).expect("read settings");
+    let before_line = String::from_utf8(before.backup.clone()).expect("the MU line");
+    println!("before: {before_line}");
+    println!("  contrast reads {}", before.settings["contrast"]);
+    assert_ne!(
+        before.settings["contrast"],
+        serde_json::json!(7),
+        "the radio should still be at the value the measurement left it at"
+    );
+
+    let want = serde_json::json!({ "contrast": 7 });
+    let report = super::DRIVER
+        .write_settings(&port(), &want, schema, &dir)
+        .expect("write settings");
+    println!(
+        "wrote {} field(s); verified={:?} note={:?}",
+        report.fields_written, report.verified, report.note
+    );
+    println!("backup: {}", report.backup_path);
+
+    let after = super::DRIVER.read_settings(&port(), schema).expect("read back");
+    let after_line = String::from_utf8(after.backup.clone()).expect("the MU line");
+    println!("after:  {after_line}");
+
+    // Nothing but contrast may have moved. This is the assertion that matters —
+    // the other two would both pass on a driver that rewrote every parameter.
+    let b: Vec<&str> = before_line.trim_start_matches("MU ").split(',').collect();
+    let a: Vec<&str> = after_line.trim_start_matches("MU ").split(',').collect();
+    let moved: Vec<usize> = (0..b.len()).filter(|&i| a[i] != b[i]).collect();
+    println!("menu parameters that changed: {:?}", moved.iter().map(|i| i + 1).collect::<Vec<_>>());
+
+    assert_eq!(report.fields_written, 1);
+    assert_eq!(after.settings["contrast"], serde_json::json!(7), "contrast did not land");
+    assert_eq!(moved, vec![1], "a write must touch only p2 — it moved {moved:?}");
+    assert_eq!(report.verified, Some(true), "the driver's own read-back must agree");
+    println!("\n>>> The display should have dimmed. Contrast is back to 7, as found.");
+}

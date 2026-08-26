@@ -12,6 +12,13 @@
   "max": 10
  },
  {
+  "key": "contrast",
+  "label": "Display contrast (bars)",
+  "type": "integer",
+  "min": 0,
+  "max": 15
+ },
+ {
   "key": "section-battery",
   "label": "Battery",
   "type": "section"

@@ -345,19 +345,52 @@ mod tests {
         assert_eq!(raw, base, "decode -> encode must be lossless");
     }
 
-    /// p2 contrast is omitted on purpose — three sources give three ranges. It
-    /// must survive a write untouched, which a build-from-defaults encoder would
-    /// not manage.
+    /// A write must change **only** the parameters the caller asked for.
+    ///
+    /// `MU` sets all 19 at once, so the encoder patches over the line the radio
+    /// currently holds rather than building one from defaults. A profile that
+    /// carries a single field must leave the other eighteen exactly as the radio
+    /// had them — that is what makes a partial settings write safe, and a
+    /// build-from-defaults encoder would quietly rewrite every one of them.
+    ///
+    /// ★ This test used to assert that p2 contrast was absent from the table,
+    /// because three sources gave three different ranges for it. The radio
+    /// settled that on 2026-08-26 (0..15, all three sources wrong), so contrast
+    /// is now modelled and every parameter has an owner. The property being
+    /// guarded is unchanged; only the example had to go.
     #[test]
-    fn an_unmodelled_parameter_is_preserved_across_a_write() {
+    fn a_write_touches_only_the_fields_it_was_given() {
         let base = parse_mu(REAL).unwrap();
-        assert!(
-            !THD72_SETTINGS_FIELDS.iter().any(|f| f.mu == 1),
-            "p2 contrast must not be in the table until the radio settles its range"
-        );
-        let (raw, _) = encode_over(&base, &json!({"apo": "60 minutes"})).unwrap();
-        assert_eq!(raw[1], base[1], "contrast must go back exactly as it came");
-        assert_ne!(raw[3], base[3], "the field we did set must change");
+        let (raw, written) = encode_over(&base, &json!({"apo": "60 minutes"})).unwrap();
+        assert_eq!(written, 1, "one field asked for, one field written");
+        for (i, (before, after)) in base.iter().zip(raw.iter()).enumerate() {
+            if i == 3 {
+                assert_ne!(before, after, "the field we did set must change");
+            } else {
+                assert_eq!(before, after, "menu parameter {} was not ours to touch", i + 1);
+            }
+        }
+    }
+
+    /// Contrast is the field the radio corrected all three published sources on.
+    /// Its ceiling is asserted here so a later regeneration cannot quietly walk
+    /// it back to the manual's "1 to 8" or CHIRP's 1..15.
+    #[test]
+    fn contrast_runs_the_range_the_radio_proved() {
+        let f = THD72_SETTINGS_FIELDS
+            .iter()
+            .find(|f| f.key == "contrast")
+            .expect("contrast is modelled");
+        assert_eq!(f.mu, 1);
+        match f.kind {
+            MK::Uint { min, max } => assert_eq!(
+                (min, max),
+                (0, 15),
+                "the radio's own control stopped at F; the manual's 1-8 and CHIRP's 1-15 \
+                 are both wrong"
+            ),
+            _ => panic!("contrast is a bar graph with no labels — it must be an integer"),
+        }
     }
 
     #[test]
