@@ -25,7 +25,7 @@
 // of the image at 0x339 and there is no `MU` parameter for it.
 pub(crate) const THD72_SETTINGS_FIELDS: &[MF] = &[
     MF { key: "lamp-timer", label: "Illumination timer (seconds)", mu: 0, menu: Some("101"), kind: MK::Uint { min: 2, max: 10 } },  // MU p1; menu confirmed; values inferred
-    MF { key: "contrast", label: "Display contrast (bars)", mu: 1, menu: Some("103"), kind: MK::Uint { min: 0, max: 15 } },  // MU p2; menu confirmed; values MEASURED
+    MF { key: "contrast", label: "Display contrast", mu: 1, menu: Some("103"), kind: MK::Enum { labels: &[(0, "1"), (1, "2"), (2, "3"), (3, "4"), (4, "5"), (5, "6"), (6, "7"), (7, "8"), (8, "9"), (9, "10"), (10, "11"), (11, "12"), (12, "13"), (13, "14"), (14, "15"), (15, "16")] } },  // MU p2; menu confirmed; values MEASURED
     MF { key: "battery-saver", label: "Battery saver", mu: 2, menu: Some("110"), kind: MK::Enum { labels: &[(0, "Off"), (1, "0.03s"), (2, "0.2s"), (3, "0.4s"), (4, "0.6s"), (5, "0.8s"), (6, "1.0s"), (7, "2.0s"), (8, "3.0s"), (9, "4.0s"), (10, "5.0s")] } },  // MU p3; menu confirmed; values inferred (two sources agree)
     MF { key: "apo", label: "Auto power off", mu: 3, menu: Some("111"), kind: MK::Enum { labels: &[(0, "Off"), (1, "15 minutes"), (2, "30 minutes"), (3, "60 minutes")] } },  // MU p4; menu confirmed on screen; values MEASURED
     MF { key: "key-beep", label: "Key beep", mu: 4, menu: Some("121"), kind: MK::Enum { labels: &[(0, "Off"), (1, "Radio & GPS"), (2, "Radio only"), (3, "GPS only")] } },  // MU p5; menu confirmed; values inferred (two sources agree)

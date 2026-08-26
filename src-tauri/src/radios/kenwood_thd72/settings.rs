@@ -19,9 +19,12 @@
 //! - There is no partial-write state. A clone write that fails halfway leaves a
 //!   mixed codeplug; `MU` either lands or it does not.
 //!
-//! ⚠ `MU` is **not** everything the radio holds. CHIRP reads `lamp_control`
-//! (Manual/Auto) at `0x339`, which has no `MU` field. This module covers the 19
-//! `MU` parameters and does not claim to be the radio's complete settings set.
+//! ⚠ `MU` is **not** everything the radio holds, and the gap is large. `MU`
+//! carries the 1xx menus only; the radio has ~144 menu items in total, including
+//! 72 APRS ones (the 3xx menus) and 15 packet ones (2xx), all of which live in
+//! the image at `0x0400`-`0x0C00` and none of which are here. Menu 102, Lamp
+//! Control, is a 1xx item with no `MU` field either. Measuring those is its own
+//! campaign; this module covers the 19 `MU` parameters and claims nothing more.
 //!
 //! ## The hex trap
 //!
@@ -120,10 +123,10 @@ fn decode(raw: &[u8]) -> Value {
 /// Encode form values over a base line read from the radio.
 ///
 /// Deliberately a **patch over what the radio currently holds**, not a build
-/// from nothing: `MU` sets all 19 parameters at once, so a field the profile
-/// does not carry — p2 contrast, which is omitted on purpose because three
-/// sources give three different ranges — must go back exactly as it came.
-/// Building the line from defaults would quietly rewrite it.
+/// from nothing: `MU` sets all 19 parameters at once, so a parameter the profile
+/// does not carry must go back exactly as it came. Building the line from
+/// defaults would quietly rewrite every field the operator did not touch — and
+/// on this radio that is eighteen of them.
 fn encode_over(base: &[u8], settings: &Value) -> Result<(Vec<u8>, usize), String> {
     let mut raw = base.to_vec();
     let mut written = 0usize;
@@ -382,14 +385,17 @@ mod tests {
             .find(|f| f.key == "contrast")
             .expect("contrast is modelled");
         assert_eq!(f.mu, 1);
-        match f.kind {
-            MK::Uint { min, max } => assert_eq!(
-                (min, max),
-                (0, 15),
-                "the radio's own control stopped at F; the manual's 1-8 and CHIRP's 1-15 \
-                 are both wrong"
-            ),
-            _ => panic!("contrast is a bar graph with no labels — it must be an integer"),
+        // Raw 0..15, but the radio DISPLAYS raw + 1 — its bar graph carries no
+        // numbers, and RT Systems shows the stored index 7 as "8". Shipping the
+        // raw value would have put a control on screen reading one below what
+        // the operator sees, so the labels carry the offset.
+        match &f.kind {
+            MK::Enum { labels } => {
+                assert_eq!(labels.len(), 16, "sixteen levels, per the radio and RT Systems");
+                assert_eq!(labels[0], (0, "1"), "raw 0 is level 1, not level 0");
+                assert_eq!(labels[15], (15, "16"), "raw 15 is level 16");
+            }
+            _ => panic!("contrast labels carry a +1 display offset, so it cannot be a bare integer"),
         }
     }
 
