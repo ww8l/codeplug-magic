@@ -23,13 +23,14 @@ use crate::models::RadioModel;
 /// Every driver compiled into the app. Order is not significant — lookups are
 /// by `key()`, which is unique. (A static array rather than a slice literal:
 /// references to statics aren't const-promotable inside a returned temporary.)
-static DRIVERS: [&dyn RadioDriver; 6] = [
+static DRIVERS: [&dyn RadioDriver; 7] = [
     &super::baofeng_uv5r::DRIVER,
     &super::tidradio_tdh3::DRIVER,
     &super::anytone_atd890uv::DRIVER,
     &super::yaesu_ft5d::DRIVER,
     &super::icom_id52::DRIVER,
     &super::kenwood_thd75::DRIVER,
+    &super::kenwood_thd72::DRIVER,
 ];
 
 pub(crate) fn all_drivers() -> &'static [&'static dyn RadioDriver] {
@@ -109,6 +110,11 @@ mod tests {
                 // its `.icf` and the TH-D75's in its `.d75`, none of which goes
                 // through these traits.
                 "yaesu_ft5d" | "icom_id52" | "kenwood_thd75" => (false, false),
+                // TH-D72: a cable radio that WILL read and write settings, but
+                // not until Phase 4 has measured them. Its schema is seeded
+                // empty on purpose, and offering a settings action against an
+                // empty schema is worse than offering none.
+                "kenwood_thd72" => (false, false),
                 _ => (true, true),
             };
             assert_eq!(
@@ -169,7 +175,8 @@ mod tests {
     #[test]
     fn all_drivers_identify_but_only_clone_radios_download_images() {
         for d in all_drivers() {
-            let expect_image = matches!(d.key(), "baofeng_uv5r" | "tidradio_tdh3");
+            let expect_image =
+                matches!(d.key(), "baofeng_uv5r" | "tidradio_tdh3" | "kenwood_thd72");
             assert_eq!(
                 d.as_image_programmer().is_some(),
                 expect_image,
