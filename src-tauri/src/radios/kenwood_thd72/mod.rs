@@ -46,6 +46,8 @@ mod hw_phase1;
 #[cfg(test)]
 mod hw_phase1b;
 #[cfg(test)]
+mod hw_phase5;
+#[cfg(test)]
 mod real_images;
 
 use crate::commands::export::SlotChannel;
@@ -202,6 +204,7 @@ impl ImageProgrammer for KenwoodThd72 {
         let base = protocol::download(&mut *p)?;
         std::fs::write(&backup_path, &base)
             .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
+        drop(p);
 
         // 2. Patch the codeplug into THAT image, so every byte we are not
         //    responsible for goes back exactly as it came.
@@ -221,11 +224,22 @@ impl ImageProgrammer for KenwoodThd72 {
                  on the radio before this write.",
             )
         };
+        // ★ The reconnect is not optional and not politeness. Measured on a real
+        //   TH-D72A on 2026-08-26: a clone session leaves the radio unreachable
+        //   for several seconds after `E`, and a write attempted inside that
+        //   window dies in `enter_program` with a bare "Broken pipe". This
+        //   sequence — download, upload, read back — is three clone sessions and
+        //   needs a reconnect between each. The ladder's step 1 failed three
+        //   times on exactly this before it wrote a single byte.
+        let mut p = protocol::reconnect_after_clone(port).map_err(restore_hint)?;
         protocol::upload(&mut *p, &built, &blocks).map_err(restore_hint)?;
+        drop(p);
 
         // 4. Read back and verify. Non-fatal: every block was ack'd, so a failed
         //    read-back is a reporting problem, not a write problem.
-        let (verified, note) = match protocol::download(&mut *p) {
+        let reread = protocol::reconnect_after_clone(port)
+            .and_then(|mut p| protocol::download(&mut *p));
+        let (verified, note) = match reread {
             Ok(after) if after == built => (true, None),
             Ok(_) => (
                 false,

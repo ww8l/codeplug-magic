@@ -433,7 +433,20 @@ pub(crate) fn upload(
 
     for (already_written, &block) in blocks.iter().enumerate() {
         let off = block * BLOCK_LEN;
-        let acked = write_block(p, block, &image[off..off + BLOCK_LEN])?;
+        // Attach the position to an I/O failure too, not only to a NAK. A bare
+        // "Broken pipe" from `write_all` tells the operator nothing about how
+        // much of their codeplug reached the radio, and mid-write is exactly
+        // when that is the only thing worth knowing. ★ Found on the real radio,
+        // 2026-08-26 — the fake port cannot produce a link failure.
+        let acked = write_block(p, block, &image[off..off + BLOCK_LEN]).map_err(|e| {
+            let _ = end_session(p);
+            format!(
+                "{e} — while writing block {block} ({already_written} of {} already written). \
+                 The radio is holding a MIX of its old codeplug and the new one; re-run the \
+                 program, or restore the pre-write backup.",
+                blocks.len()
+            )
+        })?;
         if !acked {
             let _ = end_session(p);
             return Err(format!(
@@ -447,6 +460,49 @@ pub(crate) fn upload(
 
     end_session(p)?;
     Ok(())
+}
+
+/// Reconnect after a clone session, waiting for the radio to come back.
+///
+/// ★ Measured on a real TH-D72A, 2026-08-26. A clone session — read or write —
+/// leaves the radio unreachable for **several seconds** after `E`. Inside that
+/// window the port either refuses to open, or opens and then fails a write with
+/// "Broken pipe"; the radio came back at about +16 s in the one run that
+/// measured it.
+///
+/// This is why the ladder's step 1 failed three times before it wrote a byte:
+/// `download` succeeded, and the upload that followed 500 ms later died in
+/// `enter_program` with an I/O error that named nothing. Flow control was not
+/// the variable — it failed identically with and without.
+///
+/// Deliberately a **retry loop, not a constant**. One radio timing itself once
+/// is not a rule in this project, and a hard-coded sleep would be either too
+/// short for a slower unit or wasted time on a faster one. The caller gets a
+/// port that has already answered `ID`.
+///
+/// ⚠ The old handle must be dropped before calling this: the port has to be
+/// closed and reopened, not merely idle.
+pub(crate) fn reconnect_after_clone(port: &str) -> Result<Box<dyn SerialPort>, String> {
+    const ATTEMPTS: u32 = 12;
+    let mut last;
+    for attempt in 1..=ATTEMPTS {
+        std::thread::sleep(Duration::from_secs(2));
+        match open_port(port) {
+            Ok(mut p) => match identify(&mut *p) {
+                Ok(_) => return Ok(p),
+                Err(e) => last = e,
+            },
+            Err(e) => last = e,
+        }
+        if attempt == ATTEMPTS {
+            return Err(format!(
+                "the radio did not come back after the clone session ({last}). It needs a \
+                 few seconds between operations; if it stays silent, unplug the cable and \
+                 plug it back in."
+            ));
+        }
+    }
+    unreachable!()
 }
 
 fn hex(bytes: &[u8]) -> String {
