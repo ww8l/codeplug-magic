@@ -42,6 +42,10 @@ pub(crate) mod memory;
 pub(crate) mod program;
 pub(crate) mod protocol;
 #[cfg(test)]
+mod hw_phase1;
+#[cfg(test)]
+mod hw_phase1b;
+#[cfg(test)]
 mod real_images;
 
 use crate::commands::export::SlotChannel;

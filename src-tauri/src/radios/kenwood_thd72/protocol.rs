@@ -153,7 +153,11 @@ fn read_exact(p: &mut dyn SerialPort, n: usize) -> Result<Vec<u8>, String> {
 /// Send `cmd` and read the reply up to its `\r`. An empty string means the
 /// radio said nothing before the deadline — which is what a wrong baud rate,
 /// a wrong port, or a radio that is off all look like.
-fn command(p: &mut dyn SerialPort, cmd: &str) -> Result<String, String> {
+/// `pub(crate)` so the Phase 1 hardware harness can ask the radio arbitrary
+/// questions (`PV`, `MU`, `ME`, `MN`) through the SAME command layer the driver
+/// uses. A harness with its own framing would prove the radio answers something,
+/// not that this file reads it correctly.
+pub(crate) fn command(p: &mut dyn SerialPort, cmd: &str) -> Result<String, String> {
     p.write_all(format!("{cmd}\r").as_bytes()).estr()?;
     p.flush().estr()?;
 
@@ -235,10 +239,26 @@ fn read_drain(p: &mut dyn SerialPort) -> Result<(), String> {
 /// here would be a guess with the power to refuse Tim's own radio. This project
 /// has already shipped one guard that refused legitimate input, and the fix
 /// order matters: **Phase 1 writes the real token down, and only then does a
-/// model check go in.** Until then the image's own guard in `container.rs` is
-/// what stops a foreign codeplug being written.
+/// model check go in.**
+///
+/// ★ Phase 1 ran on 2026-08-26. A real TH-D72A (firmware 1.08, `TY A,M,B,1`)
+/// answers exactly `ID TH-D72` — no variant suffix, so the A/E/K difference
+/// lives in `TY` and not here. The check is now in, as a PREFIX match.
+///
+/// ⚠ That is **one radio**. Two samples agreeing is not a rule in this project
+/// and one is less; the prefix is deliberately loose so a firmware that appends
+/// something still passes, and the thing it exists to refuse is a different
+/// model on the same cable — a TH-D74 speaks this command set too, and the next
+/// thing this driver does after identifying is write. If a legitimate TH-D72 is
+/// ever refused here, this guard is wrong, not the radio.
 pub(crate) fn identify(p: &mut dyn SerialPort) -> Result<RadioIdentity, String> {
     let token = detect_baud(p)?;
+    if !token.starts_with("TH-D72") {
+        return Err(format!(
+            "the radio on this port identified as {token:?}, not a TH-D72. Writing a TH-D72 \
+             codeplug to it could not work and might not be harmless — check the cable."
+        ));
+    }
     Ok(RadioIdentity {
         matched: token.clone(),
         ident_hex: hex(token.as_bytes()),
@@ -608,14 +628,28 @@ mod tests {
         assert_eq!(ident.ident_ascii.as_deref(), Some("TH-D72"));
     }
 
-    /// The token itself is NOT checked — see `identify`'s doc comment. A radio
-    /// that answers a well-formed `ID` for some other Kenwood is accepted here
-    /// on purpose, because nothing in the research records what a real D72
-    /// returns and a guess could refuse the actual radio.
+    /// ★ Inverted by Phase 1 on 2026-08-26. This test used to assert that a
+    /// TH-D74 reply was *accepted*, because nothing in the research recorded
+    /// what a real D72 answers and a guessed token could have refused the actual
+    /// radio. The radio has now been asked: it says `ID TH-D72`. The guard is in
+    /// and a sibling model is refused — which matters because the next thing
+    /// this driver does after identifying is write.
     #[test]
-    fn a_different_kenwood_is_accepted_because_the_real_token_is_unknown() {
+    fn a_different_kenwood_on_the_cable_is_refused() {
         let mut p = FakePort::new(FakeThd72::new().answering_id("ID TH-D74"));
-        assert_eq!(identify(&mut p).expect("identify").matched, "TH-D74");
+        let err = match identify(&mut p) {
+            Ok(_) => panic!("a TH-D74 must not pass as a TH-D72"),
+            Err(e) => e,
+        };
+        assert!(err.contains("TH-D74"), "the error must name what answered: {err}");
+    }
+
+    /// The prefix is loose on purpose: a firmware that appends a variant letter
+    /// must still pass. Only the model is checked; A/E/K live in `TY`.
+    #[test]
+    fn a_variant_suffix_still_identifies_as_a_thd72() {
+        let mut p = FakePort::new(FakeThd72::new().answering_id("ID TH-D72A"));
+        assert_eq!(identify(&mut p).expect("identify").matched, "TH-D72A");
     }
 
     #[test]

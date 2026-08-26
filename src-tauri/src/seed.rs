@@ -732,12 +732,14 @@ fn models() -> Vec<ModelSeed> {
         //    group, and a channel in two lists lands in the first.
         //    (c) program-scan L/U limit pairs, not named scan lists,
         //    so scan_lists_supported is false — same as the D75.
-        //    (d) ⚠ tx_bands is the STOCK TH-D72A allocation and is
-        //    the one number here taken on trust. The radio answers
-        //    the question itself: `TY` returns A,M,B,1 for a stock
-        //    D72A and reports a hardware-extended TX. Phase 1 asks
-        //    it; until then a modified radio is under-served rather
-        //    than over-served, which is the safe direction.
+        //    (d) ★ tx_bands is MEASURED, not assumed. Phase 1 asked
+        //    the radio itself on 2026-08-26: `TY` answered A,M,B,1 —
+        //    a stock TH-D72A whose TX is NOT hardware-extended — so
+        //    144-148 / 430-450 is this radio's own allocation. `FV 0`
+        //    reports firmware 1.08. An E/K or a TX-modified radio
+        //    answers TY differently and would need its own row; such
+        //    a radio is under-served by this one, which is the safe
+        //    direction.
         //    (e) the settings schema is EMPTY on purpose. Phase 4
         //    measures the 19 MU parameters against the image's own
         //    settings block; seeding guesses would push them at a
