@@ -32,15 +32,15 @@ pub(crate) const THD72_SETTINGS_FIELDS: &[MF] = &[
     MF { key: "vhf-aip", label: "VHF AIP", mu: 5, menu: Some("132"), kind: MK::Bool },  // MU p6; menu confirmed; values inferred
     MF { key: "uhf-aip", label: "UHF AIP", mu: 6, menu: Some("133"), kind: MK::Bool },  // MU p7; menu confirmed; values inferred
     MF { key: "vox", label: "VOX", mu: 7, menu: Some("134"), kind: MK::Bool },  // MU p8; menu confirmed; values inferred
-    MF { key: "vox-gain", label: "VOX gain", mu: 8, menu: None, kind: MK::Uint { min: 0, max: 9 } },  // MU p9; menu unknown; values inferred
-    MF { key: "vox-delay", label: "VOX delay", mu: 9, menu: Some("136?"), kind: MK::Enum { labels: &[(0, "250 ms"), (1, "500 ms"), (2, "750 ms"), (3, "1000 ms"), (4, "1500 ms"), (5, "2000 ms"), (6, "3000 ms")] } },  // MU p10; menu uncertain; values inferred
+    MF { key: "vox-gain", label: "VOX gain", mu: 8, menu: Some("135"), kind: MK::Uint { min: 0, max: 9 } },  // MU p9; menu confirmed; values inferred
+    MF { key: "vox-delay", label: "VOX delay", mu: 9, menu: Some("136"), kind: MK::Enum { labels: &[(0, "250 ms"), (1, "500 ms"), (2, "750 ms"), (3, "1000 ms"), (4, "1500 ms"), (5, "2000 ms"), (6, "3000 ms")] } },  // MU p10; menu corroborated; values inferred
     MF { key: "vox-on-busy", label: "VOX on busy", mu: 10, menu: Some("137"), kind: MK::Bool },  // MU p11; menu confirmed; values inferred
     MF { key: "beat-shift", label: "Beat shift", mu: 11, menu: Some("138"), kind: MK::Enum { labels: &[(0, "Type 1"), (1, "Type 2"), (2, "Type 3"), (3, "Type 4"), (4, "Type 5"), (5, "Type 6"), (6, "Type 7"), (7, "Type 8")] } },  // MU p12; menu confirmed; values inferred (manual states Type 1~8, default Type 1)
     MF { key: "tx-inhibit", label: "TX inhibit", mu: 12, menu: Some("139"), kind: MK::Bool },  // MU p13; menu confirmed; values inferred
     MF { key: "balance", label: "Volume balance (A/B)", mu: 13, menu: Some("120"), kind: MK::Enum { labels: &[(0, "A"), (1, "A 50%"), (2, "Center"), (3, "B 50%"), (4, "B")] } },  // MU p14; menu confirmed on screen; values MEASURED
-    MF { key: "recall-method", label: "Memory recall method", mu: 14, menu: Some("143?"), kind: MK::Enum { labels: &[(0, "All band"), (1, "Current band")] } },  // MU p15; menu uncertain; values inferred
-    MF { key: "scan-resume", label: "Scan resume", mu: 15, menu: None, kind: MK::Enum { labels: &[(0, "Time"), (1, "Carrier"), (2, "Seek")] } },  // MU p16; menu unknown; values inferred
-    MF { key: "time-restart", label: "Scan time restart (seconds)", mu: 16, menu: None, kind: MK::Uint { min: 1, max: 10 } },  // MU p17; menu unknown; values inferred
-    MF { key: "carrier-restart", label: "Scan carrier restart (seconds)", mu: 17, menu: None, kind: MK::Uint { min: 1, max: 10 } },  // MU p18; menu unknown; values inferred
-    MF { key: "auto-offset", label: "Automatic repeater offset", mu: 18, menu: None, kind: MK::Bool },  // MU p19; menu unknown; values inferred
+    MF { key: "recall-method", label: "Memory recall method", mu: 14, menu: Some("143"), kind: MK::Enum { labels: &[(0, "All band"), (1, "Current band")] } },  // MU p15; menu corroborated; values inferred
+    MF { key: "scan-resume", label: "Scan resume", mu: 15, menu: Some("150"), kind: MK::Enum { labels: &[(0, "Time"), (1, "Carrier"), (2, "Seek")] } },  // MU p16; menu confirmed; values inferred
+    MF { key: "time-restart", label: "Scan time restart (seconds)", mu: 16, menu: Some("151"), kind: MK::Uint { min: 1, max: 10 } },  // MU p17; menu confirmed; values inferred
+    MF { key: "carrier-restart", label: "Scan carrier restart (seconds)", mu: 17, menu: Some("152"), kind: MK::Uint { min: 1, max: 10 } },  // MU p18; menu confirmed; values inferred
+    MF { key: "auto-offset", label: "Automatic repeater offset", mu: 18, menu: None, kind: MK::Bool },  // MU p19; menu unknown (the only one left); values inferred
 ];
