@@ -42,5 +42,5 @@ pub(crate) const THD72_SETTINGS_FIELDS: &[MF] = &[
     MF { key: "scan-resume", label: "Scan resume", mu: 15, menu: Some("150"), kind: MK::Enum { labels: &[(0, "Time"), (1, "Carrier"), (2, "Seek")] } },  // MU p16; menu confirmed; values inferred
     MF { key: "time-restart", label: "Scan time restart (seconds)", mu: 16, menu: Some("151"), kind: MK::Uint { min: 1, max: 10 } },  // MU p17; menu confirmed; values inferred
     MF { key: "carrier-restart", label: "Scan carrier restart (seconds)", mu: 17, menu: Some("152"), kind: MK::Uint { min: 1, max: 10 } },  // MU p18; menu confirmed; values inferred
-    MF { key: "auto-offset", label: "Automatic repeater offset", mu: 18, menu: None, kind: MK::Bool },  // MU p19; menu unknown (the only one left); values inferred
+    MF { key: "auto-offset", label: "Automatic repeater offset", mu: 18, menu: Some("161"), kind: MK::Bool },  // MU p19; menu corroborated; values inferred
 ];
