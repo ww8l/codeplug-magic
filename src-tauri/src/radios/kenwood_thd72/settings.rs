@@ -633,8 +633,12 @@ mod tests {
         // A byte inside the memory region, to prove settings stay out of it.
         img[super::super::layout::MEMORY_BASE + 3] = 0xAB;
 
-        // Two fields confirmed on the radio's own menus in s125.
-        let want = json!({ "common1-battery-type": "Alkaline", "gps-datum": "Tokyo" });
+        // Two fields confirmed on the radio's own menus in s125. Keyed by
+        // CONTROL ID, not by label: a key is what a value is saved under in an
+        // operator's profile, so deriving it from a label meant that improving
+        // the label silently renamed the setting. That is why this test names
+        // `common1-1152` rather than `common1-battery-type`.
+        let want = json!({ "common1-1152": "Alkaline", "gps-1311": "Tokyo" });
         let notes = apply_image_settings(&mut img, &want, schema).expect("apply");
         assert!(notes.is_empty(), "nothing should have been out of range: {notes:?}");
 
@@ -648,8 +652,8 @@ mod tests {
 
         // And the values come back out as the operator set them.
         let round = decode(&[0u8; MU_FIELDS], &img);
-        assert_eq!(round["common1-battery-type"], json!("Alkaline"));
-        assert_eq!(round["gps-datum"], json!("Tokyo"));
+        assert_eq!(round["common1-1152"], json!("Alkaline"));
+        assert_eq!(round["gps-1311"], json!("Tokyo"));
     }
 
     /// The table and the form schema are generated from one sheet by one script.

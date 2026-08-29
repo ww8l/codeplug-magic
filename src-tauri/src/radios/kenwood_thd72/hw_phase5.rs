@@ -911,11 +911,11 @@ fn settings_read_over_both_transports() {
 
     // Both transports have to have produced something, or one of them is dead.
     let mu_field = &obj["apo"];              // MU parameter 4
-    let img_field = &obj["common1-battery-type"];  // image 0x0316, screen-confirmed
+    let img_field = &obj["common1-1152"];  // image 0x0316, screen-confirmed
     println!("  MU    apo                  = {mu_field}");
     println!("  image common1-battery-type = {img_field}");
-    println!("  image gps-datum            = {}", obj["gps-datum"]);
-    println!("  image txrx-time_out_timer? = {}", obj.get("txrx-time-out-timer")
+    println!("  image gps-datum            = {}", obj["gps-1311"]);
+    println!("  image txrx-time_out_timer? = {}", obj.get("txrx-1311")
              .map(|v| v.to_string()).unwrap_or_else(|| "(key not in schema)".into()));
     assert!(!mu_field.is_null(), "the MU half read nothing");
     assert!(!img_field.is_null(), "the image half read nothing");
@@ -946,12 +946,12 @@ fn settings_write_over_both_transports() {
         .read_settings(&port(), schema)
         .expect("read before");
     let obj = before.settings.as_object().unwrap();
-    println!("before: apo={} battery-type={}", obj["apo"], obj["common1-battery-type"]);
+    println!("before: apo={} battery-type={}", obj["apo"], obj["common1-1152"]);
 
     let want = if undo {
-        serde_json::json!({ "apo": "Off", "common1-battery-type": "Lithium" })
+        serde_json::json!({ "apo": "Off", "common1-1152": "Lithium" })
     } else {
-        serde_json::json!({ "apo": "30 minutes", "common1-battery-type": "Alkaline" })
+        serde_json::json!({ "apo": "30 minutes", "common1-1152": "Alkaline" })
     };
     for (k, v) in want.as_object().unwrap() {
         assert_ne!(&obj[k.as_str()], v, "{k} already holds {v} — this could not fail");
@@ -975,7 +975,7 @@ fn settings_write_over_both_transports() {
     for (k, v) in want.as_object().unwrap() {
         assert_eq!(&got[k.as_str()], v, "{k} did not land");
     }
-    println!("read back: apo={} battery-type={}", got["apo"], got["common1-battery-type"]);
+    println!("read back: apo={} battery-type={}", got["apo"], got["common1-1152"]);
 
     if undo {
         println!("\n>>> Both fields are back as found.");
