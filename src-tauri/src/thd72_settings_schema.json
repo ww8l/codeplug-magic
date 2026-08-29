@@ -214,5 +214,1095 @@
   "type": "integer",
   "min": 1,
   "max": 10
+ },
+ {
+  "key": "image-common1",
+  "label": "Common 1",
+  "type": "section"
+ },
+ {
+  "key": "common1-key",
+  "label": "Key",
+  "type": "boolean"
+ },
+ {
+  "key": "common1-battery-type",
+  "label": "Battery type",
+  "type": "select",
+  "options": [
+   "Lithium",
+   "Alkaline"
+  ]
+ },
+ {
+  "key": "common1-power-on-message",
+  "label": "Power On Message:",
+  "type": "select",
+  "options": [
+   "Key",
+   "Frequency",
+   "Frequency & Key"
+  ]
+ },
+ {
+  "key": "common1-dtmf-key",
+  "label": "DTMF Key",
+  "type": "boolean"
+ },
+ {
+  "key": "common1-mic-pf-key",
+  "label": "Microphone key lock",
+  "type": "boolean"
+ },
+ {
+  "key": "common1-pf1",
+  "label": "PF1",
+  "type": "select",
+  "options": [
+   "WX",
+   "GROUP UP",
+   "MR.Name<=>FREQ",
+   "VOX",
+   "MR GRP NAME",
+   "BAL",
+   "GPS",
+   "LOG",
+   "SQL",
+   "SHIFT",
+   "DUP",
+   "BAND",
+   "STEP",
+   "LOW",
+   "LOCK",
+   "M>V",
+   "M.IN",
+   "T.SEL",
+   "NEW",
+   "VA",
+   "DX",
+   "WXI"
+  ]
+ },
+ {
+  "key": "common1-battery-type-2",
+  "label": "Battery Type",
+  "type": "select",
+  "options": [
+   "UTC -14:00",
+   "UTC -13:45",
+   "UTC -13:30",
+   "UTC -13:15",
+   "UTC -13:00",
+   "UTC -12:45",
+   "UTC -12:30",
+   "UTC -12:15",
+   "UTC -12:00",
+   "UTC -11:45",
+   "UTC -11:30",
+   "UTC -11:15",
+   "UTC -11:00",
+   "UTC -10:45",
+   "UTC -10:30",
+   "UTC -10:15",
+   "UTC -10:00",
+   "UTC -09:45",
+   "UTC -09:30",
+   "UTC -09:15",
+   "UTC -09:00",
+   "UTC -08:45",
+   "UTC -08:30",
+   "UTC -08:15",
+   "UTC -08:00",
+   "UTC -07:45",
+   "UTC -07:30",
+   "UTC -07:15",
+   "UTC -07:00",
+   "UTC -06:45",
+   "UTC -06:30",
+   "UTC -06:15",
+   "UTC -06:00",
+   "UTC -05:45",
+   "UTC -05:30",
+   "UTC -05:15",
+   "UTC -05:00",
+   "UTC -04:45",
+   "UTC -04:30",
+   "UTC -04:15",
+   "UTC -04:00",
+   "UTC -03:45",
+   "UTC -03:30",
+   "UTC -03:15",
+   "UTC -03:00",
+   "UTC -02:45",
+   "UTC -02:30",
+   "UTC -02:15",
+   "UTC -02:00",
+   "UTC -01:45",
+   "UTC -01:30",
+   "UTC -01:15",
+   "UTC -01:00",
+   "UTC -00:45",
+   "UTC -00:30",
+   "UTC -00:15",
+   "UTC",
+   "UTC +00:15",
+   "UTC +00:30",
+   "UTC +00:45",
+   "UTC +01:00",
+   "UTC +01:15",
+   "UTC +01:30",
+   "UTC +01:45",
+   "UTC +02:00",
+   "UTC +02:15",
+   "UTC +02:30",
+   "UTC +02:45",
+   "UTC +03:00",
+   "UTC +03:15",
+   "UTC +03:30",
+   "UTC +03:45",
+   "UTC +04:00",
+   "UTC +04:15",
+   "UTC +04:30",
+   "UTC +04:45",
+   "UTC +05:00",
+   "UTC +05:15",
+   "UTC +05:30",
+   "UTC +05:45",
+   "UTC +06:00",
+   "UTC +06:15",
+   "UTC +06:30",
+   "UTC +06:45",
+   "UTC +07:00",
+   "UTC +07:15",
+   "UTC +07:30",
+   "UTC +07:45",
+   "UTC +08:00",
+   "UTC +08:15",
+   "UTC +08:30",
+   "UTC +08:45",
+   "UTC +09:00",
+   "UTC +09:15",
+   "UTC +09:30",
+   "UTC +09:45",
+   "UTC +10:00",
+   "UTC +10:15",
+   "UTC +10:30",
+   "UTC +10:45",
+   "UTC +11:00",
+   "UTC +11:15",
+   "UTC +11:30",
+   "UTC +11:45",
+   "UTC +12:00",
+   "UTC +12:15",
+   "UTC +12:30",
+   "UTC +12:45",
+   "UTC +13:00",
+   "UTC +13:15",
+   "UTC +13:30",
+   "UTC +13:45",
+   "UTC +14:00"
+  ]
+ },
+ {
+  "key": "common1-cursor-shift-2",
+  "label": "Cursor Shift",
+  "type": "select",
+  "options": [
+   "Off",
+   "1 sec",
+   "1.5 sec",
+   "2 sec"
+  ]
+ },
+ {
+  "key": "common1-enable",
+  "label": "Enable",
+  "type": "boolean"
+ },
+ {
+  "key": "common1-auto-power-off-2",
+  "label": "Auto Power Off",
+  "type": "select",
+  "options": [
+   "Manual",
+   "Auto"
+  ]
+ },
+ {
+  "key": "image-common2",
+  "label": "Common 2",
+  "type": "section"
+ },
+ {
+  "key": "common2-144-mhz-band",
+  "label": "144 MHz Band",
+  "type": "boolean"
+ },
+ {
+  "key": "common2-440-mhz-band",
+  "label": "440 MHz Band",
+  "type": "boolean"
+ },
+ {
+  "key": "common2-118-mhz-band",
+  "label": "118 MHz Band",
+  "type": "boolean"
+ },
+ {
+  "key": "common2-144-mhz-band-2",
+  "label": "144 MHz Band",
+  "type": "boolean"
+ },
+ {
+  "key": "common2-300-mhz-band",
+  "label": "300 MHz Band",
+  "type": "boolean"
+ },
+ {
+  "key": "common2-440-mhz-band-2",
+  "label": "440 MHz Band",
+  "type": "boolean"
+ },
+ {
+  "key": "common2-display-memory-name",
+  "label": "Display Memory Name",
+  "type": "boolean"
+ },
+ {
+  "key": "common2-recall-method",
+  "label": "Recall Method",
+  "type": "select",
+  "options": [
+   "All Bands",
+   "Current Band"
+  ]
+ },
+ {
+  "key": "common2-transporter-callsign",
+  "label": "Transporter Callsign:",
+  "type": "select",
+  "options": [
+   "67.0",
+   "69.3",
+   "71.9",
+   "74.4",
+   "77.0",
+   "79.7",
+   "82.5",
+   "85.4",
+   "88.5",
+   "91.5",
+   "94.8",
+   "97.4",
+   "100.0",
+   "103.5",
+   "107.2",
+   "110.9",
+   "114.8",
+   "118.8",
+   "123.0",
+   "127.3",
+   "131.8",
+   "136.5",
+   "141.3",
+   "146.2",
+   "151.4",
+   "156.7",
+   "162.2",
+   "167.9",
+   "173.8",
+   "179.9",
+   "186.2",
+   "192.8",
+   "203.5",
+   "206.5",
+   "210.7",
+   "218.1",
+   "225.7",
+   "229.1",
+   "233.6",
+   "241.8",
+   "250.3",
+   "254.1"
+  ]
+ },
+ {
+  "key": "image-txrx",
+  "label": "Tx / Rx / Repeater",
+  "type": "section"
+ },
+ {
+  "key": "txrx-a-band-rf-power",
+  "label": "A-band RF power",
+  "type": "select",
+  "options": [
+   "High",
+   "Low",
+   "Economy Low"
+  ]
+ },
+ {
+  "key": "txrx-a-band",
+  "label": "A-Band",
+  "type": "boolean"
+ },
+ {
+  "key": "txrx-b-band-rf-power",
+  "label": "B-band RF power",
+  "type": "select",
+  "options": [
+   "High",
+   "Low",
+   "Economy Low"
+  ]
+ },
+ {
+  "key": "txrx-b-band",
+  "label": "B-Band",
+  "type": "boolean"
+ },
+ {
+  "key": "txrx-vhf-band-aip",
+  "label": "VHF Band AIP",
+  "type": "boolean"
+ },
+ {
+  "key": "txrx-uhf-band-aip",
+  "label": "UHF Band AIP",
+  "type": "boolean"
+ },
+ {
+  "key": "txrx-enable",
+  "label": "Enable",
+  "type": "boolean"
+ },
+ {
+  "key": "txrx-beat-shift",
+  "label": "Beat Shift",
+  "type": "select",
+  "options": [
+   "0",
+   "1",
+   "2",
+   "3",
+   "4",
+   "5",
+   "6",
+   "7",
+   "8",
+   "9"
+  ]
+ },
+ {
+  "key": "txrx-delay",
+  "label": "Delay",
+  "type": "select",
+  "options": [
+   "250 ms",
+   "500 ms",
+   "750 ms",
+   "1000 ms",
+   "1500 ms",
+   "2000 ms",
+   "3000 ms"
+  ]
+ },
+ {
+  "key": "txrx-vox-on-busy",
+  "label": "Vox On Busy",
+  "type": "boolean"
+ },
+ {
+  "key": "txrx-beat-shift-2",
+  "label": "Beat Shift",
+  "type": "select",
+  "options": [
+   "Type 1",
+   "Type 2",
+   "Type 3",
+   "Type 4",
+   "Type 5",
+   "Type 6",
+   "Type 7",
+   "Type 8"
+  ]
+ },
+ {
+  "key": "txrx-inhibit",
+  "label": "Inhibit",
+  "type": "boolean"
+ },
+ {
+  "key": "txrx-packet-band",
+  "label": "Packet Band",
+  "type": "select",
+  "options": [
+   "Off",
+   "15 min",
+   "30 min",
+   "60 min"
+  ]
+ },
+ {
+  "key": "txrx-auto-repeater-offset",
+  "label": "Auto Repeater Offset",
+  "type": "boolean"
+ },
+ {
+  "key": "txrx-a-band-rf-power-2",
+  "label": "A-Band RF Power",
+  "type": "select",
+  "options": [
+   "Call",
+   "1750 Hz Tone"
+  ]
+ },
+ {
+  "key": "txrx-1750-hz-transmit-hold",
+  "label": "1750 Hz Transmit Hold",
+  "type": "boolean"
+ },
+ {
+  "key": "txrx-packet-band-2",
+  "label": "Packet Band",
+  "type": "select",
+  "options": [
+   "A-Band",
+   "B-Band",
+   "A:Tx B:Rx",
+   "A:Rx B:Tx"
+  ]
+ },
+ {
+  "key": "txrx-time-out-timer",
+  "label": "Time-out timer",
+  "type": "select",
+  "options": [
+   "0.5 Minute",
+   "1.0 Minute",
+   "1.5 Minutes",
+   "2.0 Minutes",
+   "2.5 Minutes",
+   "3.0 Minutes",
+   "3.5 Minutes",
+   "4.0 Minutes",
+   "4.5 Minutes",
+   "5.0 Minutes",
+   "10.0 Minutes"
+  ]
+ },
+ {
+  "key": "image-dtmf",
+  "label": "DTMF, EchoLink, Weather",
+  "type": "section"
+ },
+ {
+  "key": "dtmf-dtmf-speed",
+  "label": "DTMF transmission speed",
+  "type": "select",
+  "options": [
+   "50 ms",
+   "100 ms",
+   "150 ms"
+  ]
+ },
+ {
+  "key": "dtmf-dtmf-delay",
+  "label": "DTMF Delay",
+  "type": "select",
+  "options": [
+   "100 ms",
+   "250 ms",
+   "500 ms",
+   "750 ms",
+   "1000 ms",
+   "1500 ms",
+   "2000 ms"
+  ]
+ },
+ {
+  "key": "dtmf-dtmf-hold",
+  "label": "DTMF Hold",
+  "type": "boolean"
+ },
+ {
+  "key": "image-gps",
+  "label": "GPS",
+  "type": "section"
+ },
+ {
+  "key": "gps-battery-saver",
+  "label": "GPS battery saver",
+  "type": "select",
+  "options": [
+   "Off",
+   "1 min",
+   "2 min",
+   "4 min",
+   "8 min",
+   "Auto"
+  ]
+ },
+ {
+  "key": "gps-pc-output",
+  "label": "PC Output",
+  "type": "boolean"
+ },
+ {
+  "key": "gps-datum",
+  "label": "GPS datum",
+  "type": "select",
+  "options": [
+   "WGS-84",
+   "Tokyo"
+  ]
+ },
+ {
+  "key": "gps-gpgll",
+  "label": "$GPGLL",
+  "type": "boolean"
+ },
+ {
+  "key": "gps-gpgsa",
+  "label": "$GPGSA",
+  "type": "boolean"
+ },
+ {
+  "key": "gps-gpgsv",
+  "label": "$GPGSV",
+  "type": "boolean"
+ },
+ {
+  "key": "gps-gpvtg",
+  "label": "$GPVTG",
+  "type": "boolean"
+ },
+ {
+  "key": "gps-gpzda",
+  "label": "$GPZDA",
+  "type": "boolean"
+ },
+ {
+  "key": "gps-sbas",
+  "label": "SBAS",
+  "type": "boolean"
+ },
+ {
+  "key": "gps-wrap-when-full",
+  "label": "Wrap When Full",
+  "type": "boolean"
+ },
+ {
+  "key": "gps-operating-mode",
+  "label": "Operating Mode",
+  "type": "select",
+  "options": [
+   "Time",
+   "Distance",
+   "Beacon"
+  ]
+ },
+ {
+  "key": "image-aprs1",
+  "label": "APRS",
+  "type": "section"
+ },
+ {
+  "key": "aprs1-voice-alert",
+  "label": "Voice Alert",
+  "type": "select",
+  "options": [
+   "Off",
+   "On",
+   "Rx Only"
+  ]
+ },
+ {
+  "key": "aprs1-path-is-via",
+  "label": "Path is VIA:",
+  "type": "select",
+  "options": [
+   "67.0",
+   "69.3",
+   "71.9",
+   "74.4",
+   "77.0",
+   "79.7",
+   "82.5",
+   "85.4",
+   "88.5",
+   "91.5",
+   "94.8",
+   "97.4",
+   "100.0",
+   "103.5",
+   "107.2",
+   "110.9",
+   "114.8",
+   "118.8",
+   "123.0",
+   "127.3",
+   "131.8",
+   "136.5",
+   "141.3",
+   "146.2",
+   "151.4",
+   "156.7",
+   "162.2",
+   "167.9",
+   "173.8",
+   "179.9",
+   "186.2",
+   "192.8",
+   "203.5",
+   "206.5",
+   "210.7",
+   "218.1",
+   "225.7",
+   "229.1",
+   "233.6",
+   "241.8",
+   "250.3",
+   "254.1"
+  ]
+ },
+ {
+  "key": "aprs1-beacon-type",
+  "label": "Beacon Type",
+  "type": "select",
+  "options": [
+   "APRS",
+   "NAVITRA"
+  ]
+ },
+ {
+  "key": "aprs1-my-callsign",
+  "label": "My Callsign:",
+  "type": "select",
+  "options": [
+   "Off",
+   "On",
+   "On & PTT",
+   "On & TNC",
+   "On & PTT & TNC"
+  ]
+ },
+ {
+  "key": "aprs1-data-band",
+  "label": "Data Band",
+  "type": "select",
+  "options": [
+   "A-Band",
+   "B-Band",
+   "A:Tx B:Rx",
+   "A:Rx B:Tx"
+  ]
+ },
+ {
+  "key": "aprs1-data-speed",
+  "label": "Data Speed",
+  "type": "select",
+  "options": [
+   "1200 bps",
+   "9600 bps"
+  ]
+ },
+ {
+  "key": "aprs1-dcd-sense",
+  "label": "DCD Sense",
+  "type": "select",
+  "options": [
+   "D or RxD Band",
+   "Both Bands",
+   "Ignore DCD"
+  ]
+ },
+ {
+  "key": "aprs1-tx-delay",
+  "label": "Tx Delay",
+  "type": "select",
+  "options": [
+   "100 ms",
+   "150 ms",
+   "200 ms",
+   "300 ms",
+   "400 ms",
+   "500 ms",
+   "750 ms",
+   "1000 ms"
+  ]
+ },
+ {
+  "key": "aprs1-baud-rate",
+  "label": "Baud Rate",
+  "type": "select",
+  "options": [
+   "2400 bps",
+   "4800 bps",
+   "9600 bps"
+  ]
+ },
+ {
+  "key": "aprs1-input",
+  "label": "Input",
+  "type": "select",
+  "options": [
+   "Off",
+   "GPS",
+   "WX (Peet Bros.)",
+   "WX (Davis)"
+  ]
+ },
+ {
+  "key": "aprs1-output",
+  "label": "Output",
+  "type": "select",
+  "options": [
+   "Off",
+   "Waypoint"
+  ]
+ },
+ {
+  "key": "aprs1-data-band-2",
+  "label": "Data Band",
+  "type": "select",
+  "options": [
+   "NMEA",
+   "MAGELLAN",
+   "KENWOOD"
+  ]
+ },
+ {
+  "key": "aprs1-dcd-sense-2",
+  "label": "DCD Sense",
+  "type": "select",
+  "options": [
+   "All",
+   "Local",
+   "Filtered"
+  ]
+ },
+ {
+  "key": "aprs1-speed",
+  "label": "Speed",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs1-altitude",
+  "label": "Altitude",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs1-output-2",
+  "label": "Output",
+  "type": "select",
+  "options": [
+   "Off",
+   "1-digit",
+   "2-digit",
+   "3-digit",
+   "4-digit"
+  ]
+ },
+ {
+  "key": "aprs1-beacon-type-2",
+  "label": "Beacon Type",
+  "type": "select",
+  "options": [
+   "Off Duty",
+   "Enroute",
+   "In Service",
+   "Returning",
+   "Committed",
+   "Special",
+   "PRIORITY",
+   "CUSTOM 0",
+   "CUSTOM 1",
+   "CUSTOM 2",
+   "CUSTOM 3",
+   "CUSTOM 4",
+   "CUSTOM 5",
+   "CUSTOM 6",
+   "EMERGENCY!"
+  ]
+ },
+ {
+  "key": "aprs1-others",
+  "label": "Others",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs1-object",
+  "label": "Object",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs1-digi",
+  "label": "DIGI",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs1-navitra",
+  "label": "NAVITRA",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs1-mobile",
+  "label": "Mobile",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs1-weather",
+  "label": "Weather",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs1-1-way",
+  "label": "1-Way",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs1-length",
+  "label": "Length",
+  "type": "select",
+  "options": [
+   "Manual",
+   "PTT",
+   "Auto",
+   "SmartBeaconing"
+  ]
+ },
+ {
+  "key": "aprs1-type",
+  "label": "Type",
+  "type": "select",
+  "options": [
+   ".2 min",
+   ".5 min",
+   "1 min",
+   "2 min",
+   "3 min",
+   "5 min",
+   "10 min",
+   "20 min",
+   "30 min",
+   "60 min"
+  ]
+ },
+ {
+  "key": "aprs1-decay-algorithm",
+  "label": "Decay Algorithm",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs1-proportional-pathing",
+  "label": "Proportional Pathing",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs1-output-3",
+  "label": "Output",
+  "type": "select",
+  "options": [
+   "New-N Paradigm",
+   "RELAY Paradigm",
+   "State/Section/Region",
+   "Others"
+  ]
+ },
+ {
+  "key": "aprs1-total-hops",
+  "label": "Total Hops",
+  "type": "select",
+  "options": [
+   "0",
+   "1",
+   "2",
+   "3",
+   "4",
+   "5",
+   "6",
+   "7"
+  ]
+ },
+ {
+  "key": "image-aprs2",
+  "label": "APRS — stations",
+  "type": "section"
+ },
+ {
+  "key": "aprs2-tx",
+  "label": "Tx",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs2-aliases",
+  "label": "Aliases:",
+  "type": "select",
+  "options": [
+   "5 min",
+   "10 min",
+   "30 min",
+   "60 min"
+  ]
+ },
+ {
+  "key": "aprs2-digipeat-my-callsign",
+  "label": "DIGIPEAT (My Callsign)",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs2-uidigi",
+  "label": "UIDIGI",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs2-uitrace",
+  "label": "UITRACE",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs2-uiflood",
+  "label": "UIFLOOD",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs2-substitution",
+  "label": "Substitution",
+  "type": "select",
+  "options": [
+   "ID",
+   "NOID",
+   "First"
+  ]
+ },
+ {
+  "key": "aprs2-reply",
+  "label": "Reply",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs2-rx-beep",
+  "label": "Rx Beep",
+  "type": "select",
+  "options": [
+   "All",
+   "All New",
+   "Mine",
+   "Message Only",
+   "Off"
+  ]
+ },
+ {
+  "key": "aprs2-tx-beep-beacon",
+  "label": "Tx Beep (Beacon)",
+  "type": "select",
+  "options": [
+   "Off",
+   "On"
+  ]
+ },
+ {
+  "key": "aprs2-delay",
+  "label": "Delay",
+  "type": "select",
+  "options": [
+   "0",
+   "10 seconds",
+   "30 seconds"
+  ]
+ },
+ {
+  "key": "image-aprs3",
+  "label": "APRS — NAVITRA",
+  "type": "section"
+ },
+ {
+  "key": "aprs3-qsy-in-status",
+  "label": "QSY In Status",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs3-tone-narrow",
+  "label": "Tone/ Narrow",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs3-shift-offset",
+  "label": "Shift/ Offset",
+  "type": "boolean"
+ },
+ {
+  "key": "aprs3-display-area",
+  "label": "Display Area",
+  "type": "select",
+  "options": [
+   "One Line",
+   "Entire Display",
+   "Entire Always"
+  ]
+ },
+ {
+  "key": "aprs3-time",
+  "label": "Time",
+  "type": "select",
+  "options": [
+   "3 sec",
+   "5 sec",
+   "10 sec",
+   "Forever"
+  ]
+ },
+ {
+  "key": "aprs3-cursor-control",
+  "label": "Cursor Control",
+  "type": "select",
+  "options": [
+   "Followed",
+   "Fixed"
+  ]
+ },
+ {
+  "key": "aprs3-speed-distance",
+  "label": "Speed, Distance",
+  "type": "select",
+  "options": [
+   "mi/h, mile",
+   "km/h, km",
+   "knots, nm"
+  ]
+ },
+ {
+  "key": "aprs3-altitude-rain",
+  "label": "Altitude, Rain",
+  "type": "select",
+  "options": [
+   "feet, inch",
+   "m, mm"
+  ]
+ },
+ {
+  "key": "aprs3-temperature",
+  "label": "Temperature",
+  "type": "select",
+  "options": [
+   "°F",
+   "°C"
+  ]
+ },
+ {
+  "key": "aprs3-display-area-2",
+  "label": "Display Area",
+  "type": "select",
+  "options": [
+   "Maidenhead Grid",
+   "SAR Grid (CONV)",
+   "SAR Grid (CELL)"
+  ]
+ },
+ {
+  "key": "aprs3-navitra-group-mode",
+  "label": "NAVITRA Group Mode",
+  "type": "boolean"
  }
 ]

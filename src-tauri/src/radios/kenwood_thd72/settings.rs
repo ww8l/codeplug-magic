@@ -46,10 +46,63 @@ use super::protocol;
 pub(crate) struct MF {
     pub key: &'static str,
     pub label: &'static str,
-    /// 0-based index into the 19 comma-separated parameters of an `MU` line.
-    pub mu: usize,
+    pub src: MSrc,
     pub menu: Option<&'static str>,
     pub kind: MK,
+}
+
+/// Where a field's value lives. The TH-D72 has two settings transports and
+/// needs both: `MU` carries 19 menu parameters as one ASCII line, and the other
+/// 103 exist ONLY as bytes in the clone image — there is no `MU` parameter for
+/// any of them, which is why the s125 ten-pass campaign had to measure them.
+///
+/// ⚠ Where the two overlap they AGREE: `MU`'s battery saver, APO and key beep
+/// are `0x314`, `0x315` and `0x317`, measured independently by the campaign and
+/// then confirmed on the radio's own menus. The generator drops the image copy
+/// of a duplicated parameter so no value exists twice under two names.
+pub(crate) enum MSrc {
+    /// 0-based index into the 19 comma-separated parameters of an `MU` line.
+    Mu(usize),
+    /// A byte in the 64 KiB clone image.
+    ///
+    /// `mask` is the bits the campaign PROVED move with this field. For a
+    /// checkbox that is its single bit, and only that bit is written, because
+    /// booleans are packed several to a byte. For a combo the whole byte is the
+    /// value — `byte == index` held in all ten passes for every emitted enum,
+    /// and no combo shares a byte with another field.
+    Image {
+        addr: usize,
+        mask: u8,
+        /// The stored bit is the complement of the control's state.
+        active_low: bool,
+    },
+}
+
+impl MSrc {
+    /// The field's raw value, as the table's enum labels number it.
+    fn read(&self, mu: &[u8], image: &[u8], kind: &MK) -> u8 {
+        match *self {
+            MSrc::Mu(i) => mu[i],
+            MSrc::Image { addr, mask, active_low } => match kind {
+                MK::Bool => u8::from(((image[addr] & mask) != 0) != active_low),
+                _ => image[addr],
+            },
+        }
+    }
+
+    /// Patch the field in place. A checkbox touches only its own bit.
+    fn write(&self, mu: &mut [u8], image: &mut [u8], kind: &MK, v: u8) {
+        match *self {
+            MSrc::Mu(i) => mu[i] = v,
+            MSrc::Image { addr, mask, active_low } => match kind {
+                MK::Bool => {
+                    let on = (v != 0) != active_low;
+                    image[addr] = if on { image[addr] | mask } else { image[addr] & !mask };
+                }
+                _ => image[addr] = v,
+            },
+        }
+    }
 }
 
 pub(crate) enum MK {
@@ -99,10 +152,10 @@ fn format_mu(raw: &[u8]) -> String {
 }
 
 /// Decode the raw parameters into the shape the profile form expects.
-fn decode(raw: &[u8]) -> Value {
+fn decode(raw: &[u8], image: &[u8]) -> Value {
     let mut out = serde_json::Map::new();
     for f in THD72_SETTINGS_FIELDS {
-        let v = raw[f.mu];
+        let v = f.src.read(raw, image, &f.kind);
         let value = match &f.kind {
             MK::Bool => json!(v != 0),
             MK::Uint { .. } => json!(v),
@@ -127,48 +180,90 @@ fn decode(raw: &[u8]) -> Value {
 /// does not carry must go back exactly as it came. Building the line from
 /// defaults would quietly rewrite every field the operator did not touch — and
 /// on this radio that is eighteen of them.
-fn encode_over(base: &[u8], settings: &Value) -> Result<(Vec<u8>, usize), String> {
+fn encode_over(
+    base: &[u8],
+    base_image: &[u8],
+    settings: &Value,
+) -> Result<(Vec<u8>, Vec<u8>, usize), String> {
     let mut raw = base.to_vec();
+    let mut image = base_image.to_vec();
     let mut written = 0usize;
     for f in THD72_SETTINGS_FIELDS {
         let Some(v) = settings.get(f.key) else { continue };
         if v.is_null() {
             continue;
         }
-        let encoded = match &f.kind {
-            MK::Bool => match v.as_bool() {
-                Some(b) => u8::from(b),
-                None => return Err(format!("{} expects true or false, got {v}", f.key)),
-            },
-            MK::Uint { min, max } => {
-                let n = v
-                    .as_u64()
-                    .ok_or_else(|| format!("{} expects a number, got {v}", f.key))?;
-                if n < *min as u64 || n > *max as u64 {
-                    return Err(format!(
-                        "{} is {n}, outside the radio's {min}..={max}",
-                        f.key
-                    ));
-                }
-                n as u8
-            }
-            MK::Enum { labels } => {
-                let s = v
-                    .as_str()
-                    .ok_or_else(|| format!("{} expects one of its options, got {v}", f.key))?;
-                labels
-                    .iter()
-                    .find(|(_, label)| *label == s)
-                    .map(|(raw_v, _)| *raw_v)
-                    .ok_or_else(|| format!("{} has no option {s:?}", f.key))?
-            }
-        };
-        if raw[f.mu] != encoded {
+        let encoded = encode_one(f, v)?;
+        if f.src.read(&raw, &image, &f.kind) != encoded {
             written += 1;
         }
-        raw[f.mu] = encoded;
+        f.src.write(&mut raw, &mut image, &f.kind, encoded);
     }
-    Ok((raw, written))
+    Ok((raw, image, written))
+}
+
+/// One field's form value as the byte the radio stores.
+///
+/// Shared by the settings write and the program path so the two cannot drift:
+/// a value encoded one way here and another way there is a wrong value on a
+/// real radio, and the two paths write the same bytes.
+fn encode_one(f: &MF, v: &Value) -> Result<u8, String> {
+    Ok(match &f.kind {
+        MK::Bool => match v.as_bool() {
+            Some(b) => u8::from(b),
+            None => return Err(format!("{} expects true or false, got {v}", f.key)),
+        },
+        MK::Uint { min, max } => {
+            let n = v
+                .as_u64()
+                .ok_or_else(|| format!("{} expects a number, got {v}", f.key))?;
+            if n < *min as u64 || n > *max as u64 {
+                return Err(format!("{} is {n}, outside the radio's {min}..={max}", f.key));
+            }
+            n as u8
+        }
+        MK::Enum { labels } => {
+            let s = v
+                .as_str()
+                .ok_or_else(|| format!("{} expects one of its options, got {v}", f.key))?;
+            labels
+                .iter()
+                .find(|(_, label)| *label == s)
+                .map(|(raw_v, _)| *raw_v)
+                .ok_or_else(|| format!("{} has no option {s:?}", f.key))?
+        }
+    })
+}
+
+/// Patch a codeplug image with the profile's image-backed settings.
+///
+/// Used by the PROGRAM path, which writes an image and therefore cannot carry
+/// the 19 `MU` parameters — those stay as the radio holds them and are the
+/// profile editor's own write to make. Everything else the profile carries is
+/// applied here, so a program run does not silently drop five sixths of the
+/// operator's settings.
+///
+/// Out-of-range values are stripped and reported the same way a settings write
+/// strips them, rather than being clamped into something the operator never
+/// chose.
+pub(crate) fn apply_image_settings(
+    image: &mut [u8],
+    settings: &Value,
+    schema_json: &str,
+) -> Result<Vec<String>, String> {
+    let mut settings = settings.clone();
+    let notes = settings_bounds::strip_out_of_range(schema_json, &mut settings);
+    let mut mu = [0u8; MU_FIELDS];
+    for f in THD72_SETTINGS_FIELDS {
+        let MSrc::Image { .. } = f.src else { continue };
+        let Some(v) = settings.get(f.key) else { continue };
+        if v.is_null() {
+            continue;
+        }
+        let encoded = encode_one(f, v)?;
+        f.src.write(&mut mu, image, &f.kind, encoded);
+    }
+    Ok(notes)
 }
 
 /// Fold the out-of-range report in with whatever the write itself has to say,
@@ -189,20 +284,23 @@ fn read_line(p: &mut dyn serialport::SerialPort) -> Result<Vec<u8>, String> {
 }
 
 impl SettingsReader for super::KenwoodThd72 {
-    /// One ASCII round trip — no clone session, so this costs neither the 16 s
-    /// read nor the settle the radio needs afterwards.
+    /// `MU` first, then a clone download — BOTH transports, because the radio
+    /// keeps its settings in two places and 103 of the 122 fields exist only in
+    /// the image. `MU` is one ASCII round trip; the clone costs the 16 s read
+    /// and the settle afterwards, and there is no way around it: no `MU`
+    /// parameter exists for any of the image fields.
     ///
-    /// The backup is the `MU` line itself. That is the honest thing to save
-    /// here: it is exactly what this path can write back, so a restore from it
-    /// is a real restore rather than a partial one. The whole-image backup is
-    /// what `ImageProgrammer` takes, and it is a different operation.
+    /// The backup is the whole 64 KiB image, not the `MU` line. It has to be:
+    /// this path can now write image bytes, so an `MU`-only backup would be a
+    /// partial restore of a write that was not partial.
     fn read_settings(&self, port: &str, _schema_json: &str) -> Result<SettingsCapture, String> {
         let mut p = protocol::open_port(port)?;
         let raw = read_line(&mut *p)?;
+        let image = protocol::download(&mut *p)?;
         Ok(SettingsCapture {
-            settings: decode(&raw),
-            backup: format_mu(&raw).into_bytes(),
-            backup_ext: "mu",
+            settings: decode(&raw, &image),
+            backup: image,
+            backup_ext: "img",
         })
     }
 }
@@ -232,14 +330,16 @@ impl SettingsWriter for super::KenwoodThd72 {
 
         let mut p = protocol::open_port(port)?;
         let base = read_line(&mut *p)?;
+        let base_image = protocol::download(&mut *p)?;
+        drop(p);
 
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-        let backup_path = backup_dir.join(format!("thd72-preprofile-{stamp}.mu"));
-        std::fs::write(&backup_path, format_mu(&base))
+        let backup_path = backup_dir.join(format!("thd72-preprofile-{stamp}.img"));
+        std::fs::write(&backup_path, &base_image)
             .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
 
-        let (raw, fields_written) = encode_over(&base, &settings)?;
-        if raw == base {
+        let (raw, image, fields_written) = encode_over(&base, &base_image, &settings)?;
+        if raw == base && image == base_image {
             return Ok(SettingsWriteReport {
                 fields_written: 0,
                 verified: Some(true),
@@ -253,6 +353,23 @@ impl SettingsWriter for super::KenwoodThd72 {
             });
         }
 
+        // ⚠⚠ THE IMAGE HAS TO BE WRITTEN, not just computed. 103 of the 122
+        // fields live only here, so skipping this would leave the form filling
+        // correctly, the MU line landing, and five sixths of the settings never
+        // reaching the radio — a working read path hiding a dead write path,
+        // which this codebase has shipped twice.
+        if image != base_image {
+            protocol::reconnect_after_clone(port).map(drop)?;
+            crate::radios::driver::ImageProgrammer::upload_image(
+                &super::KenwoodThd72,
+                port,
+                &image,
+            )?;
+        }
+
+        // The clone session ended the ASCII session with it, so the radio has to
+        // be picked back up before it will answer `MU` again.
+        let mut p = protocol::reconnect_after_clone(port)?;
         let reply = protocol::command(&mut *p, &format_mu(&raw))?;
         if reply.trim() == "N" {
             return Err(format!(
@@ -269,7 +386,10 @@ impl SettingsWriter for super::KenwoodThd72 {
             Ok(after) => {
                 let differing: Vec<&str> = THD72_SETTINGS_FIELDS
                     .iter()
-                    .filter(|f| after[f.mu] != raw[f.mu])
+                    .filter(|f| {
+                        f.src.read(&after, &image, &f.kind)
+                            != f.src.read(&raw, &image, &f.kind)
+                    })
                     .map(|f| f.key)
                     .collect();
                 (
@@ -331,10 +451,34 @@ mod tests {
         assert!(parse_mu(&format!("MU {}", vec!["0"; 42].join(","))).is_err());
     }
 
+    /// A whole image with every image-backed field set to a value the table
+    /// knows about.
+    ///
+    /// Not a zeroed buffer: twelve fields store `index + 1`, so zero is not a
+    /// value any of their enums carries, and decode would hand back a bare
+    /// number that encode then refuses. Seeding each field with its own lowest
+    /// labelled value keeps the round trip exercising real encodings instead of
+    /// a coincidence. Real radio images live in gitignored `scratchpad/`, so CI
+    /// cannot use one.
+    fn sample_image() -> Vec<u8> {
+        let mut img = vec![0u8; super::super::layout::IMAGE_LEN];
+        for f in THD72_SETTINGS_FIELDS {
+            let MSrc::Image { .. } = f.src else { continue };
+            let v = match &f.kind {
+                MK::Bool => 1,
+                MK::Uint { min, .. } => *min,
+                MK::Enum { labels } => labels.iter().map(|(v, _)| *v).min().unwrap_or(0),
+            };
+            let mut mu = [0u8; MU_FIELDS];
+            f.src.write(&mut mu, &mut img, &f.kind, v);
+        }
+        img
+    }
+
     #[test]
     fn the_radios_own_values_decode_to_what_the_screen_showed() {
         let raw = parse_mu(REAL).unwrap();
-        let v = decode(&raw);
+        let v = decode(&raw, &sample_image());
         // Both confirmed on the radio's own menus: APO on 111, balance on 120.
         assert_eq!(v["apo"], json!("Off"));
         assert_eq!(v["balance"], json!("Center"));
@@ -343,9 +487,18 @@ mod tests {
     #[test]
     fn every_field_round_trips_through_encode_and_decode() {
         let base = parse_mu(REAL).unwrap();
-        let decoded = decode(&base);
-        let (raw, _) = encode_over(&base, &decoded).expect("re-encode what we just decoded");
-        assert_eq!(raw, base, "decode -> encode must be lossless");
+        let base_image = sample_image();
+        let decoded = decode(&base, &base_image);
+        let (raw, image, _) =
+            encode_over(&base, &base_image, &decoded).expect("re-encode what we just decoded");
+        assert_eq!(raw, base, "decode -> encode must be lossless for the MU line");
+        // ★ This is the check that matters now: 103 of the 122 fields are image
+        // bytes, and a decode that loses one would come back as a CHANGED byte
+        // in an image the operator never asked to modify.
+        assert!(
+            image == base_image,
+            "decode -> encode changed the image; it must be lossless there too"
+        );
     }
 
     /// A write must change **only** the parameters the caller asked for.
@@ -364,7 +517,9 @@ mod tests {
     #[test]
     fn a_write_touches_only_the_fields_it_was_given() {
         let base = parse_mu(REAL).unwrap();
-        let (raw, written) = encode_over(&base, &json!({"apo": "60 minutes"})).unwrap();
+        let (raw, image, written) =
+            encode_over(&base, &sample_image(), &json!({"apo": "60 minutes"})).unwrap();
+        assert_eq!(image, sample_image(), "an MU-only write must not touch the image");
         assert_eq!(written, 1, "one field asked for, one field written");
         for (i, (before, after)) in base.iter().zip(raw.iter()).enumerate() {
             if i == 3 {
@@ -384,7 +539,7 @@ mod tests {
             .iter()
             .find(|f| f.key == "contrast")
             .expect("contrast is modelled");
-        assert_eq!(f.mu, 1);
+        assert!(matches!(f.src, MSrc::Mu(1)));
         // Raw 0..15, but the radio DISPLAYS raw + 1 — its bar graph carries no
         // numbers, and RT Systems shows the stored index 7 as "8". Shipping the
         // raw value would have put a control on screen reading one below what
@@ -402,7 +557,8 @@ mod tests {
     #[test]
     fn a_value_the_radio_has_no_option_for_is_refused_by_name() {
         let base = parse_mu(REAL).unwrap();
-        let err = encode_over(&base, &json!({"apo": "90 minutes"})).expect_err("no such option");
+        let err = encode_over(&base, &sample_image(), &json!({"apo": "90 minutes"}))
+            .expect_err("no such option");
         assert!(err.contains("apo") && err.contains("90 minutes"), "{err}");
     }
 
@@ -433,11 +589,67 @@ mod tests {
     /// other on every write.
     #[test]
     fn every_field_maps_to_its_own_menu_parameter() {
-        let mut seen = std::collections::HashSet::new();
+        let mut mus = std::collections::HashSet::new();
+        // Bytes are shared on purpose — booleans pack several to a byte — so
+        // the thing that must be unique for an image field is its (address,
+        // mask) PAIR. Two fields claiming the same bit would silently overwrite
+        // each other on every write, exactly as two claiming one MU parameter
+        // would.
+        let mut bits = std::collections::HashSet::new();
         for f in THD72_SETTINGS_FIELDS {
-            assert!(f.mu < MU_FIELDS, "{} indexes parameter {}", f.key, f.mu);
-            assert!(seen.insert(f.mu), "two fields claim parameter {}", f.mu);
+            match f.src {
+                MSrc::Mu(i) => {
+                    assert!(i < MU_FIELDS, "{} indexes parameter {i}", f.key);
+                    assert!(mus.insert(i), "two fields claim parameter {i}");
+                }
+                MSrc::Image { addr, mask, .. } => {
+                    assert!(
+                        addr < super::super::layout::IMAGE_LEN,
+                        "{} addresses 0x{addr:04X}, past the end of the image",
+                        f.key
+                    );
+                    assert!(mask != 0, "{} has an empty mask", f.key);
+                    assert!(
+                        bits.insert((addr, mask)),
+                        "{} claims 0x{addr:04X}/{mask:#04x}, which another field already owns",
+                        f.key
+                    );
+                }
+            }
         }
+    }
+
+    /// The step-6 gate: a program run must carry memories AND settings.
+    ///
+    /// ⚠ The failure this guards is not hypothetical. `program_codeplug` used to
+    /// document `req.settings` as IGNORED — correct when the only transport was
+    /// `MU`, and silently wrong the moment 103 settings became image bytes. The
+    /// operator would fill the profile, the form would read it back, and the
+    /// program run would write none of it.
+    #[test]
+    fn a_program_run_carries_settings_into_the_image_without_touching_memories() {
+        let schema = include_str!("../../thd72_settings_schema.json");
+        let mut img = sample_image();
+        // A byte inside the memory region, to prove settings stay out of it.
+        img[super::super::layout::MEMORY_BASE + 3] = 0xAB;
+
+        // Two fields confirmed on the radio's own menus in s125.
+        let want = json!({ "common1-battery-type": "Alkaline", "gps-datum": "Tokyo" });
+        let notes = apply_image_settings(&mut img, &want, schema).expect("apply");
+        assert!(notes.is_empty(), "nothing should have been out of range: {notes:?}");
+
+        assert_eq!(img[0x0316], 1, "battery type must land at its measured address");
+        assert_eq!(img[0x0A03], 1, "GPS datum must land at its measured address");
+        assert_eq!(
+            img[super::super::layout::MEMORY_BASE + 3],
+            0xAB,
+            "a settings patch must not reach into the memory region"
+        );
+
+        // And the values come back out as the operator set them.
+        let round = decode(&[0u8; MU_FIELDS], &img);
+        assert_eq!(round["common1-battery-type"], json!("Alkaline"));
+        assert_eq!(round["gps-datum"], json!("Tokyo"));
     }
 
     /// The table and the form schema are generated from one sheet by one script.

@@ -205,9 +205,21 @@ impl ImageProgrammer for KenwoodThd72 {
     /// exercised only by a fake port. This is Phase 5's job, and until it runs
     /// nothing here should be described as proven.
     ///
-    /// `req.settings` is ignored: the TH-D72 has no settings support yet
-    /// (Phase 4), and a channel program deliberately leaves the radio's own
-    /// settings exactly as read.
+    /// `req.settings`, when the profile carries them, is applied to the image
+    /// alongside the channels.
+    ///
+    /// ⚠⚠ This used to say `req.settings` is IGNORED, which was correct while
+    /// the only transport was the `MU` command — a channel program writes an
+    /// image and `MU` is not in it. Since s125 there are 103 settings that ARE
+    /// image bytes, so ignoring them here would mean a profile whose settings
+    /// the operator filled in, a form that reads them back correctly, and a
+    /// program run that silently writes none of them. That is the dead write
+    /// path this codebase has shipped twice, and it is the fourth box on the
+    /// new-radio wiring checklist for exactly that reason.
+    ///
+    /// The 19 `MU` parameters are still NOT written here: they are not in the
+    /// image, so a channel program leaves them as the radio holds them, and the
+    /// profile editor's own write is what sets them.
     fn program_codeplug(
         &self,
         port: &str,
@@ -238,7 +250,10 @@ impl ImageProgrammer for KenwoodThd72 {
 
         // 2. Patch the codeplug into THAT image, so every byte we are not
         //    responsible for goes back exactly as it came.
-        let built = program::build_image(req.model, req.channels, &base)?;
+        let mut built = program::build_image(req.model, req.channels, &base)?;
+        if let Some((settings, schema_json)) = req.settings {
+            settings::apply_image_settings(&mut built, settings, schema_json)?;
+        }
         let blocks = changed_blocks(&base, &built);
         let channels_written = req.channels.len();
 
