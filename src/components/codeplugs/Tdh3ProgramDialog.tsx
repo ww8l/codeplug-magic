@@ -176,6 +176,104 @@ export function Tdh3ProgramDialog({
       onClose={onClose}
       title={`Program Radio — ${codeplugName}`}
       width="max-w-2xl"
+      footer={
+        // ⚠ Pinned, and only on the Channels tab — Radio Options has its
+        // own controls and no write button, so a footer there would be an
+        // action bar for something that is not happening.
+        //
+        // Same fix as the generic dialog: these used to sit at the bottom of
+        // the scrolling body, so a long skip list pushed them below the fold
+        // and the confirm appeared further down still. The confirm now reads
+        // ABOVE the buttons that raise it.
+        tab === "options" ? null : (
+          <>
+            {/* Confirm write */}
+            {confirming && (
+              <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/40">
+                <div className="mb-2 flex items-center gap-1.5 font-semibold text-amber-800 dark:text-amber-300">
+                  <AlertTriangle size={14} /> Confirm write to {modelName}
+                </div>
+                <p className="text-amber-800 dark:text-amber-200">
+                  This will write <strong>{writeCount}</strong> channel
+                  {writeCount === 1 ? "" : "s"} to slots 1–{writeCount} and{" "}
+                  <strong>clear the remaining {clearCount}</strong> slot
+                  {clearCount === 1 ? "" : "s"} so the radio matches “{codeplugName}”.
+                  A full backup is saved first.
+                </p>
+
+                {skipped.length > 0 && (
+                  <div className="mt-3 rounded border border-amber-300/70 bg-amber-100/60 p-2 dark:border-amber-800/60 dark:bg-amber-900/30">
+                    <div className="mb-1 font-semibold text-amber-900 dark:text-amber-200">
+                      {skipped.length} channel{skipped.length === 1 ? "" : "s"} will be
+                      skipped (not supported by {modelName}):
+                    </div>
+                    <div className="max-h-32 overflow-auto">
+                      <ul className="space-y-0.5">
+                        {skipped.map((r) => (
+                          <li
+                            key={r.channel_id}
+                            className="flex flex-wrap items-baseline gap-x-1.5 text-amber-800 dark:text-amber-200"
+                          >
+                            <span className="font-medium">{r.name || "—"}</span>
+                            <span className="font-mono text-[10px]">
+                              {r.rx_freq.toFixed(4)} MHz
+                            </span>
+                            {r.reason && (
+                              <span className="text-[10px] opacity-80">— {r.reason}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setConfirming(false)}>
+                    Cancel
+                  </Button>
+                  <Button variant="primary" onClick={doProgram}>
+                    <Upload size={14} /> Write to radio
+                  </Button>
+                </div>
+              </div>
+            )}
+            {/* Actions */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={doIdentify} disabled={!port || busy !== null}>
+                {busy === "identify" ? <Spinner className="h-3.5 w-3.5" /> : <Search size={14} />}
+                Identify
+              </Button>
+              <Button onClick={doDownload} disabled={!port || busy !== null}>
+                {busy === "download" ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
+                Download backup
+              </Button>
+              {caps?.restore_image && (
+                <Button
+                  onClick={doRestore}
+                  disabled={!port || busy !== null}
+                  title="Flash a previously-saved backup .img back to the radio"
+                >
+                  {busy === "restore" ? <Spinner className="h-3.5 w-3.5" /> : <Undo2 size={14} />}
+                  Restore backup…
+                </Button>
+              )}
+              <div className="ml-auto">
+                <Button
+                  variant="primary"
+                  onClick={() => setConfirming(true)}
+                  disabled={!port || busy !== null || writeCount === 0}
+                  title={writeCount === 0 ? "This codeplug has no channels to program" : undefined}
+                >
+                  {busy === "program" ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
+                  Program radio
+                </Button>
+              </div>
+            </div>
+
+          </>
+        )
+      }
       // A radio operation is in flight. The Tauri command runs to completion
       // whatever this dialog does, so dismissing it would leave the radio being
       // written while the operator looks at an ordinary page — no spinner, no
@@ -245,90 +343,6 @@ export function Tdh3ProgramDialog({
           <Tdh3RadioOptions port={port} modelName={modelName} modelId={modelId} />
         ) : (
         <>
-        {/* Actions */}
-        <div className="flex flex-wrap items-center gap-2 px-5 pb-4 pt-4">
-          <Button onClick={doIdentify} disabled={!port || busy !== null}>
-            {busy === "identify" ? <Spinner className="h-3.5 w-3.5" /> : <Search size={14} />}
-            Identify
-          </Button>
-          <Button onClick={doDownload} disabled={!port || busy !== null}>
-            {busy === "download" ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
-            Download backup
-          </Button>
-          {caps?.restore_image && (
-            <Button
-              onClick={doRestore}
-              disabled={!port || busy !== null}
-              title="Flash a previously-saved backup .img back to the radio"
-            >
-              {busy === "restore" ? <Spinner className="h-3.5 w-3.5" /> : <Undo2 size={14} />}
-              Restore backup…
-            </Button>
-          )}
-          <div className="ml-auto">
-            <Button
-              variant="primary"
-              onClick={() => setConfirming(true)}
-              disabled={!port || busy !== null || writeCount === 0}
-              title={writeCount === 0 ? "This codeplug has no channels to program" : undefined}
-            >
-              {busy === "program" ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
-              Program radio
-            </Button>
-          </div>
-        </div>
-
-        {/* Confirm write */}
-        {confirming && (
-          <div className="mx-5 mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/40">
-            <div className="mb-2 flex items-center gap-1.5 font-semibold text-amber-800 dark:text-amber-300">
-              <AlertTriangle size={14} /> Confirm write to {modelName}
-            </div>
-            <p className="text-amber-800 dark:text-amber-200">
-              This will write <strong>{writeCount}</strong> channel
-              {writeCount === 1 ? "" : "s"} to slots 1–{writeCount} and{" "}
-              <strong>clear the remaining {clearCount}</strong> slot
-              {clearCount === 1 ? "" : "s"} so the radio matches “{codeplugName}”.
-              A full backup is saved first.
-            </p>
-
-            {skipped.length > 0 && (
-              <div className="mt-3 rounded border border-amber-300/70 bg-amber-100/60 p-2 dark:border-amber-800/60 dark:bg-amber-900/30">
-                <div className="mb-1 font-semibold text-amber-900 dark:text-amber-200">
-                  {skipped.length} channel{skipped.length === 1 ? "" : "s"} will be
-                  skipped (not supported by {modelName}):
-                </div>
-                <div className="max-h-32 overflow-auto">
-                  <ul className="space-y-0.5">
-                    {skipped.map((r) => (
-                      <li
-                        key={r.channel_id}
-                        className="flex flex-wrap items-baseline gap-x-1.5 text-amber-800 dark:text-amber-200"
-                      >
-                        <span className="font-medium">{r.name || "—"}</span>
-                        <span className="font-mono text-[10px]">
-                          {r.rx_freq.toFixed(4)} MHz
-                        </span>
-                        {r.reason && (
-                          <span className="text-[10px] opacity-80">— {r.reason}</span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-3 flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setConfirming(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={doProgram}>
-                <Upload size={14} /> Write to radio
-              </Button>
-            </div>
-          </div>
-        )}
 
         {/* Progress note while writing */}
         {busy === "restore" && (

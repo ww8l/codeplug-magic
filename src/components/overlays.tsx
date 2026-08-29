@@ -46,6 +46,7 @@ export function Modal({
   onClose,
   title,
   children,
+  footer,
   width = "max-w-3xl",
   dismissible = true,
   lockedHint,
@@ -54,6 +55,16 @@ export function Modal({
   onClose: () => void;
   title: string;
   children: ReactNode;
+  /// Pinned below the scrolling body, the way `SlideOver` already does it.
+  ///
+  /// ⚠ A modal caps at 85vh and scrolls its whole body, so a dialog whose
+  /// content can grow — a channel list, a skip list — pushes its own action
+  /// buttons off the bottom. Tim hit exactly that programming a TH-D72: the
+  /// buttons were below the fold, and pressing one revealed a confirm step
+  /// further below still, so the write button had to be hunted for by
+  /// scrolling. Anything the operator must be able to reach at any moment
+  /// belongs here, not in `children`.
+  footer?: ReactNode;
   width?: string;
 } & Dismissal) {
   useEscape(onClose, open && dismissible);
@@ -83,6 +94,11 @@ export function Modal({
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {children}
         </div>
+        {footer && (
+          <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );
