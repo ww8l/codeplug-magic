@@ -601,8 +601,19 @@ fn restore_the_radio_as_found() {
     let target_count = (0..layout::CHANNEL_COUNT)
         .filter(|&s| memory::read_record(&asfound, s).is_some())
         .count();
-    println!("radio holds {before_count} memories; restoring to {target_count}");
-    assert_ne!(before_count, target_count, "the restore must have something to undo");
+    let to_undo = real_differences(&current, &asfound);
+    println!(
+        "radio holds {before_count} memories and {} bytes that differ from as-found; \
+         restoring to {target_count} memories",
+        to_undo.len()
+    );
+    // The guard used to compare MEMORY COUNTS, which only fires for the case it
+    // was written for -- the factory reset, 0 memories against 53. A restore
+    // that undoes a settings campaign leaves the count untouched, so that guard
+    // refused to run the very restore its owner asked for. Bytes are the
+    // general statement of "there is something to undo", and they cover the
+    // factory reset too.
+    assert!(!to_undo.is_empty(), "the restore must have something to undo");
 
     super::DRIVER.restore_image(&port(), &asfound).expect("restore");
     println!("restored; reconnecting…");
@@ -626,6 +637,15 @@ fn restore_the_radio_as_found() {
 
     assert_eq!(count, target_count, "the radio should hold its original memories again");
     assert_eq!(name, "PO101-LO", "memory 59's original name must be back");
+    // Memories and one name are not the whole codeplug. A settings restore is
+    // exactly the case where they can all be right and the SETTINGS still wrong,
+    // so require the image itself to match -- s123 measured precisely 0 bytes of
+    // difference after a restore, so 0 is the achievable standard, not a hope.
+    assert!(
+        diffs.is_empty(),
+        "{} bytes still differ from the as-found image after the restore",
+        diffs.len()
+    );
 }
 
 /// **Ladder step 5b — the settings WRITE, the last unproven path in the driver.**
