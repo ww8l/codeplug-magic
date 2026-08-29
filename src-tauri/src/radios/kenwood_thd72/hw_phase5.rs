@@ -727,3 +727,161 @@ fn step5b_settings_write_restores_contrast() {
     assert_eq!(report.verified, Some(true), "the driver's own read-back must agree");
     println!("\n>>> The display should have dimmed. Contrast is back to 7, as found.");
 }
+
+/// The screen check for the s125 address campaign — the half a diff cannot do.
+///
+/// ⚠ Ten passes of bit signatures measured 116 addresses against the radio's own
+/// IMAGE. That proves where a byte moved when RT Systems moved a control; it
+/// does NOT prove what the byte MEANS to the radio. The TH-D75 shipped
+/// `voice-guidance-volume` writing "Volume Link" when the operator picked
+/// "Level 1" for exactly this reason: the tool's numbers agreed with themselves
+/// and nobody looked at the radio until afterwards.
+///
+/// So this writes values at the addresses THIS campaign measured — not through
+/// RT Systems — and every one is chosen to differ from what the radio already
+/// holds, because a check that cannot fail proves nothing. The expected reading
+/// AND the reading that would mean we are wrong are both printed before the
+/// operator is asked to look.
+///
+/// `CPM_THD72_UNDO=1` puts the as-found image back instead.
+#[test]
+#[ignore = "writes to a real TH-D72"]
+fn screen_check_the_measured_addresses() {
+    let dir = out_dir();
+    let asfound = std::fs::read(dir.join("ww8l-asfound.img")).expect("the as-found image");
+
+    // (address, menu, setting, byte to write, what the radio should show,
+    //  what the radio holds now, what a WRONG address/encoding would show)
+    let checks: [(usize, &str, &str, u8, &str, &str, &str); 6] = [
+        (0x0314, "110", "Battery Saver",      0x02, "0.2 sec",  "1.0 sec", "still 1.0 sec"),
+        (0x0315, "111", "Auto Power Off",     0x02, "30 min",   "Off",     "still Off"),
+        (0x0316, "112", "Battery Type",       0x01, "Alkaline", "Lithium", "still Lithium"),
+        (0x0317, "121", "Key Beep",           0x03, "GPS Only", "Off",     "still Off, or Radio Only"),
+        // ★ The one that can distinguish two hypotheses rather than merely
+        // confirm one. Every other field here stores its option INDEX, but
+        // 0x0325 held 0x05 while the programmer displayed "5 sec" — index 4.
+        // So this byte stores SECONDS, not the index, the same +1 that display
+        // contrast has. Writing 9: "9 sec" means seconds, "10 sec" means the
+        // index reading is right and this row of the table is off by one.
+        (0x0325, "151", "Time-Operate Resume", 0x09, "9 sec",   "5 sec",   "10 sec => stored is the INDEX, not seconds"),
+        (0x032F, "182", "Mic Key Lock",       0x01, "On",       "Off",     "still Off"),
+    ];
+
+    let undo = std::env::var("CPM_THD72_UNDO").is_ok();
+    let mut img = asfound.clone();
+    if !undo {
+        for &(addr, _, _, val, _, _, _) in &checks {
+            assert_ne!(
+                asfound[addr], val,
+                "0x{addr:04X} already holds {val:#04x} — this check could not fail"
+            );
+            img[addr] = val;
+        }
+    }
+
+    protocol::reconnect_after_clone(&port()).map(drop).ok();
+    super::DRIVER.restore_image(&port(), &img).expect("write");
+    println!("written; reconnecting…");
+    let mut p = protocol::reconnect_after_clone(&port()).expect("reconnect");
+    let after = protocol::download(&mut *p).expect("download after");
+
+    for &(addr, menu, name, val, _, _, _) in &checks {
+        let want = if undo { asfound[addr] } else { val };
+        assert_eq!(
+            after[addr], want,
+            "menu {menu} {name}: 0x{addr:04X} reads {:#04x}, wanted {want:#04x}",
+            after[addr]
+        );
+    }
+    println!("all {} bytes read back as written", checks.len());
+
+    if undo {
+        let diffs = real_differences(&asfound, &after);
+        assert!(diffs.is_empty(), "{} bytes still differ from as-found", diffs.len());
+        println!("\n>>> The radio is back to the as-found image; 0 bytes differ.");
+        return;
+    }
+
+    println!("\n>>> ON THE RADIO: press [MENU], then type the number.\n");
+    println!("Menu   Setting                SHOULD READ  (was)");
+    for &(_, menu, name, _, expect, was, _) in &checks {
+        println!("{menu:<6} {name:<22} {expect:<12} ({was})");
+    }
+    println!("\n>>> WHAT A FAILURE LOOKS LIKE — any of these means the table is wrong:");
+    for &(addr, menu, name, _, _, _, fail) in &checks {
+        println!("  menu {menu} {name} (0x{addr:04X}): {fail}");
+    }
+}
+
+/// Screen check, round two — other tabs, and the region the exclusion nearly ate.
+///
+/// Round one confirmed six Common 1 fields, three of which had been settled by
+/// inference. This one goes after what round one could not reach:
+///
+///   * three different tabs, at address regions far from `0x03xx` — `gps` at
+///     `0x0A0x` and `dtmf`/`txrx` at `0x032x`-`0x033x`;
+///   * `0x0227`, which is inside `0x0200-0x02FF`. Excluding that window as "the
+///     radio's own state" cut this campaign's ambiguities from 12 to 3 and was
+///     WRONG — the measured noise floor is six bytes and none of them are
+///     there. If 0x0227 reads back on the radio's display, that settles it.
+///
+/// ⚠ Every value written here is the whole byte, taken as the option index.
+/// The campaign only ever proved the bits it happened to exercise, so this also
+/// tests the assumption that the rest of the byte belongs to the same field —
+/// which is why a wrong reading is worth as much as a right one.
+#[test]
+#[ignore = "writes to a real TH-D72"]
+fn screen_check_round_two() {
+    let dir = out_dir();
+    let asfound = std::fs::read(dir.join("ww8l-asfound.img")).expect("the as-found image");
+
+    let checks: [(usize, &str, &str, u8, &str, &str, &str); 5] = [
+        (0x0A03, "210", "GPS Datum",        0x01, "Tokyo",         "WGS-84",   "still WGS-84"),
+        (0x0A01, "201", "GPS Battery Saver",0x04, "8 min",         "Auto",     "still Auto"),
+        (0x032A, "171", "DTMF Tx speed",    0x02, "150 ms",        "100 ms",   "still 100 ms, or 50 ms"),
+        (0x033A, "13A", "Time-out Timer",   0x03, "2.0 Minutes",   "10.0 Minutes", "still 10.0 Minutes"),
+        // No menu number: output power is [F],[MENU], and it shows on the main
+        // display as H / L / EL. Only ONE of the two bands is changed, so which
+        // band shows EL also tells us whether 0x0227 is the A-band or the
+        // B-band copy — the labels in the programmer call both of them "High".
+        (0x0227, "—",   "Output power",     0x02, "EL on one band", "H on both", "H on both bands"),
+    ];
+
+    let undo = std::env::var("CPM_THD72_UNDO").is_ok();
+    let mut img = asfound.clone();
+    if !undo {
+        for &(addr, _, _, val, _, _, _) in &checks {
+            assert_ne!(asfound[addr], val,
+                "0x{addr:04X} already holds {val:#04x} — this check could not fail");
+            img[addr] = val;
+        }
+    }
+
+    protocol::reconnect_after_clone(&port()).map(drop).ok();
+    super::DRIVER.restore_image(&port(), &img).expect("write");
+    println!("written; reconnecting…");
+    let mut p = protocol::reconnect_after_clone(&port()).expect("reconnect");
+    let after = protocol::download(&mut *p).expect("download after");
+    for &(addr, menu, name, val, _, _, _) in &checks {
+        let want = if undo { asfound[addr] } else { val };
+        assert_eq!(after[addr], want,
+            "menu {menu} {name}: 0x{addr:04X} reads {:#04x}, wanted {want:#04x}", after[addr]);
+    }
+    println!("all {} bytes read back as written", checks.len());
+
+    if undo {
+        let diffs = real_differences(&asfound, &after);
+        assert!(diffs.is_empty(), "{} bytes still differ from as-found", diffs.len());
+        println!("\n>>> The radio is back to the as-found image; 0 bytes differ.");
+        return;
+    }
+    println!("\n>>> ON THE RADIO: press [MENU], then type the number.\n");
+    println!("Menu   Setting                SHOULD READ      (was)");
+    for &(_, menu, name, _, expect, was, _) in &checks {
+        println!("{menu:<6} {name:<22} {expect:<16} ({was})");
+    }
+    println!("\n>>> WHAT A FAILURE LOOKS LIKE:");
+    for &(addr, menu, name, _, _, _, fail) in &checks {
+        println!("  menu {menu} {name} (0x{addr:04X}): {fail}");
+    }
+}
