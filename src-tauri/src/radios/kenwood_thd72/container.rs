@@ -205,6 +205,9 @@ impl Thd72Image {
 /// a legitimate TH-D72 image is ever refused here, the guard is wrong, not the
 /// file.
 ///
+/// ⚠ Byte `0x10` is a settings byte and must never be guarded on — see the
+/// comment in the body. Nor may `0x0E` or `0x0F`, which vary across real files.
+///
 /// ⚠ CHIRP's `thd72.py` calls byte `0x02` `shouldbe32`, and only the 2014 radio
 /// has `0x32` there — the other six images read `0xFF`. Whatever that field
 /// means, the name is a claim the real files do not support. Do not guard on it.
@@ -215,7 +218,18 @@ pub(crate) fn check_thd72_image(body: &[u8]) -> Result<(), String> {
             body.len()
         ));
     }
-    if body[0x00] != 0x1B || body[0x10..0x18] != [0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x30, 0x30] {
+    // ⚠ 0x10 is NOT front matter -- it is a SETTING, and this guard used to
+    // refuse an image because of it. The settings campaign of 2026-08-28 drove
+    // the radio's own menu fields and byte 0x10 moved 00 -> 01, after which the
+    // radio's own image was rejected as "not a TH-D72". The doc comment above
+    // said what to do if a legitimate image was ever refused, and this is that
+    // case: the guard was wrong, not the file.
+    //
+    // Re-derived against the 25 real 64 KB images on hand: 0x10 is the only
+    // byte in 0x10..0x18 that ever varies, and 0x0E/0x0F vary too. 0x11..0x19
+    // is invariant in all 25, so the guard keeps the same eight bytes of
+    // evidence by shifting one along rather than giving anything up.
+    if body[0x00] != 0x1B || body[0x11..0x19] != [0x00, 0x00, 0x00, 0x02, 0x00, 0x30, 0x30, 0x30] {
         return Err(
             "this file is the right size for a TH-D72 image but does not carry a TH-D72 \
              front matter block — it is not one. Pick a file read from a TH-D72."
@@ -406,5 +420,32 @@ mod tests {
         let table = image.prog_vfo_table().unwrap();
         assert_eq!(table[0].start_hz, 144_000_000);
         assert_eq!(table[0].end_hz, 146_000_000);
+    }
+
+    /// Byte `0x10` is a SETTING, and guarding on it refused a real radio's own
+    /// image. This is that exact image's front matter: everything a genuine
+    /// TH-D72 read carries, with `0x10` set the way the radio set it after a
+    /// settings write. A guard that refuses this is refusing a user's radio.
+    #[test]
+    fn a_settings_byte_at_0x10_does_not_make_an_image_foreign() {
+        let mut body = real_image();
+        assert!(check_thd72_image(&body).is_ok(), "the baseline must pass");
+
+        body[0x10] = 0x01; // measured on the real radio, 2026-08-28
+        check_thd72_image(&body).expect(
+            "0x10 is a settings byte -- a TH-D72 whose owner set it still wrote \
+             this image, and the guard must not call it foreign",
+        );
+
+        // The bytes that ARE invariant across all 25 real images still bite.
+        for (i, at) in (0x11..0x19).enumerate() {
+            let mut bad = real_image();
+            bad[at] ^= 0xFF;
+            assert!(
+                check_thd72_image(&bad).is_err(),
+                "byte {at:#04X} (index {i}) is invariant in every real image and \
+                 must still be guarded"
+            );
+        }
     }
 }
