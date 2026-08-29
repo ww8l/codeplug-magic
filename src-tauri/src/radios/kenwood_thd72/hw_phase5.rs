@@ -885,3 +885,104 @@ fn screen_check_round_two() {
         println!("  menu {menu} {name} (0x{addr:04X}): {fail}");
     }
 }
+
+/// Ladder step 5 for the s125 settings transport — the read half.
+///
+/// ⚠ The 11 screen checks proved the ADDRESSES. They did not prove this: the
+/// new `read_settings` issues a clone `download` immediately after the `MU`
+/// command IN THE SAME SESSION, and nothing has shown the radio will do that.
+/// If it refuses, the fix is two sessions with `reconnect_after_clone` between
+/// them — so a failure here is a design answer, not a dead end.
+///
+/// Read-only. It writes nothing to the radio.
+#[test]
+#[ignore = "reads a real TH-D72"]
+fn settings_read_over_both_transports() {
+    use crate::radios::driver::SettingsReader;
+    let schema = include_str!("../../thd72_settings_schema.json");
+    let cap = super::KenwoodThd72
+        .read_settings(&port(), schema)
+        .expect("read settings");
+
+    let obj = cap.settings.as_object().expect("an object");
+    println!("{} fields read; backup is {} bytes (.{})",
+             obj.len(), cap.backup.len(), cap.backup_ext);
+    assert_eq!(cap.backup.len(), layout::IMAGE_LEN, "the backup must be the whole image");
+
+    // Both transports have to have produced something, or one of them is dead.
+    let mu_field = &obj["apo"];              // MU parameter 4
+    let img_field = &obj["common1-battery-type"];  // image 0x0316, screen-confirmed
+    println!("  MU    apo                  = {mu_field}");
+    println!("  image common1-battery-type = {img_field}");
+    println!("  image gps-datum            = {}", obj["gps-datum"]);
+    println!("  image txrx-time_out_timer? = {}", obj.get("txrx-time-out-timer")
+             .map(|v| v.to_string()).unwrap_or_else(|| "(key not in schema)".into()));
+    assert!(!mu_field.is_null(), "the MU half read nothing");
+    assert!(!img_field.is_null(), "the image half read nothing");
+
+    // The backup must be a real image, not a buffer of zeroes.
+    let nonzero = cap.backup.iter().filter(|&&b| b != 0).count();
+    assert!(nonzero > 1000, "the backup looks empty: {nonzero} non-zero bytes");
+    println!("\n>>> Both transports answered in one session.");
+}
+
+/// Ladder step 5 — the WRITE half, both transports in one call.
+///
+/// Deliberately changes ONE field of each kind so a failure says which half
+/// broke: `apo` is an `MU` parameter, `common1-battery-type` is image-only at
+/// `0x0316`. Both are readable on the radio's own menus (111 and 112), and both
+/// values differ from what the radio holds, so the check can fail.
+///
+/// `CPM_THD72_UNDO=1` puts them back.
+#[test]
+#[ignore = "writes to a real TH-D72"]
+fn settings_write_over_both_transports() {
+    use crate::radios::driver::{SettingsReader, SettingsWriter};
+    let schema = include_str!("../../thd72_settings_schema.json");
+    let dir = out_dir();
+    let undo = std::env::var("CPM_THD72_UNDO").is_ok();
+
+    let before = super::KenwoodThd72
+        .read_settings(&port(), schema)
+        .expect("read before");
+    let obj = before.settings.as_object().unwrap();
+    println!("before: apo={} battery-type={}", obj["apo"], obj["common1-battery-type"]);
+
+    let want = if undo {
+        serde_json::json!({ "apo": "Off", "common1-battery-type": "Lithium" })
+    } else {
+        serde_json::json!({ "apo": "30 minutes", "common1-battery-type": "Alkaline" })
+    };
+    for (k, v) in want.as_object().unwrap() {
+        assert_ne!(&obj[k.as_str()], v, "{k} already holds {v} — this could not fail");
+    }
+
+    protocol::reconnect_after_clone(&port()).map(drop).ok();
+    let report = super::KenwoodThd72
+        .write_settings(&port(), &want, schema, &dir)
+        .expect("write settings");
+    println!("wrote {} field(s); verified={:?}; backup {}",
+             report.fields_written, report.verified, report.backup_path);
+    if let Some(n) = &report.note {
+        println!("note: {n}");
+    }
+
+    protocol::reconnect_after_clone(&port()).map(drop).ok();
+    let after = super::KenwoodThd72
+        .read_settings(&port(), schema)
+        .expect("read back");
+    let got = after.settings.as_object().unwrap();
+    for (k, v) in want.as_object().unwrap() {
+        assert_eq!(&got[k.as_str()], v, "{k} did not land");
+    }
+    println!("read back: apo={} battery-type={}", got["apo"], got["common1-battery-type"]);
+
+    if undo {
+        println!("\n>>> Both fields are back as found.");
+    } else {
+        println!("\n>>> ON THE RADIO:");
+        println!("  Menu 111 Auto Power Off should read  30 min    (was Off)      [MU half]");
+        println!("  Menu 112 Battery Type   should read  Alkaline  (was Lithium)  [image half]");
+        println!(">>> A FAILURE looks like: 111 still Off, or 112 still Lithium.");
+    }
+}
