@@ -20,6 +20,10 @@
 //! `kenwood_thd75` is the third card radio (issue #40) and the first Kenwood.
 //! Its `.d75` layout came from CHIRP's `thd74.py`, verified against a save off
 //! the radio before any of it was written.
+//!
+//! `kenwood_thd72` (issue #55) is a cable-clone radio like the UV-5R and TD-H3.
+//! Phase 2 — container plus memory encoder — only: it is not in `registry.rs`
+//! and claims no capabilities until the hardware ladder has run.
 
 pub(crate) mod anytone_atd890uv;
 pub(crate) mod baofeng_uv5r;
@@ -27,6 +31,7 @@ pub(crate) mod driver;
 #[cfg(test)]
 pub(crate) mod fake_port;
 pub(crate) mod icom_id52;
+pub(crate) mod kenwood_thd72;
 pub(crate) mod kenwood_thd75;
 pub(crate) mod port_lock;
 pub(crate) mod registry;

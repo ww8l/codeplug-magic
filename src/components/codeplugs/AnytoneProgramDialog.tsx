@@ -71,7 +71,7 @@ export function AnytoneProgramDialog({
   const [payload, setPayload] = useState<Payload>("channels");
   const [preview, setPreview] = useState<AnytoneProgramPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [ack, setAck] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CodeplugProgramReport | null>(null);
@@ -138,7 +138,7 @@ export function AnytoneProgramDialog({
     setPayload("channels");
     setPreview(null);
     setPreviewError(null);
-    setAck(false);
+    setConfirming(false);
     setBusy(null);
     setError(null);
     setResult(null);
@@ -218,7 +218,7 @@ export function AnytoneProgramDialog({
     setBusy("program");
     setVerify(null);
     setRestored(null);
-    setAck(false);
+    setConfirming(false);
     // Clear EVERY payload's previous result, not just this one's. Verify and
     // Restore resolve their target as `result ?? settingsResult ?? latest`, so a
     // leftover result from an earlier payload in the same dialog session wins
@@ -273,7 +273,7 @@ export function AnytoneProgramDialog({
   /// only radio-write button in the app with no gate at all — Program, the
   /// generic dialog, the TD-H3 dialog and the UV-5R restore each have one.
   ///
-  /// A native confirm rather than this dialog's `ack` checkbox: Restore is
+  /// A native confirm rather than this dialog's confirm step: Restore is
   /// reached in a hurry, after something already went wrong, and a checkbox
   /// sitting above the button is exactly what a hurried operator ticks without
   /// reading. It also has to name WHICH file — the whole of #63 was this button
@@ -337,6 +337,91 @@ export function AnytoneProgramDialog({
       onClose={onClose}
       title={`Program Radio — ${codeplugName}`}
       width="max-w-2xl"
+      footer={
+        // ⚠ Pinned, and the SAME two-stage confirm the generic and TD-H3
+        // dialogs use. This used to be an "I understand..." checkbox that gated
+        // the write button — a different gesture for the same decision, on the
+        // one radio in the app that can overwrite three different things. Tim
+        // asked for one pattern across all three dialogs, and one pattern is
+        // also one thing to get right: the confirm reads ABOVE the button that
+        // raised it, so it cannot be scrolled away from.
+        <>
+          {confirming && (
+            <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/40">
+              <div className="mb-2 flex items-center gap-1.5 font-semibold text-amber-800 dark:text-amber-300">
+                <AlertTriangle size={14} /> Confirm write to {modelName}
+              </div>
+              <p className="text-amber-800 dark:text-amber-200">
+                {payload === "profile" ? (
+                  <>
+                    This <strong>overwrites the radio&rsquo;s menu settings</strong> with
+                    this profile&rsquo;s saved settings — channels, zones and contacts are
+                    left untouched. A backup is saved first.
+                  </>
+                ) : payload === "userdb" ? (
+                  <>
+                    This <strong>replaces the radio&rsquo;s caller-ID database</strong> —
+                    channels, zones, scan lists and talkgroups are left untouched. It is a
+                    self-contained, re-writable database; verify it on the radio&rsquo;s
+                    caller-ID screen after the write.
+                  </>
+                ) : (
+                  <>
+                    This <strong>replaces the radio&rsquo;s entire channel set</strong> —
+                    existing channels, zones, scan lists and contacts on the radio are
+                    overwritten or cleared. A backup is saved first.
+                  </>
+                )}
+              </p>
+              <div className="mt-3 flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setConfirming(false)}>
+                  Cancel
+                </Button>
+                <Button variant="primary" onClick={doProgram}>
+                  <Upload size={14} /> Write to radio
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/* ⚠ In the FOOTER, not the body — see the generic dialog. Left in
+                the scrolling content it became a second stacked bar and Close
+                the only control that scrolled away. (#65 gating unchanged.) */}
+            <FooterClose
+              onClose={onClose}
+              dismissible={busy === null}
+              lockedHint={LOCKED_HINT}
+            />
+            <div className="ml-auto">
+              <Button
+                variant="primary"
+                onClick={() => setConfirming(true)}
+                disabled={
+                  !port ||
+                  busy !== null ||
+                  (payload === "channels" && (!preview || preview.channels === 0)) ||
+                  (payload === "userdb" && (!dbPreview || dbPreview.will_export === 0))
+                }
+                title={
+                  payload === "channels" && preview && preview.channels === 0
+                    ? "This codeplug has no programmable channels"
+                    : payload === "userdb" && dbPreview && dbPreview.will_export === 0
+                      ? "No DMR contacts to write — refresh the DMR Contacts library first"
+                      : undefined
+                }
+              >
+                {busy === "program" ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
+                {payload === "profile"
+                  ? "Write settings"
+                  : payload === "userdb"
+                    ? "Write Call-sign DB"
+                    : "Program radio"}
+              </Button>
+            </div>
+          </div>
+        </>
+      }
       // A radio operation is in flight. The Tauri command runs to completion
       // whatever this dialog does, so dismissing it would leave the radio being
       // written while the operator looks at an ordinary page — no spinner, no
@@ -633,63 +718,6 @@ export function AnytoneProgramDialog({
         </div>
 
         {/* Ack + program */}
-        <div className="flex flex-wrap items-center gap-3 px-5 pb-4">
-          <label className="flex items-start gap-2 text-xs text-slate-600 dark:text-slate-300">
-            <input
-              type="checkbox"
-              checked={ack}
-              onChange={(e) => setAck(e.target.checked)}
-              className="mt-0.5"
-            />
-            {payload === "profile" ? (
-              <span>
-                I understand this <strong>overwrites the radio's menu settings</strong>{" "}
-                with this profile's saved settings (channels, zones, and contacts are
-                left untouched). A backup is saved first.
-              </span>
-            ) : payload === "userdb" ? (
-              <span>
-                I understand this <strong>replaces the radio's caller-ID database</strong>{" "}
-                (channels, zones, scan lists, and talkgroups are left untouched). It's a
-                self-contained, re-writable database — verify it on the radio's caller-ID
-                screen after the write.
-              </span>
-            ) : (
-              <span>
-                I understand this <strong>replaces the radio's entire channel set</strong>{" "}
-                (existing channels, zones, scan lists, and contacts on the radio are
-                overwritten or cleared).
-              </span>
-            )}
-          </label>
-          <div className="ml-auto">
-            <Button
-              variant="primary"
-              onClick={doProgram}
-              disabled={
-                !port ||
-                busy !== null ||
-                !ack ||
-                (payload === "channels" && (!preview || preview.channels === 0)) ||
-                (payload === "userdb" && (!dbPreview || dbPreview.will_export === 0))
-              }
-              title={
-                payload === "channels" && preview && preview.channels === 0
-                  ? "This codeplug has no programmable channels"
-                  : payload === "userdb" && dbPreview && dbPreview.will_export === 0
-                    ? "No DMR contacts to write — refresh the DMR Contacts library first"
-                    : undefined
-              }
-            >
-              {busy === "program" ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
-              {payload === "profile"
-                ? "Write settings"
-                : payload === "userdb"
-                  ? "Write Call-sign DB"
-                  : "Program radio"}
-            </Button>
-          </div>
-        </div>
 
         {busy === "program" && (
           <div className="mx-5 mb-4 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
@@ -862,16 +890,6 @@ export function AnytoneProgramDialog({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
-          {/* Gated exactly like the ✕: the overlay cannot reach a button
-              the dialog draws itself, and this one stayed live through a
-              write. (#65) */}
-          <FooterClose
-            onClose={onClose}
-            dismissible={busy === null}
-            lockedHint={LOCKED_HINT}
-          />
-        </div>
       </div>
     </Modal>
   );

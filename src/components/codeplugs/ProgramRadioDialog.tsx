@@ -230,7 +230,12 @@ export function ProgramRadioDialog({
   };
 
   const writeCount = preview?.included_count ?? 0;
-  const clearCount = Math.max(0, 128 - writeCount);
+  // ⚠ From the MODEL, not a constant. This was hard-coded to 128 for the UV-5R
+  // and TD-H3, and this is the GENERIC dialog — the TH-D72 holds 1000, so the
+  // confirm for a destructive write quoted a number that was simply wrong for
+  // it. Falling back to the write count says "clears nothing extra" rather than
+  // inventing a figure for a model that declares none.
+  const clearCount = Math.max(0, (model?.memory_channels ?? writeCount) - writeCount);
   const skipped = (preview?.rows ?? []).filter((r) => !r.included);
   // Programmed, but the radio cannot transmit there — a memory the operator can
   // only listen on. Worth saying out loud before the write, not after.
@@ -244,6 +249,156 @@ export function ProgramRadioDialog({
       onClose={onClose}
       title={`Program Radio — ${codeplugName}`}
       width="max-w-2xl"
+      footer={
+        // ⚠ Pinned, NOT in the scrolling body. These used to sit at the
+        // bottom of the body, so a codeplug with long receive-only and
+        // skipped lists pushed them below the fold — and pressing "Program
+        // radio" then revealed the confirm step further down still, so the
+        // write button had to be found by scrolling. Tim hit that on a
+        // TH-D72. The buttons an operator must reach at any moment, and the
+        // confirm that answers them, belong in the footer.
+        <>
+              {/* Confirm write */}
+              {confirming && (
+                <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/40">
+                  <div className="mb-2 flex items-center gap-1.5 font-semibold text-amber-800 dark:text-amber-300">
+                    <AlertTriangle size={14} /> Confirm write to {modelName}
+                  </div>
+                  <p className="text-amber-800 dark:text-amber-200">
+                    This will write <strong>{writeCount}</strong> channel
+                    {writeCount === 1 ? "" : "s"} to slots 1–{writeCount} and{" "}
+                    <strong>clear the remaining {clearCount}</strong> slot
+                    {clearCount === 1 ? "" : "s"} so the radio matches “{codeplugName}”.
+                    A full backup is saved first.
+                  </p>
+
+                  {(skipped.length > 0 || receiveOnly.length > 0) && (
+                    <p className="mt-2 text-amber-800 dark:text-amber-200">
+                      {[
+                        skipped.length > 0 &&
+                          `${skipped.length} channel${skipped.length === 1 ? " is" : "s are"} being skipped`,
+                        receiveOnly.length > 0 &&
+                          `${receiveOnly.length} ${receiveOnly.length === 1 ? "is" : "are"} receive-only`,
+                      ]
+                        .filter(Boolean)
+                        .join(" and ")}{" "}
+                      — listed above.
+                    </p>
+                  )}
+
+                  <div className="mt-3 flex justify-end gap-2">
+                    <Button variant="ghost" onClick={() => setConfirming(false)}>
+                      Cancel
+                    </Button>
+                    <Button variant="primary" onClick={doProgram}>
+                      <Upload size={14} /> Write to radio
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {/* Actions */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Gated exactly like the ✕: the overlay cannot reach a button
+                    the dialog draws itself, and this one stayed live through a
+                    write. (#65)
+
+                    ⚠ In the FOOTER, not the body. Left in the scrolling content
+                    it became a SECOND stacked bar under the pinned actions, and
+                    Close turned into the one control that scrolled away. Here
+                    it also keeps the footer from ever being empty, so a model
+                    with no driver does not get a blank bar. */}
+                <FooterClose
+                  onClose={onClose}
+                  dismissible={busy === null}
+                  lockedHint={LOCKED_HINT}
+                />
+                {showCable && (
+                <Button onClick={doIdentify} disabled={!port || busy !== null}>
+                  {busy === "identify" ? <Spinner className="h-3.5 w-3.5" /> : <Search size={14} />}
+                  Identify
+                </Button>
+                )}
+                {/* Backup/restore are whole-image operations, so they exist only
+                    on clone radios. A driver that programs from the database
+                    (the AnyTone) takes its own backups inside the program run.
+                    The two are separate capabilities: taking a backup does not
+                    mean the driver can put one back, and this button used to
+                    appear for any clone radio while the command behind it spoke
+                    UV-5R only. */}
+                {showCable && caps?.program_image && (
+                  <Button onClick={doDownload} disabled={!port || busy !== null}>
+                    {busy === "download" ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
+                    Download backup
+                  </Button>
+                )}
+                {showCable && caps?.restore_image && (
+                  <Button
+                    onClick={doRestore}
+                    disabled={!port || busy !== null}
+                    title="Flash a previously-saved backup .img back to the radio"
+                  >
+                    {busy === "restore" ? <Spinner className="h-3.5 w-3.5" /> : <Undo2 size={14} />}
+                    Restore backup…
+                  </Button>
+                )}
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  {media && (
+                    <>
+                      {/* One detected card is the whole point: write to it
+                          directly. Browse stays available for the awkward cases
+                          (card copied to disk, several radios, no card yet). */}
+                      {cards?.length === 1 && (
+                        <Button
+                          variant="primary"
+                          onClick={() => doMediaWrite(cards[0].path)}
+                          disabled={busy !== null || writeCount === 0}
+                          title={cards[0].path}
+                        >
+                          {busy === "media" ? (
+                            <Spinner className="h-3.5 w-3.5" />
+                          ) : (
+                            <MemoryStick size={14} />
+                          )}
+                          Write to “{cards[0].volume}”
+                        </Button>
+                      )}
+                      <Button
+                        variant={
+                          showCable || cards?.length === 1 ? undefined : "primary"
+                        }
+                        onClick={() => doMediaWrite()}
+                        disabled={busy !== null || writeCount === 0}
+                        title={
+                          writeCount === 0
+                            ? "This codeplug has no channels to program"
+                            : "Patch this codeplug into the backup file on the radio’s memory card"
+                        }
+                      >
+                        {busy === "media" && cards?.length !== 1 ? (
+                          <Spinner className="h-3.5 w-3.5" />
+                        ) : (
+                          <MemoryStick size={14} />
+                        )}
+                        {cards?.length === 1 ? "Choose a file…" : media.action}
+                      </Button>
+                    </>
+                  )}
+                  {showCable && (
+                    <Button
+                      variant="primary"
+                      onClick={() => setConfirming(true)}
+                      disabled={!port || busy !== null || writeCount === 0}
+                      title={writeCount === 0 ? "This codeplug has no channels to program" : undefined}
+                    >
+                      {busy === "program" ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
+                      Program radio
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+        </>
+      }
       // A radio operation is in flight. The Tauri command runs to completion
       // whatever this dialog does, so dismissing it would leave the radio being
       // written while the operator looks at an ordinary page — no spinner, no
@@ -369,133 +524,6 @@ export function ProgramRadioDialog({
               </div>
             )}
 
-            {/* Actions */}
-            <div
-              className={`flex flex-wrap items-center gap-2 px-5 pb-4 ${showCable && !preview ? "" : "pt-4"}`}
-            >
-              {showCable && (
-              <Button onClick={doIdentify} disabled={!port || busy !== null}>
-                {busy === "identify" ? <Spinner className="h-3.5 w-3.5" /> : <Search size={14} />}
-                Identify
-              </Button>
-              )}
-              {/* Backup/restore are whole-image operations, so they exist only
-                  on clone radios. A driver that programs from the database
-                  (the AnyTone) takes its own backups inside the program run.
-                  The two are separate capabilities: taking a backup does not
-                  mean the driver can put one back, and this button used to
-                  appear for any clone radio while the command behind it spoke
-                  UV-5R only. */}
-              {showCable && caps?.program_image && (
-                <Button onClick={doDownload} disabled={!port || busy !== null}>
-                  {busy === "download" ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
-                  Download backup
-                </Button>
-              )}
-              {showCable && caps?.restore_image && (
-                <Button
-                  onClick={doRestore}
-                  disabled={!port || busy !== null}
-                  title="Flash a previously-saved backup .img back to the radio"
-                >
-                  {busy === "restore" ? <Spinner className="h-3.5 w-3.5" /> : <Undo2 size={14} />}
-                  Restore backup…
-                </Button>
-              )}
-              <div className="ml-auto flex flex-wrap items-center gap-2">
-                {media && (
-                  <>
-                    {/* One detected card is the whole point: write to it
-                        directly. Browse stays available for the awkward cases
-                        (card copied to disk, several radios, no card yet). */}
-                    {cards?.length === 1 && (
-                      <Button
-                        variant="primary"
-                        onClick={() => doMediaWrite(cards[0].path)}
-                        disabled={busy !== null || writeCount === 0}
-                        title={cards[0].path}
-                      >
-                        {busy === "media" ? (
-                          <Spinner className="h-3.5 w-3.5" />
-                        ) : (
-                          <MemoryStick size={14} />
-                        )}
-                        Write to “{cards[0].volume}”
-                      </Button>
-                    )}
-                    <Button
-                      variant={
-                        showCable || cards?.length === 1 ? undefined : "primary"
-                      }
-                      onClick={() => doMediaWrite()}
-                      disabled={busy !== null || writeCount === 0}
-                      title={
-                        writeCount === 0
-                          ? "This codeplug has no channels to program"
-                          : "Patch this codeplug into the backup file on the radio’s memory card"
-                      }
-                    >
-                      {busy === "media" && cards?.length !== 1 ? (
-                        <Spinner className="h-3.5 w-3.5" />
-                      ) : (
-                        <MemoryStick size={14} />
-                      )}
-                      {cards?.length === 1 ? "Choose a file…" : media.action}
-                    </Button>
-                  </>
-                )}
-                {showCable && (
-                  <Button
-                    variant="primary"
-                    onClick={() => setConfirming(true)}
-                    disabled={!port || busy !== null || writeCount === 0}
-                    title={writeCount === 0 ? "This codeplug has no channels to program" : undefined}
-                  >
-                    {busy === "program" ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
-                    Program radio
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {/* Confirm write */}
-            {confirming && (
-              <div className="mx-5 mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/40">
-                <div className="mb-2 flex items-center gap-1.5 font-semibold text-amber-800 dark:text-amber-300">
-                  <AlertTriangle size={14} /> Confirm write to {modelName}
-                </div>
-                <p className="text-amber-800 dark:text-amber-200">
-                  This will write <strong>{writeCount}</strong> channel
-                  {writeCount === 1 ? "" : "s"} to slots 1–{writeCount} and{" "}
-                  <strong>clear the remaining {clearCount}</strong> slot
-                  {clearCount === 1 ? "" : "s"} so the radio matches “{codeplugName}”.
-                  A full backup is saved first.
-                </p>
-
-                {(skipped.length > 0 || receiveOnly.length > 0) && (
-                  <p className="mt-2 text-amber-800 dark:text-amber-200">
-                    {[
-                      skipped.length > 0 &&
-                        `${skipped.length} channel${skipped.length === 1 ? " is" : "s are"} being skipped`,
-                      receiveOnly.length > 0 &&
-                        `${receiveOnly.length} ${receiveOnly.length === 1 ? "is" : "are"} receive-only`,
-                    ]
-                      .filter(Boolean)
-                      .join(" and ")}{" "}
-                    — listed above.
-                  </p>
-                )}
-
-                <div className="mt-3 flex justify-end gap-2">
-                  <Button variant="ghost" onClick={() => setConfirming(false)}>
-                    Cancel
-                  </Button>
-                  <Button variant="primary" onClick={doProgram}>
-                    <Upload size={14} /> Write to radio
-                  </Button>
-                </div>
-              </div>
-            )}
 
             {/* Progress note while programming */}
             {busy === "program" && (
@@ -577,16 +605,6 @@ export function ProgramRadioDialog({
           </>
         )}
 
-        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
-          {/* Gated exactly like the ✕: the overlay cannot reach a button
-              the dialog draws itself, and this one stayed live through a
-              write. (#65) */}
-          <FooterClose
-            onClose={onClose}
-            dismissible={busy === null}
-            lockedHint={LOCKED_HINT}
-          />
-        </div>
       </div>
     </Modal>
   );

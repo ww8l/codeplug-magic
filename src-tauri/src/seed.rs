@@ -166,6 +166,16 @@ pub const ID52_SETTINGS_SCHEMA: &str = include_str!("id52_settings_schema.json")
 /// the two halves still describe the same fields.
 pub const THD75_SETTINGS_SCHEMA: &str = include_str!("thd75_settings_schema.json");
 
+/// The TH-D72 profile-settings schema, GENERATED alongside the Rust field table
+/// by `scratchpad/kenwood_thd72/gen_thd72_settings.py` from
+/// `scratchpad/kenwood_thd72/MEASURED.md`. One parse emits both, so a field
+/// cannot exist in the form and not in the encoder.
+///
+/// These are the 19 parameters of the radio's own `MU` menu command, not offsets
+/// into the clone image — see `radios/kenwood_thd72/settings.rs` for why, and
+/// for the six-of-six cross-check that showed the two carry the same values.
+pub const THD72_SETTINGS_SCHEMA: &str = include_str!("thd72_settings_schema.json");
+
 
 fn models() -> Vec<ModelSeed> {
     vec![
@@ -705,6 +715,89 @@ fn models() -> Vec<ModelSeed> {
             // ID-52's are.
             non_channel_settings_schema: THD75_SETTINGS_SCHEMA,
         },
+        // --------------------------------------------------------
+        // 7. Kenwood TH-D72 — analog FM dual-band HT with APRS and a
+        //    built-in GPS and TNC, 1000 memories in 10 groups,
+        //    8-char names, 5 W. A 2010 radio: no D-STAR, no DMR, no
+        //    C4FM. The A model (US); the E and K differ, and a radio
+        //    whose TX has been hardware-extended differs again.
+        //    Programmed over a CABLE (issue #55) — the built-in
+        //    mini-USB port, cloning a flat 64 KiB image, which is the
+        //    UV-5R/TD-H3 modality rather than the microSD patching
+        //    the TH-D75 above uses. See radios/kenwood_thd72/.
+        //    NOTES:
+        //    (a) rx_bands has a REAL GAP and it matters. 118-174 and
+        //    320-524, with nothing between: this radio cannot hear
+        //    220 MHz at all, where the TH-D75 directly above it
+        //    TRANSMITS there. Three sources agree — CHIRP's
+        //    valid_bands, the union of the radio's own programmable-
+        //    VFO table read out of a factory-reset image, and the
+        //    manual naming the 118/144/300/430-440 bands. A 224 MHz
+        //    repeater must be excluded here, not handed to the
+        //    encoder: see the test below.
+        //    (b) the D72's "groups" are POSITIONAL, not a flag —
+        //    group n is memories n*100..n*100+99 and only the ten
+        //    group NAMES are stored. So banks_supported is true, but
+        //    a channel list of more than 100 channels cannot be one
+        //    group, and a channel in two lists lands in the first.
+        //    (c) program-scan L/U limit pairs, not named scan lists,
+        //    so scan_lists_supported is false — same as the D75.
+        //    (d) ★ tx_bands is MEASURED, not assumed. Phase 1 asked
+        //    the radio itself on 2026-08-26: `TY` answered A,M,B,1 —
+        //    a stock TH-D72A whose TX is NOT hardware-extended — so
+        //    144-148 / 430-450 is this radio's own allocation. `FV 0`
+        //    reports firmware 1.08. An E/K or a TX-modified radio
+        //    answers TY differently and would need its own row; such
+        //    a radio is under-served by this one, which is the safe
+        //    direction.
+        //    (e) settings are the radio's own 19 MU menu parameters,
+        //    read and written over the ASCII command rather than
+        //    through the clone image: MU covers all 19 where CHIRP
+        //    names offsets for only 6, and the two agree on all six
+        //    they share. p2 contrast is deliberately NOT in the
+        //    schema — the manual, CHIRP and LA3QMA give three
+        //    different ranges for it and the radio has not settled
+        //    which. See radios/kenwood_thd72/settings.rs.
+        // --------------------------------------------------------
+        ModelSeed {
+            manufacturer: "Kenwood",
+            model: "TH-D72",
+            driver_key: Some("kenwood_thd72"),
+            programming_ui: Some("generic"),
+            display_name: "Kenwood TH-D72",
+            analog_capable: true,
+            dmr_capable: false,
+            dstar_capable: false,
+            ysf_capable: false,
+            nxdn_capable: false,
+            p25_capable: false,
+            m17_capable: false,
+            aprs_capable: true,
+            covers_hf: false,
+            covers_vhf: true,
+            covers_uhf: true,
+            covers_220: false,
+            covers_900: false,
+            freq_min: 144.0,
+            freq_max: 450.0,
+            tx_bands: Some("[[144.0,148.0],[430.0,450.0]]"),
+            rx_bands: Some("[[118.0,174.0],[320.0,524.0]]"),
+            memory_channels: 1000,
+            zones_supported: false,
+            max_zones: None,
+            channels_per_zone: None,
+            scan_lists_supported: false,
+            max_scan_lists: None,
+            banks_supported: true,
+            max_name_length: 8,
+            // chirp_csv, like the UV-5R and TD-H3 above: an analog radio
+            // programmed over a cable, with no file workflow of its own. The
+            // .mc4 the container can write is a measuring convenience, not a
+            // format any user is asked to hand around.
+            export_format: "chirp_csv",
+            connection_type: "USB cable (built-in mini-USB)",
+            non_channel_settings_schema: THD72_SETTINGS_SCHEMA,
+        },
     ]
 }
 
@@ -760,6 +853,52 @@ mod tests {
                 m.export_format
             );
         }
+    }
+
+    /// The TH-D72 is the counter-example that sits directly under the TH-D75 in
+    /// `models()`, and getting the two confused would put a channel on a radio
+    /// that cannot hear it.
+    ///
+    /// The D75 TRANSMITS on 220 MHz. The D72 does not receive there at all —
+    /// its coverage is 118-174 and 320-524 with a real hole between, agreed on
+    /// by CHIRP's `valid_bands`, by the union of the radio's own
+    /// programmable-VFO table read out of a factory-reset image, and by the
+    /// manual naming the 118/144/300/430-440 bands. A 224 MHz repeater has to
+    /// be excluded here rather than reaching the encoder.
+    ///
+    /// It also hears far more than it can key: the air band at 118-136 is AM
+    /// receive-only, and so is the whole 320-430 stretch.
+    #[test]
+    fn the_thd72_cannot_hear_220_and_hears_two_disjoint_spans() {
+        let d72 = models()
+            .into_iter()
+            .find(|m| m.model == "TH-D72")
+            .expect("the TH-D72 is seeded");
+
+        let bands = |json: &str| -> Vec<Vec<f64>> { serde_json::from_str(json).unwrap() };
+        let tx = bands(d72.tx_bands.expect("TH-D72 has tx_bands"));
+        let rx = bands(d72.rx_bands.expect("TH-D72 has rx_bands"));
+        let covers = |bs: &[Vec<f64>], mhz: f64| bs.iter().any(|b| mhz >= b[0] && mhz <= b[1]);
+
+        assert!(!d72.covers_220, "the TH-D72 has no 220 MHz coverage of any kind");
+
+        // The failure the ID-52 shipped: a repeater in a band the radio cannot
+        // tune, reported as written.
+        assert!(!covers(&rx, 224.5), "224.5 MHz must not be receivable");
+        assert!(!covers(&tx, 224.5), "224.5 MHz must not be transmittable");
+
+        // The gap is a gap, not a rounding artefact.
+        assert!(covers(&rx, 174.0) || covers(&rx, 173.9));
+        assert!(!covers(&rx, 200.0), "nothing between 174 and 320 MHz is receivable");
+        assert!(covers(&rx, 320.0));
+
+        // Heard but not keyed.
+        assert!(covers(&rx, 121.5) && !covers(&tx, 121.5), "air band is receive-only");
+        assert!(covers(&rx, 350.0) && !covers(&tx, 350.0), "300 MHz band is receive-only");
+        assert!(covers(&rx, 462.6) && !covers(&tx, 462.6), "GMRS is receive-only");
+
+        // The two ham bands it does key on.
+        assert!(covers(&tx, 146.52) && covers(&tx, 446.0));
     }
 
     /// A gap in a seeded receiver is not a detail — it decides whether a channel
