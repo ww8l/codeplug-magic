@@ -144,13 +144,31 @@ fn changed_blocks(base: &[u8], built: &[u8]) -> Vec<usize> {
 ///
 /// Comparing only the uploaded blocks is also self-maintaining: it stays correct
 /// if the set of regions this driver writes ever changes.
+/// Bytes the radio rewrites on its OWN account after a write, measured on a real
+/// TH-D72A on 2026-08-26 and again by Phase 1's noise floor: the last-used
+/// channel at `0x0246`, the byte RT Systems blanks at `0x02BF`, and the block at
+/// `0xA890`.
+///
+/// ⚠ Scoping the comparison to the blocks we wrote used to be enough, because
+/// nothing this driver wrote lived in `0x0200-0x0400`. Since the settings work,
+/// 31 image-backed settings DO live there — six in block 2 and twenty-five in
+/// block 3 — so those blocks are now in `changed_blocks`, and the radio's own
+/// rewrite would make them mismatch and report a successful write as failed.
+const SELF_REWRITTEN: [std::ops::Range<usize>; 3] =
+    [0x0246..0x0247, 0x02BF..0x02C0, 0xA890..0xA8C0];
+
 fn mismatched_blocks(built: &[u8], after: &[u8], blocks: &[usize]) -> Vec<usize> {
     blocks
         .iter()
         .copied()
         .filter(|i| {
             let r = i * BLOCK_LEN..(i + 1) * BLOCK_LEN;
-            built.get(r.clone()) != after.get(r)
+            let (Some(a), Some(b)) = (built.get(r.clone()), after.get(r.clone())) else {
+                return true;
+            };
+            r.clone().zip(a.iter().zip(b.iter())).any(|(addr, (x, y))| {
+                x != y && !SELF_REWRITTEN.iter().any(|w| w.contains(&addr))
+            })
         })
         .collect()
 }

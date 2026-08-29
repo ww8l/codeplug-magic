@@ -230,7 +230,12 @@ export function ProgramRadioDialog({
   };
 
   const writeCount = preview?.included_count ?? 0;
-  const clearCount = Math.max(0, 128 - writeCount);
+  // ⚠ From the MODEL, not a constant. This was hard-coded to 128 for the UV-5R
+  // and TD-H3, and this is the GENERIC dialog — the TH-D72 holds 1000, so the
+  // confirm for a destructive write quoted a number that was simply wrong for
+  // it. Falling back to the write count says "clears nothing extra" rather than
+  // inventing a figure for a model that declares none.
+  const clearCount = Math.max(0, (model?.memory_channels ?? writeCount) - writeCount);
   const skipped = (preview?.rows ?? []).filter((r) => !r.included);
   // Programmed, but the radio cannot transmit there — a memory the operator can
   // only listen on. Worth saying out loud before the write, not after.
@@ -292,9 +297,21 @@ export function ProgramRadioDialog({
                 </div>
               )}
               {/* Actions */}
-              <div
-                className="flex flex-wrap items-center gap-2"
-              >
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Gated exactly like the ✕: the overlay cannot reach a button
+                    the dialog draws itself, and this one stayed live through a
+                    write. (#65)
+
+                    ⚠ In the FOOTER, not the body. Left in the scrolling content
+                    it became a SECOND stacked bar under the pinned actions, and
+                    Close turned into the one control that scrolled away. Here
+                    it also keeps the footer from ever being empty, so a model
+                    with no driver does not get a blank bar. */}
+                <FooterClose
+                  onClose={onClose}
+                  dismissible={busy === null}
+                  lockedHint={LOCKED_HINT}
+                />
                 {showCable && (
                 <Button onClick={doIdentify} disabled={!port || busy !== null}>
                   {busy === "identify" ? <Spinner className="h-3.5 w-3.5" /> : <Search size={14} />}
@@ -588,16 +605,6 @@ export function ProgramRadioDialog({
           </>
         )}
 
-        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
-          {/* Gated exactly like the ✕: the overlay cannot reach a button
-              the dialog draws itself, and this one stayed live through a
-              write. (#65) */}
-          <FooterClose
-            onClose={onClose}
-            dismissible={busy === null}
-            lockedHint={LOCKED_HINT}
-          />
-        </div>
       </div>
     </Modal>
   );

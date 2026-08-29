@@ -385,6 +385,14 @@ export function AnytoneProgramDialog({
           )}
 
           <div className="flex flex-wrap items-center gap-3">
+            {/* ⚠ In the FOOTER, not the body — see the generic dialog. Left in
+                the scrolling content it became a second stacked bar and Close
+                the only control that scrolled away. (#65 gating unchanged.) */}
+            <FooterClose
+              onClose={onClose}
+              dismissible={busy === null}
+              lockedHint={LOCKED_HINT}
+            />
             <div className="ml-auto">
               <Button
                 variant="primary"
@@ -882,16 +890,6 @@ export function AnytoneProgramDialog({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
-          {/* Gated exactly like the ✕: the overlay cannot reach a button
-              the dialog draws itself, and this one stayed live through a
-              write. (#65) */}
-          <FooterClose
-            onClose={onClose}
-            dismissible={busy === null}
-            lockedHint={LOCKED_HINT}
-          />
-        </div>
       </div>
     </Modal>
   );

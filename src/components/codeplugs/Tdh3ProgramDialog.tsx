@@ -185,8 +185,13 @@ export function Tdh3ProgramDialog({
         // the scrolling body, so a long skip list pushed them below the fold
         // and the confirm appeared further down still. The confirm now reads
         // ABOVE the buttons that raise it.
-        tab === "options" ? null : (
-          <>
+        // ⚠ ONE row, shaped like the other two: Close first, then the write
+        // controls. Those belong only to the Channels tab — Radio Options has
+        // no write — but Close sits OUTSIDE that check, because gating the whole
+        // footer left that tab closable only by the ✕.
+        <>
+          {tab === "options" ? null : (
+            <>
             {/* Confirm write */}
             {confirming && (
               <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/40">
@@ -238,8 +243,19 @@ export function Tdh3ProgramDialog({
                 </div>
               </div>
             )}
-            {/* Actions */}
-            <div className="flex flex-wrap items-center gap-2">
+            </>
+          )}
+
+          {/* Actions. ⚠ In the FOOTER, not the scrolling body: a long skip list
+              used to push them below the fold. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <FooterClose
+              onClose={onClose}
+              dismissible={busy === null}
+              lockedHint={LOCKED_HINT}
+            />
+            {tab === "options" ? null : (
+              <>
               <Button onClick={doIdentify} disabled={!port || busy !== null}>
                 {busy === "identify" ? <Spinner className="h-3.5 w-3.5" /> : <Search size={14} />}
                 Identify
@@ -269,10 +285,10 @@ export function Tdh3ProgramDialog({
                   Program radio
                 </Button>
               </div>
-            </div>
-
-          </>
-        )
+              </>
+            )}
+          </div>
+        </>
       }
       // A radio operation is in flight. The Tauri command runs to completion
       // whatever this dialog does, so dismissing it would leave the radio being
@@ -416,16 +432,6 @@ export function Tdh3ProgramDialog({
         </>
         )}
 
-        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
-          {/* Gated exactly like the ✕: the overlay cannot reach a button
-              the dialog draws itself, and this one stayed live through a
-              write. (#65) */}
-          <FooterClose
-            onClose={onClose}
-            dismissible={busy === null}
-            lockedHint={LOCKED_HINT}
-          />
-        </div>
       </div>
     </Modal>
   );

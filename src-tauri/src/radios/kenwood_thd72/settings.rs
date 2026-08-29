@@ -223,14 +223,34 @@ fn encode_one(f: &MF, v: &Value) -> Result<u8, String> {
             n as u8
         }
         MK::Enum { labels } => {
-            let s = v
-                .as_str()
-                .ok_or_else(|| format!("{} expects one of its options, got {v}", f.key))?;
-            labels
-                .iter()
-                .find(|(_, label)| *label == s)
-                .map(|(raw_v, _)| *raw_v)
-                .ok_or_else(|| format!("{} has no option {s:?}", f.key))?
+            // ⚠ A raw NUMBER is valid here, and refusing it bricks the driver.
+            // `decode` deliberately hands back `json!(v)` for a stored value this
+            // table has no label for — an honest "your radio holds something we
+            // have not measured". That number gets saved into the profile, and
+            // if only a label were accepted every later settings write AND every
+            // program run carrying settings would fail with "has no option 64",
+            // leaving the radio unprogrammable until the field was hand-edited.
+            // `kenwood_thd75/settings.rs` already carries this fallback; this
+            // driver had dropped it.
+            match v {
+                Value::Number(n) => n
+                    .as_u64()
+                    .filter(|n| *n <= u8::MAX as u64)
+                    .ok_or_else(|| format!("{} cannot store {v}", f.key))?
+                    as u8,
+                _ => {
+                    let s = v.as_str().ok_or_else(|| {
+                        format!("{} expects one of its options, got {v}", f.key)
+                    })?;
+                    labels
+                        .iter()
+                        .find(|(_, label)| *label == s)
+                        .map(|(raw_v, _)| *raw_v)
+                        // A string that is not an option is still an error: it
+                        // is a stale label, not a measurement gap.
+                        .ok_or_else(|| format!("{} has no option {s:?}", f.key))?
+                }
+            }
         }
     })
 }
@@ -282,8 +302,13 @@ pub(crate) fn apply_image_settings(
             ));
         }
         let encoded = encode_one(f, v)?;
+        // Count what CHANGED, not what was visited — `encode_over` already works
+        // this way, and the number is shown to the operator as "N settings". A
+        // re-program that altered nothing would otherwise report all 103.
+        if f.src.read(&mu, image, &f.kind) != encoded {
+            written += 1;
+        }
         f.src.write(&mut mu, image, &f.kind, encoded);
-        written += 1;
     }
     Ok((written, notes))
 }
@@ -401,7 +426,8 @@ impl SettingsWriter for super::KenwoodThd72 {
         // correctly, the MU line landing, and five sixths of the settings never
         // reaching the radio — a working read path hiding a dead write path,
         // which this codebase has shipped twice.
-        if image != base_image {
+        let wrote_image = image != base_image;
+        if wrote_image {
             // ⚠⚠ Only the blocks that actually CHANGED, not `upload_image`.
             //
             // `upload_image` writes every writable block — which is every
@@ -433,9 +459,19 @@ impl SettingsWriter for super::KenwoodThd72 {
         let mut p = protocol::reconnect_after_clone(port)?;
         let reply = protocol::command(&mut *p, &format_mu(&raw))?;
         if reply.trim() == "N" {
+            // ⚠ "Nothing was written" would be FALSE here. The image blocks went
+            // to the radio before this point, so up to 103 settings are already
+            // committed and only the 19 `MU` parameters were refused. Telling
+            // the operator nothing landed sends them away from the one thing
+            // that fixes it.
             return Err(format!(
-                "the radio refused the menu line ({reply:?}). Nothing was written; the \
-                 settings it had are saved at {}.",
+                "the radio refused the menu line ({reply:?}). {} Put the radio back \
+                 with the backup saved at {}.",
+                if wrote_image {
+                    "The image settings were already written and are still on the radio;"
+                } else {
+                    "Nothing was written;"
+                },
                 backup_path.display()
             ));
         }
@@ -443,10 +479,31 @@ impl SettingsWriter for super::KenwoodThd72 {
         // Read back in the same session. Non-fatal: the radio accepted the line,
         // so a failed read-back is a reporting problem.
         let (verified, note) = match read_line(&mut *p) {
-            Ok(after) if after == raw => (true, None),
+            Ok(after) if after == raw => (
+                // ⚠ `None`, not `Some(false)`, when image settings went out.
+                // Those are different claims: `Some(false)` means the radio read
+                // back WRONG, `None` means nobody looked. The MU half read back
+                // clean; the image half was never read at all.
+                if wrote_image { None } else { Some(true) },
+                wrote_image.then(|| {
+                    "The menu parameters read back correctly. The image-backed settings \
+                     were written but NOT read back — that needs a second clone session. \
+                     Check one on the radio's own menus if it matters."
+                        .to_string()
+                }),
+            ),
             Ok(after) => {
+                // ⚠ MU FIELDS ONLY, and the name says so. This used to pass the
+                // same `image` buffer to both sides, so every `MSrc::Image`
+                // field compared equal to itself by construction: 103 of the 122
+                // settings were reported verified without being read back at
+                // all. Verifying them for real needs another clone download,
+                // which is a whole extra session on a radio that wedges after
+                // several — so they are declared UNVERIFIED instead of falsely
+                // verified. See the note built below.
                 let differing: Vec<&str> = THD72_SETTINGS_FIELDS
                     .iter()
+                    .filter(|f| matches!(f.src, MSrc::Mu(_)))
                     .filter(|f| {
                         f.src.read(&after, &image, &f.kind)
                             != f.src.read(&raw, &image, &f.kind)
@@ -454,7 +511,7 @@ impl SettingsWriter for super::KenwoodThd72 {
                     .map(|f| f.key)
                     .collect();
                 (
-                    false,
+                    Some(false),
                     Some(format!(
                         "The radio accepted the write but read back differently in: {}. \
                          Check those on the radio's own menus.",
@@ -463,14 +520,14 @@ impl SettingsWriter for super::KenwoodThd72 {
                 )
             }
             Err(e) => (
-                false,
+                None,
                 Some(format!("Write accepted, but the read-back could not run ({e}).")),
             ),
         };
 
         Ok(SettingsWriteReport {
             fields_written,
-            verified: Some(verified),
+            verified,
             note: merge_notes(&bounds_notes, note),
             backup_path: backup_path.to_string_lossy().to_string(),
             expected_path: None,
@@ -678,6 +735,52 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A stored value this table cannot name must survive a round trip.
+    ///
+    /// ⚠ This is the one that bricks the driver if it regresses. `decode` hands
+    /// back a bare NUMBER for an enum byte with no matching label — deliberately,
+    /// as "your radio holds something we have not measured". That number is
+    /// saved into the operator's profile. If `encode_one` then accepted only
+    /// labels, EVERY later settings write and every program run carrying
+    /// settings would fail with "has no option 64", and the radio could not be
+    /// programmed again until someone hand-edited the profile.
+    #[test]
+    fn a_value_the_table_cannot_name_still_writes_back() {
+        let f = THD72_SETTINGS_FIELDS
+            .iter()
+            .find(|f| matches!(f.src, MSrc::Image { .. }) && matches!(f.kind, MK::Enum { .. }))
+            .expect("an image-backed enum");
+        let MSrc::Image { addr, .. } = f.src else { unreachable!() };
+        let MK::Enum { labels } = &f.kind else { unreachable!() };
+        let unnamed = (0u8..=255)
+            .find(|v| !labels.iter().any(|(raw, _)| raw == v))
+            .expect("some byte value has no label");
+
+        let mut img = sample_image();
+        img[addr] = unnamed;
+        let decoded = decode(&[0u8; MU_FIELDS], &img);
+        assert_eq!(
+            decoded[f.key],
+            json!(unnamed),
+            "an unlabelled value must decode to its raw number"
+        );
+
+        // Feed just that field back in. Passing the whole decoded object would
+        // also carry MU fields read out of a zeroed buffer, which are outside
+        // their own ranges — in production `strip_out_of_range` removes those
+        // before encoding ever sees them, so including them here would test the
+        // fixture rather than the fallback.
+        let back = json!({ f.key: decoded[f.key].clone() });
+        let (_, out, _) = encode_over(&[0u8; MU_FIELDS], &img, &back)
+            .expect("an unlabelled value must be writable again");
+        assert_eq!(out[addr], unnamed, "it must land as the same byte");
+
+        // A bad STRING is still an error — that is a stale label, not a gap.
+        let bad = json!({ f.key: "definitely not an option" });
+        encode_over(&[0u8; MU_FIELDS], &img, &bad)
+            .expect_err("an unknown label must still be refused");
     }
 
     /// A settings write must not reach the memories.
