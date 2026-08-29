@@ -986,3 +986,72 @@ fn settings_write_over_both_transports() {
         println!(">>> A FAILURE looks like: 111 still Off, or 112 still Lithium.");
     }
 }
+
+/// Ladder step 4 — the band probe, against what the app said it wrote.
+///
+/// ⚠ The step this project has been burned by. An out-of-coverage frequency
+/// does NOT error: it becomes a silently EMPTY memory slot while the app
+/// reports success, and three repeaters were lost that way with a clean report.
+/// So this counts what actually LANDED and buckets it against the model's own
+/// declared bands, rather than trusting the write report.
+///
+/// Reads only. `CPM_THD72_EXPECT=49` asserts the count the app claimed.
+#[test]
+#[ignore = "reads a real TH-D72"]
+fn step4_band_probe() {
+    let mut p = protocol::reconnect_after_clone(&port()).expect("connect");
+    let image = protocol::download(&mut *p).expect("download");
+
+    // The model's own declared coverage — kept here as literals on purpose, so
+    // this test fails if the seed is edited without re-running the probe.
+    const TX: [(f64, f64); 2] = [(144.0, 148.0), (430.0, 450.0)];
+    const RX: [(f64, f64); 2] = [(118.0, 174.0), (320.0, 524.0)];
+    let inside = |mhz: f64, bands: &[(f64, f64)]| bands.iter().any(|&(a, b)| mhz >= a && mhz <= b);
+
+    let mut total = 0usize;
+    let (mut tx_ok, mut rx_only, mut outside) = (0usize, 0usize, Vec::new());
+    let mut highest = 0usize;
+    for slot in 0..layout::CHANNEL_COUNT {
+        let Some(rec) = memory::read_record(&image, slot) else { continue };
+        total += 1;
+        highest = slot;
+        let mhz = memory::decode_memory(&rec.memory).freq_hz as f64 / 1e6;
+        let name: String = rec.name.iter().take_while(|&&b| b != 0xFF).map(|&b| b as char).collect();
+        if inside(mhz, &TX) {
+            tx_ok += 1;
+        } else if inside(mhz, &RX) {
+            rx_only += 1;
+        } else {
+            outside.push(format!("slot {slot} {name:?} {mhz:.4} MHz"));
+        }
+    }
+
+    println!("{total} memories on the radio, highest slot {highest}");
+    println!("  {tx_ok} inside a TX band, {rx_only} receive-only, {} outside all bands",
+             outside.len());
+
+    // ★ The failure mode is a HOLE, not a bad value: a dropped channel leaves
+    // the slots below it populated and one empty in the middle, or the run
+    // short. Count the gaps rather than eyeballing the list.
+    let holes: Vec<usize> = (0..=highest)
+        .filter(|&s| memory::read_record(&image, s).is_none())
+        .collect();
+    if holes.is_empty() {
+        println!("  no empty slots below the highest — nothing was silently dropped");
+    } else {
+        println!("  ⚠ {} EMPTY slot(s) below the highest: {:?}", holes.len(),
+                 &holes[..holes.len().min(12)]);
+    }
+
+    for o in &outside {
+        println!("  ⚠ outside every declared band: {o}");
+    }
+    assert!(outside.is_empty(), "{} memories sit outside the declared bands", outside.len());
+    assert!(holes.is_empty(), "{} slots were silently dropped", holes.len());
+
+    if let Ok(want) = std::env::var("CPM_THD72_EXPECT") {
+        let want: usize = want.parse().expect("CPM_THD72_EXPECT must be a number");
+        assert_eq!(total, want, "the app said it wrote {want} channels");
+        println!("  ✓ matches the {want} the app reported");
+    }
+}
