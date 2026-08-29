@@ -737,6 +737,62 @@ mod tests {
         }
     }
 
+    /// No field may be labelled something its own options contradict.
+    ///
+    /// ★ The option list identifies a control better than the geometry pairing
+    /// that produced these labels, and it caught four real mislabels: `0x0334`
+    /// was "Battery Type" while offering 113 UTC offsets, `0x0B14` and `0x024E`
+    /// were a callsign and a path while offering 42 CTCSS tones, and `0x0339`
+    /// was "Auto Power Off" while offering Manual/Auto.
+    ///
+    /// A mislabel does not write a wrong value — no address is shared between an
+    /// enum and another field — but it puts the wrong name on a control the
+    /// operator is about to change, and the labels come from a heuristic that
+    /// will be re-run.
+    #[test]
+    fn no_label_is_contradicted_by_its_own_options() {
+        for f in THD72_SETTINGS_FIELDS {
+            let MK::Enum { labels } = &f.kind else { continue };
+            let opts: Vec<&str> = labels.iter().map(|(_, l)| *l).collect();
+            let lower = f.label.to_lowercase();
+
+            if opts.len() > 50 && opts.iter().take(5).all(|o| o.starts_with("UTC ")) {
+                assert!(
+                    ["time", "zone", "utc"].iter().any(|w| lower.contains(w)),
+                    "{} is labelled {:?} but offers UTC offsets",
+                    f.key,
+                    f.label
+                );
+            }
+            let tone = |o: &&str| {
+                o.split_once('.')
+                    .is_some_and(|(a, b)| a.chars().all(|c| c.is_ascii_digit()) && b.len() == 1)
+            };
+            if opts.len() > 30 && opts.iter().take(5).all(tone) {
+                assert!(
+                    ["tone", "ctcss", "frequency"].iter().any(|w| lower.contains(w)),
+                    "{} is labelled {:?} but offers CTCSS tones",
+                    f.key,
+                    f.label
+                );
+            }
+        }
+    }
+
+    /// Two fields may not share a label, whatever the case.
+    ///
+    /// "Battery type" and "Battery Type" sat side by side until the generator's
+    /// duplicate check was made case-insensitive; the second was the time zone.
+    #[test]
+    fn no_two_fields_share_a_label() {
+        let mut seen = std::collections::HashMap::new();
+        for f in THD72_SETTINGS_FIELDS {
+            if let Some(prev) = seen.insert(f.label.to_lowercase(), f.key) {
+                panic!("{} and {} share the label {:?}", prev, f.key, f.label);
+            }
+        }
+    }
+
     /// A stored value this table cannot name must survive a round trip.
     ///
     /// ⚠ This is the one that bricks the driver if it regresses. `decode` hands

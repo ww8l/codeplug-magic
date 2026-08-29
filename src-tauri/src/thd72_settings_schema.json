@@ -285,7 +285,7 @@
  },
  {
   "key": "common1-1295",
-  "label": "Battery Type",
+  "label": "Time zone",
   "type": "select",
   "options": [
    "UTC -14:00",
@@ -421,7 +421,7 @@
  },
  {
   "key": "common1-1157",
-  "label": "Auto Power Off",
+  "label": "Lamp control",
   "type": "select",
   "options": [
    "Manual",
@@ -469,17 +469,8 @@
   "type": "boolean"
  },
  {
-  "key": "common2-1026",
-  "label": "Memory — Recall Method",
-  "type": "select",
-  "options": [
-   "All Bands",
-   "Current Band"
-  ]
- },
- {
   "key": "common2-1158",
-  "label": "Sky Command II — Transporter Callsign:",
+  "label": "Sky Command II — Tone frequency",
   "type": "select",
   "options": [
    "67.0",
@@ -559,77 +550,6 @@
  {
   "key": "txrx-1184",
   "label": "Weather Alert — B-Band",
-  "type": "boolean"
- },
- {
-  "key": "txrx-1181",
-  "label": "Receive — VHF Band AIP",
-  "type": "boolean"
- },
- {
-  "key": "txrx-1180",
-  "label": "Receive — UHF Band AIP",
-  "type": "boolean"
- },
- {
-  "key": "txrx-1183",
-  "label": "VOX — Enable",
-  "type": "boolean"
- },
- {
-  "key": "txrx-1201",
-  "label": "VOX — Beat Shift",
-  "type": "select",
-  "options": [
-   "0",
-   "1",
-   "2",
-   "3",
-   "4",
-   "5",
-   "6",
-   "7",
-   "8",
-   "9"
-  ]
- },
- {
-  "key": "txrx-1202",
-  "label": "VOX — Delay",
-  "type": "select",
-  "options": [
-   "250 ms",
-   "500 ms",
-   "750 ms",
-   "1000 ms",
-   "1500 ms",
-   "2000 ms",
-   "3000 ms"
-  ]
- },
- {
-  "key": "txrx-1185",
-  "label": "Vox On Busy",
-  "type": "boolean"
- },
- {
-  "key": "txrx-1150",
-  "label": "Receive — Beat Shift",
-  "type": "select",
-  "options": [
-   "Type 1",
-   "Type 2",
-   "Type 3",
-   "Type 4",
-   "Type 5",
-   "Type 6",
-   "Type 7",
-   "Type 8"
-  ]
- },
- {
-  "key": "txrx-1301",
-  "label": "Transmit — Inhibit",
   "type": "boolean"
  },
  {
@@ -819,7 +739,7 @@
  },
  {
   "key": "aprs1-1170",
-  "label": "Path is VIA:",
+  "label": "Voice Alert — CTCSS frequency",
   "type": "select",
   "options": [
    "67.0",
