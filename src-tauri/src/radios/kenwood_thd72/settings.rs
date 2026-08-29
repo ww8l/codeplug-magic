@@ -402,12 +402,30 @@ impl SettingsWriter for super::KenwoodThd72 {
         // reaching the radio — a working read path hiding a dead write path,
         // which this codebase has shipped twice.
         if image != base_image {
-            protocol::reconnect_after_clone(port).map(drop)?;
-            crate::radios::driver::ImageProgrammer::upload_image(
-                &super::KenwoodThd72,
-                port,
-                &image,
-            )?;
+            // ⚠⚠ Only the blocks that actually CHANGED, not `upload_image`.
+            //
+            // `upload_image` writes every writable block — which is every
+            // memory on the radio. A settings write would then rewrite a
+            // thousand channels the operator never touched, and an interrupted
+            // one could corrupt them. The `MU` transport this replaced
+            // physically could not reach a memory; the image transport can, so
+            // the write has to be narrowed deliberately. `program_codeplug`
+            // already scopes its upload this way.
+            let blocks = super::changed_blocks(&base_image, &image);
+            let writable = super::writable_blocks();
+            let blocks: Vec<usize> =
+                blocks.into_iter().filter(|b| writable.contains(b)).collect();
+            if blocks.is_empty() {
+                return Err(
+                    "the settings differ but land outside the region this driver \
+                     writes — nothing was written"
+                        .into(),
+                );
+            }
+            let mut up = protocol::reconnect_after_clone(port)?;
+            protocol::identify(&mut *up)?;
+            protocol::upload(&mut *up, &image, &blocks)?;
+            drop(up);
         }
 
         // The clone session ended the ASCII session with it, so the radio has to
@@ -660,6 +678,41 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A settings write must not reach the memories.
+    ///
+    /// ⚠ The image transport CAN write every channel on the radio — the `MU`
+    /// transport it replaced physically could not. So the blocks a settings
+    /// change touches are asserted here: an interrupted whole-image write would
+    /// corrupt channels the operator never asked to change.
+    #[test]
+    fn a_settings_change_touches_no_memory_block() {
+        let base = sample_image();
+        let mut want = serde_json::Map::new();
+        // Every image-backed field, moved off whatever the fixture holds.
+        for f in THD72_SETTINGS_FIELDS {
+            let MSrc::Image { .. } = f.src else { continue };
+            let v = match &f.kind {
+                MK::Bool => json!(false),
+                MK::Uint { max, .. } => json!(*max),
+                MK::Enum { labels } => json!(labels.last().unwrap().1),
+            };
+            want.insert(f.key.to_string(), v);
+        }
+        let (_, image, n) =
+            encode_over(&[0u8; MU_FIELDS], &base, &Value::Object(want)).expect("encode");
+        assert!(n > 50, "the fixture should have moved most fields, moved {n}");
+
+        let touched: Vec<usize> = (0..base.len()).filter(|&i| base[i] != image[i]).collect();
+        let mem = super::super::layout::MEMORY_BASE;
+        let bad: Vec<usize> = touched.iter().copied().filter(|&i| i >= mem).collect();
+        assert!(
+            bad.is_empty(),
+            "{} settings byte(s) landed at or past MEMORY_BASE 0x{mem:04X}: {:?}",
+            bad.len(),
+            &bad[..bad.len().min(8)]
+        );
     }
 
     /// The step-6 gate: a program run must carry memories AND settings.
