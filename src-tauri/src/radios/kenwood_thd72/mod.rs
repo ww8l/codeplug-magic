@@ -251,9 +251,16 @@ impl ImageProgrammer for KenwoodThd72 {
         // 2. Patch the codeplug into THAT image, so every byte we are not
         //    responsible for goes back exactly as it came.
         let mut built = program::build_image(req.model, req.channels, &base)?;
-        if let Some((settings, schema_json)) = req.settings {
-            settings::apply_image_settings(&mut built, settings, schema_json)?;
-        }
+        // ⚠ Both return values are REPORTED. See `apply_image_settings`: this
+        // used to drop them, so a run that wrote 103 settings said it wrote
+        // none, and a value the radio could not take vanished without a word.
+        let (settings_written, settings_notes) = match req.settings {
+            Some((settings, schema_json)) => {
+                let (n, notes) = settings::apply_image_settings(&mut built, settings, schema_json)?;
+                (Some(n), notes)
+            }
+            None => (None, Vec::new()),
+        };
         let blocks = changed_blocks(&base, &built);
         let channels_written = req.channels.len();
 
@@ -310,7 +317,7 @@ impl ImageProgrammer for KenwoodThd72 {
         Ok(CodeplugProgramReport {
             channels_written,
             slots_cleared: CHANNEL_COUNT - channels_written,
-            settings_written: None,
+            settings_written,
             verified: Some(verified),
             note,
             backup_path: backup_path.to_string_lossy().to_string(),
@@ -324,7 +331,7 @@ impl ImageProgrammer for KenwoodThd72 {
             expected_path: None,
             windows_written: Vec::new(),
             skipped: Vec::new(),
-            warnings: Vec::new(),
+            warnings: settings_notes,
         })
     }
 }

@@ -246,24 +246,46 @@ fn encode_one(f: &MF, v: &Value) -> Result<u8, String> {
 /// Out-of-range values are stripped and reported the same way a settings write
 /// strips them, rather than being clamped into something the operator never
 /// chose.
+/// Returns how many fields were written, and any the radio could not take.
+///
+/// ⚠ BOTH halves of that are reported to the operator, and neither used to be.
+/// `settings_written` was hard-coded `None` — whose documented meaning is "the
+/// profile carried none" — so a program run that wrote 103 settings told the
+/// operator it had written zero. And the out-of-range notes were discarded at
+/// the call site, so a value the radio cannot take was dropped silently. Both
+/// are the same defect: a report saying something untrue about what reached the
+/// radio. The dialog renders both fields, so they are read, not decorative.
 pub(crate) fn apply_image_settings(
     image: &mut [u8],
     settings: &Value,
     schema_json: &str,
-) -> Result<Vec<String>, String> {
+) -> Result<(usize, Vec<String>), String> {
     let mut settings = settings.clone();
     let notes = settings_bounds::strip_out_of_range(schema_json, &mut settings);
     let mut mu = [0u8; MU_FIELDS];
+    let mut written = 0usize;
     for f in THD72_SETTINGS_FIELDS {
-        let MSrc::Image { .. } = f.src else { continue };
+        let MSrc::Image { addr, .. } = f.src else { continue };
         let Some(v) = settings.get(f.key) else { continue };
         if v.is_null() {
             continue;
         }
+        // An address past the end of the image would panic mid-program, which
+        // on this path means a half-built codeplug and a Tauri command that
+        // dies rather than reports. The table is asserted in range by a unit
+        // test; this covers the image being the wrong thing.
+        if addr >= image.len() {
+            return Err(format!(
+                "{} is at 0x{addr:04X}, past the end of a {}-byte image",
+                f.key,
+                image.len()
+            ));
+        }
         let encoded = encode_one(f, v)?;
         f.src.write(&mut mu, image, &f.kind, encoded);
+        written += 1;
     }
-    Ok(notes)
+    Ok((written, notes))
 }
 
 /// Fold the out-of-range report in with whatever the write itself has to say,
@@ -274,6 +296,25 @@ fn merge_notes(bounds: &[String], own: Option<String>) -> Option<String> {
         (Some(a), None) => Some(a),
         (None, b) => b,
     }
+}
+
+/// Refuse an image that is not a whole one before anything indexes into it.
+///
+/// ⚠ `MSrc::read`/`write` index `image[addr]` directly, so a short buffer is a
+/// PANIC inside a Tauri command — the app dies rather than reporting. Every
+/// caller today passes a `protocol::download`, which is always 64 KiB, but that
+/// is an assumption about another module and this is the boundary where it can
+/// be checked cheaply and said out loud.
+fn whole_image(image: &[u8]) -> Result<(), String> {
+    if image.len() != super::layout::IMAGE_LEN {
+        return Err(format!(
+            "the radio returned {} bytes, not the {} a TH-D72 image is — settings \
+             were not read",
+            image.len(),
+            super::layout::IMAGE_LEN
+        ));
+    }
+    Ok(())
 }
 
 /// Read the menu line, with the identity check in front of it.
@@ -297,6 +338,7 @@ impl SettingsReader for super::KenwoodThd72 {
         let mut p = protocol::open_port(port)?;
         let raw = read_line(&mut *p)?;
         let image = protocol::download(&mut *p)?;
+        whole_image(&image)?;
         Ok(SettingsCapture {
             settings: decode(&raw, &image),
             backup: image,
@@ -331,6 +373,7 @@ impl SettingsWriter for super::KenwoodThd72 {
         let mut p = protocol::open_port(port)?;
         let base = read_line(&mut *p)?;
         let base_image = protocol::download(&mut *p)?;
+        whole_image(&base_image)?;
         drop(p);
 
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
@@ -639,8 +682,11 @@ mod tests {
         // the label silently renamed the setting. That is why this test names
         // `common1-1152` rather than `common1-battery-type`.
         let want = json!({ "common1-1152": "Alkaline", "gps-1311": "Tokyo" });
-        let notes = apply_image_settings(&mut img, &want, schema).expect("apply");
+        let (written, notes) = apply_image_settings(&mut img, &want, schema).expect("apply");
         assert!(notes.is_empty(), "nothing should have been out of range: {notes:?}");
+        // The count is REPORTED to the operator as "N settings", so it has to be
+        // the number actually written, not the number asked for.
+        assert_eq!(written, 2, "both fields should be counted as written");
 
         assert_eq!(img[0x0316], 1, "battery type must land at its measured address");
         assert_eq!(img[0x0A03], 1, "GPS datum must land at its measured address");
