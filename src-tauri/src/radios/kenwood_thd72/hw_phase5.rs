@@ -591,10 +591,27 @@ fn restore_the_radio_as_found() {
     // from an earlier session. On 2026-08-28 a botched MCP-mode abort left this
     // radio FACTORY DEFAULT with 0 memories, and a hard-coded "49" would have
     // printed a comforting number that was simply untrue.
-    let current = std::fs::read(dir.join(
-        std::env::var("CPM_THD72_CURRENT").unwrap_or("ww8l-step3-after.img".into()),
-    ))
-    .expect("current image");
+    //
+    // ⚠ This used to read a FILE, defaulting to `ww8l-step3-after.img` — an
+    // image a different test had written days earlier. The comment above said
+    // "read fresh" and the code did the opposite, so on 2026-08-29 the restore
+    // announced "radio holds 49 memories and 1077 bytes that differ" about a
+    // radio that in fact held 53. The verification afterwards was sound (it
+    // re-reads the radio), but the line describing the BEFORE state was a claim
+    // about hardware nobody had asked the hardware about — exactly what this
+    // project's rule on hardware claims forbids. Now it downloads.
+    // ⚠ `reconnect_after_clone`, not `open_port`. This test may well be run
+    // straight after another clone session, and the radio re-enumerates on the
+    // USB bus afterwards -- a bare open fails instantly with the port simply
+    // not there. The helper waits and retries, which is what every other step
+    // in this file already does.
+    let current = {
+        let mut p = protocol::reconnect_after_clone(&port()).expect("connect before");
+        let img = protocol::download(&mut *p).expect("download before");
+        drop(p);
+        std::fs::write(dir.join("ww8l-before-restore.img"), &img).expect("save");
+        img
+    };
     let before_count = (0..layout::CHANNEL_COUNT)
         .filter(|&s| memory::read_record(&current, s).is_some())
         .count();
@@ -615,6 +632,11 @@ fn restore_the_radio_as_found() {
     // factory reset too.
     assert!(!to_undo.is_empty(), "the restore must have something to undo");
 
+    // The download above was a clone session, so the radio needs its few
+    // seconds and a re-enumeration before it will answer again. Wait for it the
+    // same way every other step here does, and drop the port so `restore_image`
+    // can open its own.
+    drop(protocol::reconnect_after_clone(&port()).expect("reconnect before restore"));
     super::DRIVER.restore_image(&port(), &asfound).expect("restore");
     println!("restored; reconnecting…");
 
