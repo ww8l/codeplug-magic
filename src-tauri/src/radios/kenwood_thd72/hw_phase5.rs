@@ -587,9 +587,14 @@ fn restore_the_radio_as_found() {
     let dir = out_dir();
     let asfound = std::fs::read(dir.join("ww8l-asfound.img")).expect("the as-found image");
 
-    // The radio is currently holding the 49-channel codeplug, so this restore
-    // has real work to do — which is what makes it a test rather than a no-op.
-    let current = std::fs::read(dir.join("ww8l-step3-after.img")).expect("current image");
+    // Whatever the radio is holding right now, read fresh — not a stale image
+    // from an earlier session. On 2026-08-28 a botched MCP-mode abort left this
+    // radio FACTORY DEFAULT with 0 memories, and a hard-coded "49" would have
+    // printed a comforting number that was simply untrue.
+    let current = std::fs::read(dir.join(
+        std::env::var("CPM_THD72_CURRENT").unwrap_or("ww8l-step3-after.img".into()),
+    ))
+    .expect("current image");
     let before_count = (0..layout::CHANNEL_COUNT)
         .filter(|&s| memory::read_record(&current, s).is_some())
         .count();
