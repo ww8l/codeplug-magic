@@ -652,6 +652,133 @@ fn d710_encoder_acceptance() {
     assert!(refused.is_empty(), "{} encoded lines were refused", refused.len());
 }
 
+/// ★ **What the memory will actually hold, swept off the radio.**
+///
+/// `rx_bands` is the seed field with the worst failure mode in this project: an
+/// out-of-coverage frequency does not error, it becomes a **silently empty
+/// memory** while the app reports the channel written (three repeaters were lost
+/// that way on the ID-52). The usual defence is to copy the band table out of
+/// the manual and hope it matches the variant in front of you — and the manual
+/// on hand covers the TM-D710**G**, not Tim's non-G.
+///
+/// So measure it. The radio refuses an `ME` line it cannot hold, which turns
+/// coverage into the same accept/refuse question every other field answered:
+/// sweep at 1 MHz, then bisect each edge down to 5 kHz.
+///
+/// `D710_SWEEP_LO=50 D710_SWEEP_HI=1400` (MHz). Reads out as a table of ranges
+/// ready to become `rx_bands`.
+///
+/// ⚠ This measures what the **memory** accepts. It says nothing about transmit:
+/// the radio stores an out-of-band memory happily and refuses at `[PTT]`
+/// (manual, REPEATER-1 note), which is exactly the receive-only case the app
+/// already models. `tx_bands` cannot be measured this way and must not be
+/// guessed from this output.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_rx_band_sweep() {
+    use crate::radios::kenwood_tmd710::encode::step_field;
+    let slot: u16 = std::env::var("D710_SLOT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(504);
+    let lo: u64 = std::env::var("D710_SWEEP_LO")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50);
+    let hi: u64 = std::env::var("D710_SWEEP_HI")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1400);
+
+    let captured = std::fs::read_to_string("../scratchpad/kenwood_tmd710/memories.txt")
+        .expect("no captured memories — refusing to sweep without the as-found copy");
+    assert!(
+        !captured.contains(&format!("ME {slot:03},")),
+        "slot {slot:03} held a memory when the radio was first read; sweep into an empty one"
+    );
+
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+
+    // One closure, used by both the coarse sweep and the bisection, so an edge
+    // is never decided by a different test than the sweep that found it.
+    let mut holds = |p: &mut dyn SerialPort, hz: u64| -> bool {
+        let Ok(step) = step_field(hz) else { return false };
+        let sent = format!(
+            "ME {slot:03},{hz:010},{step},0,0,0,0,0,08,08,000,00000000,0,0000000000,0,0"
+        );
+        let _ = ask(p, &sent);
+        let back = ask(p, &format!("ME {slot:03}")).map(|(t, _)| t).unwrap_or_default();
+        let _ = ask(p, &format!("ME {slot:03},C"));
+        back == sent
+    };
+
+    let started = Instant::now();
+    let mut coarse = Vec::new();
+    for mhz in lo..=hi {
+        coarse.push((mhz, holds(&mut *p, mhz * 1_000_000)));
+    }
+
+    // Bisect every accepted/refused transition to the 5 kHz the field can express.
+    let refine = |p: &mut dyn SerialPort,
+                  holds: &mut dyn FnMut(&mut dyn SerialPort, u64) -> bool,
+                  mut good: u64,
+                  mut bad: u64| {
+        while good.abs_diff(bad) > 5_000 {
+            let mid = (good + bad) / 2 / 5_000 * 5_000;
+            if mid == good || mid == bad {
+                break;
+            }
+            if holds(p, mid) {
+                good = mid;
+            } else {
+                bad = mid;
+            }
+        }
+        good
+    };
+
+    let mut ranges: Vec<(u64, u64)> = Vec::new();
+    let mut open_at: Option<u64> = None;
+    for i in 0..coarse.len() {
+        let (mhz, ok) = coarse[i];
+        let prev_ok = i > 0 && coarse[i - 1].1;
+        if ok && !prev_ok {
+            let start = if i == 0 {
+                mhz * 1_000_000
+            } else {
+                refine(&mut *p, &mut holds, mhz * 1_000_000, (mhz - 1) * 1_000_000)
+            };
+            open_at = Some(start);
+        }
+        if !ok && prev_ok {
+            let end = refine(&mut *p, &mut holds, (mhz - 1) * 1_000_000, mhz * 1_000_000);
+            if let Some(start) = open_at.take() {
+                ranges.push((start, end));
+            }
+        }
+    }
+    if let (Some(start), Some(&(mhz, true))) = (open_at, coarse.last()) {
+        ranges.push((start, mhz * 1_000_000));
+    }
+
+    println!("\n=== what the TM-D710's memory accepts, {lo}-{hi} MHz");
+    for (a, b) in &ranges {
+        println!(
+            "    {:>11.5} .. {:>11.5} MHz",
+            *a as f64 / 1e6,
+            *b as f64 / 1e6
+        );
+    }
+    println!(
+        "=== {} range(s) in {:.0}s\n",
+        ranges.len(),
+        started.elapsed().as_secs_f64()
+    );
+    assert!(!ranges.is_empty(), "the radio accepted no frequency at all");
+}
+
 /// Clear slots back to empty — `ME nnn,C`, the documented form, tested here.
 ///
 /// `d710_restore` can overwrite a memory but cannot **un-write** one, so every

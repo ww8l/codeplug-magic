@@ -919,6 +919,89 @@ fn models() -> Vec<ModelSeed> {
             connection_type: "USB cable (built-in mini-USB)",
             non_channel_settings_schema: THD72_SETTINGS_SCHEMA,
         },
+        // --------------------------------------------------------
+        // 8. Kenwood TM-D710A — analog FM dual-band MOBILE with APRS
+        //    and a built-in TNC, 1000 memories, 8-char names, 50 W.
+        //    The non-G A model; the G and the E differ. Programmed in
+        //    LIVE MODE (issue #113) — one ASCII `ME` command per
+        //    memory over the operation panel's COM port, which is a
+        //    fourth modality here: no clone image, no card file, and
+        //    a write that is NOT atomic. See radios/kenwood_tmd710/.
+        //    NOTES:
+        //    (a) ★ rx_bands is MEASURED, not read out of a manual.
+        //    The radio refuses an `ME` line it cannot hold, so
+        //    coverage is an accept/refuse question: `d710_rx_band_sweep`
+        //    wrote 1350 frequencies at 1 MHz and bisected both edges
+        //    to 5 kHz. The answer is ONE contiguous span,
+        //    118.000-523.995, with no interior gap at 1 MHz
+        //    resolution. That matters twice over — the manual on hand
+        //    covers the D710**G** and lists an 800-1300 MHz group
+        //    this radio does not accept at all, and a band table
+        //    copied from it would have promised memories that cannot
+        //    exist.
+        //    (b) ⚠ tx_bands is NOT measured and must not be: the only
+        //    way to ask this radio what it will transmit on is to key
+        //    it. 144-148 / 430-450 is the K-type allocation, and `TY`
+        //    answered `K,0,3,1,0` on Tim's. A TX-modified radio is
+        //    under-served by this row, which is the safe direction.
+        //    (c) covers_220 is TRUE where the TH-D72 above is false.
+        //    This radio genuinely hears 220 — Tim's own memory 005 is
+        //    a 224.840 repeater — so a 220 channel must land as
+        //    RECEIVE-ONLY rather than be dropped. See the test below.
+        //    (d) banks_supported is FALSE. The radio has ten memory
+        //    groups (Menu 203, Memory Group Link) and they are almost
+        //    certainly the D72's positional hundreds, but "almost
+        //    certainly" is an inference from a sibling radio and this
+        //    project has a rule about those. A flat 1000-slot pool is
+        //    what the encoder actually writes today.
+        //    (e) max_name_length 8 is measured on the wire, not read
+        //    off Menu 200: a ninth character comes back SILENTLY
+        //    TRUNCATED rather than refused.
+        //    (f) the settings schema is deliberately EMPTY. `MU`
+        //    carries all 42 menu parameters in one line and the
+        //    driver already parses it, but not one of them has been
+        //    attributed to a named setting yet. Seeding guesses is
+        //    worse than seeding nothing; Phase 4 fills this in.
+        // --------------------------------------------------------
+        ModelSeed {
+            manufacturer: "Kenwood",
+            model: "TM-D710",
+            driver_key: Some("kenwood_tmd710"),
+            programming_ui: Some("generic"),
+            display_name: "Kenwood TM-D710",
+            analog_capable: true,
+            dmr_capable: false,
+            dstar_capable: false,
+            ysf_capable: false,
+            nxdn_capable: false,
+            p25_capable: false,
+            m17_capable: false,
+            aprs_capable: true,
+            covers_hf: false,
+            covers_vhf: true,
+            covers_uhf: true,
+            covers_220: true,
+            covers_900: false,
+            freq_min: 144.0,
+            freq_max: 450.0,
+            tx_bands: Some("[[144.0,148.0],[430.0,450.0]]"),
+            rx_bands: Some("[[118.0,523.995]]"),
+            memory_channels: 1000,
+            zones_supported: false,
+            max_zones: None,
+            channels_per_zone: None,
+            scan_lists_supported: false,
+            max_scan_lists: None,
+            banks_supported: false,
+            max_name_length: 8,
+            export_format: "chirp_csv",
+            connection_type: "Serial cable (COM port, rear of the operation panel)",
+            // ⚠ Empty on purpose — see note (f). The generic program dialog is
+            // capability-driven and this driver claims no capability trait, so
+            // nothing here is offered to an operator until the hardware ladder
+            // has been climbed.
+            non_channel_settings_schema: "[]",
+        },
     ]
 }
 
@@ -1157,6 +1240,133 @@ mod tests {
     /// leniently — a typo would not fail loudly, it would quietly fall back to
     /// the old contiguous-span rules and drop channels again. Check the shape
     /// here, where it is cheap.
+    /// ★ The TM-D710's coverage, checked against the sweep that measured it.
+    ///
+    /// `d710_rx_band_sweep` wrote 1350 frequencies into a spare memory slot and
+    /// bisected both edges: the radio holds **one contiguous span,
+    /// 118.000-523.995**, and nothing outside it. These assertions are that
+    /// result, so a band table later "corrected" from the D710**G** manual —
+    /// which lists an 800-1300 MHz group this radio refuses outright — fails
+    /// here instead of on the radio.
+    ///
+    /// The 220 MHz case is the one that matters most. Unlike the TH-D72 above,
+    /// this radio really does hear 220: Tim's own memory 005 is a 224.840
+    /// repeater. It must therefore land as RECEIVE-ONLY, never be dropped.
+    #[test]
+    fn the_tmd710_hears_one_span_and_keys_only_two_ham_bands() {
+        let d710 = models()
+            .into_iter()
+            .find(|m| m.model == "TM-D710")
+            .expect("the TM-D710 is seeded");
+
+        let bands = |json: &str| -> Vec<Vec<f64>> { serde_json::from_str(json).unwrap() };
+        let tx = bands(d710.tx_bands.expect("TM-D710 has tx_bands"));
+        let rx = bands(d710.rx_bands.expect("TM-D710 has rx_bands"));
+        let covers = |bs: &[Vec<f64>], mhz: f64| bs.iter().any(|b| mhz >= b[0] && mhz <= b[1]);
+
+        // Heard, and only heard — the receive-only case, not the excluded one.
+        assert!(d710.covers_220, "the TM-D710 receives the 220 MHz band");
+        assert!(
+            covers(&rx, 224.840) && !covers(&tx, 224.840),
+            "224.840 is a real memory on Tim's radio and must land receive-only"
+        );
+        assert!(covers(&rx, 118.400) && !covers(&tx, 118.400), "air band is receive-only");
+        assert!(covers(&rx, 462.6) && !covers(&tx, 462.6), "GMRS is receive-only");
+
+        // Both measured edges, and one step past each.
+        assert!(covers(&rx, 118.0), "118.000 was accepted");
+        assert!(!covers(&rx, 117.995), "117.995 was refused");
+        assert!(covers(&rx, 523.995), "523.995 was accepted");
+        assert!(!covers(&rx, 524.0), "524.000 was refused");
+
+        // The span the G's manual lists and this radio will not hold. If a
+        // future edit re-adds it, a 1.2 GHz channel would be reported written
+        // into a memory that cannot exist.
+        assert!(!covers(&rx, 800.0), "800 MHz was refused by the radio");
+        assert!(!covers(&rx, 1290.0), "1290 MHz was refused by the radio");
+
+        // No interior gap: the sweep found every megahertz between the edges
+        // acceptable, which is why this is one span and not five.
+        for mhz in [136.0, 174.0, 200.0, 250.0, 300.0, 350.0, 400.0] {
+            assert!(covers(&rx, mhz), "{mhz} MHz is inside the measured span");
+        }
+
+        // The two it keys on. Not measured — measuring would mean transmitting.
+        assert!(covers(&tx, 146.52) && covers(&tx, 446.0));
+    }
+
+    /// ★ **The Phase 3 gate: the seeded row, through the app's own decision.**
+    ///
+    /// Everything above tests the band *lists*. This seeds a real database and
+    /// runs the four channel shapes through `channel_fit` — the same function
+    /// the export preview and every program dialog call — so a row that is
+    /// well-formed but wrong in the pipeline fails here.
+    ///
+    /// The verdicts are the point. `ReceiveOnly` and `Excluded` are different
+    /// answers: one programs the memory and says so, the other drops the
+    /// channel. Getting 224.840 into the second bucket would silently lose a
+    /// repeater Tim actually has in his radio.
+    #[tokio::test]
+    async fn the_seeded_tmd710_gives_the_right_verdict_on_real_channels() {
+        use crate::commands::export::{channel_fit, ChannelFit};
+        use crate::models::{Channel, RadioModel};
+
+        let dir = std::env::temp_dir().join(format!("cpm_seed_{}", std::process::id()));
+        let db_path = dir.join("d710.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        let model: RadioModel = sqlx::query_as(
+            "SELECT id, manufacturer, model, display_name, analog_capable, dmr_capable, \
+             dstar_capable, ysf_capable, nxdn_capable, p25_capable, m17_capable, aprs_capable, \
+             covers_hf, covers_vhf, covers_uhf, covers_220, covers_900, freq_min, freq_max, \
+             tx_bands, rx_bands, memory_channels, zones_supported, max_zones, channels_per_zone, \
+             scan_lists_supported, max_scan_lists, banks_supported, max_name_length, \
+             export_format, connection_type, non_channel_settings_schema, driver_key, \
+             programming_ui FROM radio_models WHERE model = 'TM-D710'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("the TM-D710 reached the database");
+
+        let fit = |rx: f64, mode: &str| {
+            channel_fit(
+                &Channel {
+                    rx_freq: rx,
+                    mode: Some(mode.into()),
+                    ..Default::default()
+                },
+                &model,
+            )
+        };
+
+        // Both ham bands: programmed outright.
+        assert!(matches!(fit(146.520, "FM"), ChannelFit::Included));
+        assert!(matches!(fit(446.000, "FM"), ChannelFit::Included));
+
+        // ★ Heard but not keyed — programmed WITH a reason, never dropped.
+        for (mhz, what) in [(224.840, "220 MHz"), (118.400, "air band"), (462.6, "GMRS")] {
+            assert!(
+                matches!(fit(mhz, "FM"), ChannelFit::ReceiveOnly(_)),
+                "{mhz} MHz ({what}) must be receive-only, not excluded: {:?}",
+                fit(mhz, "FM")
+            );
+        }
+
+        // Outside the measured span: genuinely no use on this radio.
+        for mhz in [117.995, 524.0, 800.0, 1290.0] {
+            assert!(
+                matches!(fit(mhz, "FM"), ChannelFit::Excluded(_)),
+                "{mhz} MHz was refused by the radio and must be excluded"
+            );
+        }
+
+        // Analog-only: a DMR repeater is a hard exclusion, not receive-only.
+        assert!(matches!(fit(446.000, "DMR"), ChannelFit::Excluded(_)));
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
     #[test]
     fn seeded_band_lists_are_well_formed() {
         let parse = |json: &str| -> Vec<Vec<f64>> {
