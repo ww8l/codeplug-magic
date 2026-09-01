@@ -33,8 +33,10 @@
 //!
 //! ## Running it
 //!
-//! Radio on, RT Systems cable into the PC port on the **main unit** (not the
-//! control head). From `src-tauri/`:
+//! Radio on, cable into the COM port on the rear of the **operation panel**
+//! (Kenwood manual §5.1.2). ⚠ Not the main unit — AG7GN's README says main
+//! unit, but that is the TM-D710**G**; measured on this radio in session 120.
+//! From `src-tauri/`:
 //!
 //! ```text
 //! D710_PORT=/dev/cu.usbserial-XXXX cargo test --lib d710_find_the_radio -- --ignored --nocapture
@@ -141,9 +143,9 @@ fn d710_find_the_radio() {
     assert!(
         !found.is_empty(),
         "no rate produced an ID reply naming a Kenwood. Before reading anything into this: is \
-         the cable in the PC port on the MAIN unit rather than the control head, and does the \
-         port enumerate at all? An RT Systems cable's FTDI carries their own VID/PID and may \
-         not bind a driver here."
+         the cable in the COM port on the rear of the OPERATION PANEL — not the main unit, \
+         which is where the G's is — and does the port enumerate at all? An RT Systems cable's \
+         FTDI carries their own VID/PID and may not bind a driver here."
     );
 }
 
@@ -282,6 +284,40 @@ fn d710_dump_memories() {
     std::fs::write("../scratchpad/kenwood_tmd710/memories.txt", &log).expect("write");
 }
 
+/// Read a named list of slots and print the `ME` and `MN` lines verbatim.
+///
+/// Read-only, and deliberately **not** `d710_dump_memories`: that one rewrites
+/// `scratchpad/kenwood_tmd710/memories.txt`, which is the restore file holding
+/// the radio's as-found state. Running it while a campaign has test values in
+/// the radio would overwrite the only copy of what to put back.
+///
+/// `D710_SLOTS=500,501,502,503`
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_read_slots() {
+    let slots: Vec<u16> = std::env::var("D710_SLOTS")
+        .expect("set D710_SLOTS to a comma-separated list, e.g. 500,501,502,503")
+        .split(',')
+        .map(|s| s.trim().parse().expect("slot number"))
+        .collect();
+
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+
+    println!();
+    for slot in slots {
+        let (me, _) = ask(&mut *p, &format!("ME {slot:03}")).expect("ME");
+        if me == crate::radios::kenwood_tmd710::memory::EMPTY_REPLY {
+            println!("{slot:03}  (empty)");
+            continue;
+        }
+        let (mn, _) = ask(&mut *p, &format!("MN {slot:03}")).expect("MN");
+        println!("{me}\n{mn}");
+    }
+    println!();
+}
+
 // ⚠ Everything below WRITES to the radio. Above this line nothing does.
 // The safety net is that `memories.txt` and `mu-log.txt` hold the radio's
 // entire state as it was found, so `d710_restore` can put any of it back.
@@ -386,6 +422,48 @@ fn d710_set_menu() {
         "expected exactly one field to move; a second means the line shifted"
     );
     assert_eq!(moved[0].0, field, "the wrong field moved");
+    println!();
+}
+
+/// Clear slots back to empty — `ME nnn,C`, the documented form, tested here.
+///
+/// `d710_restore` can overwrite a memory but cannot **un-write** one, so every
+/// slot a campaign creates in previously-empty space stays created. This is the
+/// other half of giving the radio back as found.
+///
+/// `D710_SLOTS=505` — refuses to touch a slot that was populated before this
+/// campaign, because those are the operator's and `memories.txt` is the only
+/// copy of them.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_clear_slots() {
+    let slots: Vec<u16> = std::env::var("D710_SLOTS")
+        .expect("set D710_SLOTS to a comma-separated list")
+        .split(',')
+        .map(|s| s.trim().parse().expect("slot number"))
+        .collect();
+
+    let captured = std::fs::read_to_string("../scratchpad/kenwood_tmd710/memories.txt")
+        .expect("no captured memories — refusing to clear anything without the as-found copy");
+
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+
+    println!();
+    for slot in slots {
+        let was_populated = captured.contains(&format!("ME {slot:03},"));
+        assert!(
+            !was_populated,
+            "slot {slot:03} held a memory when the radio was first read. Clearing it would \
+             destroy the operator's own channel; only slots this campaign created may be cleared."
+        );
+        ask(&mut *p, &format!("ME {slot:03},C")).expect("clear");
+        let after = ask(&mut *p, &format!("ME {slot:03}")).expect("re-read").0;
+        let empty = after == crate::radios::kenwood_tmd710::memory::EMPTY_REPLY;
+        println!("{slot:03}  {}  (read back: {after})", if empty { "cleared" } else { "⚠ NOT CLEARED" });
+        assert!(empty, "slot {slot:03} did not clear");
+    }
     println!();
 }
 

@@ -43,9 +43,13 @@
 //!
 //! This driver identifies and nothing else, the same scaffolding stance the
 //! FT5D was registered under. `memory.rs` can already read and re-emit a slot,
-//! but **nothing has ever been written to this radio**, and the tone and DCS
-//! index tables are still unmeasured. A capability trait here would put a
-//! "Program radio" button in front of an operator for a path no one has proven.
+//! but **nothing has ever been written to this radio**. A capability trait here
+//! would put a "Program radio" button in front of an operator for a path no one
+//! has proven.
+//!
+//! The tone and DCS tables are no longer unmeasured — see [`tone`], where the
+//! radio's own refusal of an out-of-range index settled that fields 9-11 are
+//! indices and fixed their lengths at 42 and 104.
 
 use serialport::SerialPort;
 use std::time::{Duration, Instant};
@@ -53,6 +57,7 @@ use std::time::{Duration, Instant};
 use super::driver::{RadioDriver, RadioIdentity};
 
 pub(crate) mod memory;
+pub(crate) mod tone;
 
 /// Menu 528 on this radio sets it. 57600 is what Tim's is on and what the
 /// capture ran at; the driver does not sweep, because a rate mismatch here is
