@@ -425,6 +425,233 @@ fn d710_set_menu() {
     println!();
 }
 
+/// Sweep one `ME` field through every value its width allows and record which
+/// ones the radio takes.
+///
+/// ## Why this works, and why it is the cheapest instrument here
+///
+/// The TM-D710 **validates a write and refuses it whole** — a rejected line
+/// leaves the slot exactly as it was. So acceptance is a measurement, and the
+/// first refused value is the size of the enum behind the field. That is how
+/// fields 9-11 were settled as indices with lengths 42 and 104 (see
+/// `kenwood_tmd710::tone`) without anyone reading the radio's screen.
+///
+/// It measures a **range**, never a meaning. Knowing field 13 accepts `0`, `1`
+/// and `2` does not say which is AM; that still takes the manual, a cross-check
+/// against real memories, or the radio's own display.
+///
+/// `D710_SLOT=504 D710_FIELDS=3,4,13,16` — 1-based, counting the slot number as
+/// field 1, the way the module doc numbers them. Text in, text out: the base
+/// line is substituted as **characters**, so a value `Memory::parse` would
+/// refuse (an unknown shift, say) still reaches the radio, which is the whole
+/// point.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_field_bounds() {
+    let slot: u16 = std::env::var("D710_SLOT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(504);
+    let fields: Vec<usize> = std::env::var("D710_FIELDS")
+        .unwrap_or_else(|_| "3,4,5,6,7,8,13,15,16".into())
+        .split(',')
+        .map(|s| s.trim().parse().expect("field number"))
+        .collect();
+
+    let captured = std::fs::read_to_string("../scratchpad/kenwood_tmd710/memories.txt")
+        .expect("no captured memories — refusing to probe without the as-found copy");
+    assert!(
+        !captured.contains(&format!("ME {slot:03},")),
+        "slot {slot:03} held a memory when the radio was first read; probe an empty one"
+    );
+
+    // Everything off and zero, so a refusal is the field under test and not a
+    // combination. Widths are the radio's — see the `memory` module doc.
+    //
+    // ⚠ The base is not neutral for every field, and the first sweep proved it:
+    // field 3 accepted only the tuning steps that divide **this** frequency
+    // evenly, and fields 4 and 15 are constrained by the TX frequency in field
+    // 14. So `D710_BASE` overrides the whole line (minus the slot) — measuring
+    // a field means choosing a base that lets it move.
+    let base: Vec<String> = format!(
+        "{slot:03},{}",
+        std::env::var("D710_BASE")
+            .unwrap_or_else(|_| "0146520000,0,0,0,0,0,0,00,00,000,00000000,0,0000000000,0,0".into())
+    )
+    .split(',')
+    .map(str::to_string)
+    .collect();
+    assert_eq!(base.len(), 16, "D710_BASE must be the 15 fields after the slot");
+
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+
+    println!();
+    for f in fields {
+        let width = base[f - 1].len();
+        let limit = 10usize.pow(width as u32);
+        // A wide field cannot be swept — field 12 is eight digits — so an
+        // explicit candidate list stands in for the range.
+        let candidates: Vec<usize> = match std::env::var("D710_VALUES") {
+            Ok(list) => list
+                .split(',')
+                .map(|v| v.trim().parse().expect("D710_VALUES"))
+                .collect(),
+            Err(_) => (0..limit.min(120)).collect(),
+        };
+        let mut taken = Vec::new();
+        let mut first_refused = None;
+        for v in candidates {
+            let mut line = base.clone();
+            line[f - 1] = format!("{v:0width$}");
+            let sent = format!("ME {}", line.join(","));
+            // A refused write is not an error reply — the radio acknowledges and
+            // simply does not apply it — so the read-back is what decides.
+            let _ = ask(&mut *p, &sent);
+            let back = ask(&mut *p, &format!("ME {slot:03}")).expect("re-read").0;
+            if back == sent {
+                taken.push(v);
+            } else if first_refused.is_none() {
+                first_refused = Some(v);
+            }
+            // Leave nothing behind between candidates.
+            let _ = ask(&mut *p, &format!("ME {slot:03},C"));
+        }
+        let contiguous =
+            std::env::var("D710_VALUES").is_err() && taken.iter().enumerate().all(|(i, &v)| i == v);
+        println!(
+            "field {f:>2} (width {width}): accepted {} value(s){}{}",
+            taken.len(),
+            if contiguous {
+                format!(" — 0..={}", taken.len().saturating_sub(1))
+            } else {
+                format!(" — {taken:?} ⚠ NOT contiguous")
+            },
+            match first_refused {
+                Some(v) => format!(", first refused {v}"),
+                None => ", nothing refused in range".into(),
+            }
+        );
+    }
+    println!();
+}
+
+/// Which characters survive a memory name, one character at a time.
+///
+/// A name is a **separate command** (`MN nnn,TEXT`) whose text runs to the end
+/// of the line, so the failure this guards against is not cosmetic: the app's
+/// channel names come from a database that has never been constrained to what a
+/// 1990s Kenwood accepts, and a character the radio silently drops or rewrites
+/// produces a memory labelled something other than what the operator asked for.
+/// Same instrument as everywhere else here — write, read back, compare.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_name_charset() {
+    use crate::radios::kenwood_tmd710::{memory::Memory, write_memory};
+    let slot: u16 = std::env::var("D710_SLOT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(504);
+
+    let captured = std::fs::read_to_string("../scratchpad/kenwood_tmd710/memories.txt")
+        .expect("no captured memories — refusing to probe without the as-found copy");
+    assert!(
+        !captured.contains(&format!("ME {slot:03},")),
+        "slot {slot:03} held a memory when the radio was first read; probe an empty one"
+    );
+
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+
+    // A name needs a memory to hang on, so put one there first.
+    let line = format!("ME {slot:03},0146520000,0,0,0,0,0,0,00,00,000,00000000,0,0000000000,0,0");
+    write_memory(&mut *p, &Memory::parse(&line).expect("parse")).expect("seed the slot");
+
+    let (mut kept, mut changed) = (String::new(), Vec::new());
+    for byte in 0x20u8..0x7F {
+        let ch = byte as char;
+        // Padded so a dropped character shows as a length change rather than
+        // shifting into a neighbour and reading as a match.
+        let wanted = format!("A{ch}B");
+        let sent = format!("MN {slot:03},{wanted}");
+        let _ = ask(&mut *p, &sent);
+        let back = ask(&mut *p, &format!("MN {slot:03}")).expect("re-read").0;
+        match back.strip_prefix(&format!("MN {slot:03},")) {
+            Some(got) if got == wanted => kept.push(ch),
+            other => changed.push((ch, other.unwrap_or(&back).to_string())),
+        }
+    }
+
+    println!("\n=== kept verbatim ({}): {kept}", kept.len());
+    println!("=== altered or refused ({}):", changed.len());
+    for (ch, got) in &changed {
+        println!("    {ch:?} (0x{:02X}) -> {got:?}", *ch as u8);
+    }
+    println!();
+    let _ = ask(&mut *p, &format!("ME {slot:03},C"));
+}
+
+/// ★ **The Phase 2 hardware gate: does the encoder emit lines this radio takes?**
+///
+/// Every unit test in `encode.rs` compares the encoder against text. None of
+/// them can catch the failure that actually matters here, because a value the
+/// TM-D710 dislikes is **not** an error — the radio acknowledges the line and
+/// leaves the slot alone. A driver can therefore be entirely self-consistent
+/// and still write nothing.
+///
+/// So: take each of the 38 memories the radio itself holds, decode it into app
+/// terms, re-encode it into a **spare slot**, write it, and read it back. It
+/// covers every channel shape Tim actually has — VHF, UHF, 220, the AM air-band
+/// memory, the two on a 25 kHz step, split tone and CTCSS indices — without
+/// touching one of his memories.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_encoder_acceptance() {
+    use crate::radios::kenwood_tmd710::{
+        encode::{decode_channel, encode_channel},
+        memory::Memory,
+        write_memory,
+    };
+    let slot: u16 = std::env::var("D710_SLOT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(504);
+
+    let captured = std::fs::read_to_string("../scratchpad/kenwood_tmd710/memories.txt")
+        .expect("no captured memories to encode from");
+    assert!(
+        !captured.contains(&format!("ME {slot:03},")),
+        "slot {slot:03} held a memory when the radio was first read; use an empty one"
+    );
+
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+
+    let (mut accepted, mut refused) = (0usize, Vec::new());
+    for line in captured.lines().filter(|l| l.starts_with("ME ")) {
+        let original = Memory::parse(line).expect("parse");
+        let built = encode_channel(slot, &decode_channel(&original)).expect("encode");
+        match write_memory(&mut *p, &built) {
+            Ok(()) => accepted += 1,
+            Err(e) => refused.push(format!("from {line}\n    {e}")),
+        }
+        let _ = ask(&mut *p, &format!("ME {slot:03},C"));
+    }
+
+    println!("\n=== {accepted} encoded memories accepted by the radio");
+    if !refused.is_empty() {
+        println!("=== {} REFUSED:", refused.len());
+        for r in &refused {
+            println!("  {r}");
+        }
+    }
+    println!();
+    assert!(refused.is_empty(), "{} encoded lines were refused", refused.len());
+}
+
 /// Clear slots back to empty — `ME nnn,C`, the documented form, tested here.
 ///
 /// `d710_restore` can overwrite a memory but cannot **un-write** one, so every

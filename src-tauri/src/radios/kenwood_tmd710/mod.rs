@@ -56,6 +56,7 @@ use std::time::{Duration, Instant};
 
 use super::driver::{RadioDriver, RadioIdentity};
 
+pub(crate) mod encode;
 pub(crate) mod memory;
 pub(crate) mod tone;
 
