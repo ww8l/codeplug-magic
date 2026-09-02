@@ -134,7 +134,13 @@ pub(crate) const READ_SEGMENTS: [Segment; 7] = [
 ///
 /// - `vfo` stops at `0x80`. The second block is the firmware journal.
 /// - `aprs` is absent. It does not commit, and a control that runs and fails is
-///   worse than one that is not offered.
+///   worse than one that is not offered. Established over two sessions and eight
+///   attempts: a plain payload is acknowledged with `0x06` in 0.0 s and changes
+///   nothing (waiting 16 s rather than 2 does not help), an obfuscated one draws
+///   `0x54` — the APRS *read* opcode — rather than an ACK, the block is still
+///   unchanged after a POWER CYCLE, and the space holds only the one 0x80 block
+///   so the write is not partial. Everything untried needs guessed command
+///   bytes, which is desk work on the vendor CPS rather than radio work.
 pub(crate) const WRITE_SEGMENTS: [Segment; 6] = [
     Segment { name: "channels",  command: 0x57, address: 0x0000, file_offset: 0x0000, length: 0x7800 },
     Segment { name: "vfo",       command: 0x57, address: 0x8000, file_offset: 0x7800, length: 0x0080 },
