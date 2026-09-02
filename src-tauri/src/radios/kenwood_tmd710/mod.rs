@@ -58,6 +58,7 @@ use super::driver::{RadioDriver, RadioIdentity};
 
 pub(crate) mod encode;
 pub(crate) mod memory;
+pub(crate) mod program;
 pub(crate) mod settings;
 pub(crate) mod tone;
 
@@ -234,6 +235,14 @@ impl RadioDriver for KenwoodTmD710 {
     }
 
     fn as_settings_writer(&self) -> Option<&dyn crate::radios::driver::SettingsWriter> {
+        Some(self)
+    }
+
+    // Live mode is a `CodeplugProgrammer`, not an `ImageProgrammer`: this radio
+    // is written record by record from the database, the way the AnyTone is,
+    // and there is no image to clone. See `program.rs` for the consequence —
+    // the write is not atomic, and this is the only driver here that isn't.
+    fn as_codeplug_programmer(&self) -> Option<&dyn crate::radios::driver::CodeplugProgrammer> {
         Some(self)
     }
 

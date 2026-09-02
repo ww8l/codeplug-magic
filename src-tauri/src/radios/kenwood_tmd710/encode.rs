@@ -295,12 +295,22 @@ pub(crate) fn encode_name(slot: u16, c: &Channel) -> MemoryName {
         .unwrap_or("");
     MemoryName {
         slot,
-        text: source
-            .chars()
-            .map(|ch| if ch == ',' { NAME_COMMA_REPLACEMENT } else { ch })
-            .take(MAX_NAME)
-            .collect(),
+        text: sanitize_name(source),
     }
+}
+
+/// Cut and clean any string into what the radio will keep verbatim.
+///
+/// Split out because the program path names channels with `expanded_name` — the
+/// app's own disambiguated name, which is what the export preview shows — and
+/// that string needs exactly the same treatment. Two places doing this
+/// differently is two different names on the radio for the same channel.
+pub(crate) fn sanitize_name(source: &str) -> String {
+    source
+        .chars()
+        .map(|ch| if ch == ',' { NAME_COMMA_REPLACEMENT } else { ch })
+        .take(MAX_NAME)
+        .collect()
 }
 
 #[cfg(test)]
