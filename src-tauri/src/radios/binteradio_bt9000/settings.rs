@@ -45,7 +45,7 @@ use crate::radios::driver::{SettingsCapture, SettingsReader, SettingsWriteReport
 use super::bt9000_settings_table::{Enc, Kind, FIELDS, SF};
 use super::{
     download_segments, handshake, open_port, upload_segments, FUNCTION_LEN, FUNCTION_OFFSET,
-    READ_SEGMENTS, SETTINGS_SEGMENTS, SETTLE,
+    READ_SEGMENTS, SETTINGS_READ_SEGMENTS, SETTINGS_SEGMENTS, SETTLE,
 };
 
 // ============================================================
@@ -301,7 +301,7 @@ fn verify(
     expected: &[u8],
 ) -> Result<(bool, Option<String>), String> {
     let hs = handshake(p)?;
-    let back = download_segments(p, &hs, &SETTINGS_SEGMENTS)?;
+    let back = download_segments(p, &hs, &SETTINGS_READ_SEGMENTS)?;
     let got = &back[FUNCTION_OFFSET..FUNCTION_OFFSET + FUNCTION_LEN];
     if got == expected {
         return Ok((true, None));
@@ -374,16 +374,45 @@ mod tests {
     }
 
     /// The narrowed write must address the function segment and nothing else.
-    /// `SETTINGS_SEGMENTS` is an index into `WRITE_SEGMENTS`, so a reordering
-    /// there would silently retarget every settings write at the channels.
+    /// Both constants are INDEXES into their tables, so a reordering of either
+    /// would silently retarget every settings write at the channel records.
     #[test]
-    fn settings_write_addresses_only_the_function_block() {
-        assert_eq!(SETTINGS_SEGMENTS.len(), 1);
-        let seg = SETTINGS_SEGMENTS[0];
-        assert_eq!(seg.name, "function");
-        assert_eq!(seg.address, 0x9000);
-        assert_eq!(seg.file_offset, FUNCTION_OFFSET);
-        assert_eq!(seg.length, FUNCTION_LEN);
+    fn settings_segments_address_only_the_function_block() {
+        for (segs, cmd, what) in [
+            (&SETTINGS_SEGMENTS[..], 0x57u8, "write"),
+            (&SETTINGS_READ_SEGMENTS[..], 0x52u8, "read"),
+        ] {
+            assert_eq!(segs.len(), 1, "{what}");
+            let seg = segs[0];
+            assert_eq!(seg.name, "function", "{what}");
+            assert_eq!(seg.address, 0x9000, "{what}");
+            assert_eq!(seg.file_offset, FUNCTION_OFFSET, "{what}");
+            assert_eq!(seg.length, FUNCTION_LEN, "{what}");
+            // ⚠ The read and write tables describe the SAME block with
+            // different opcodes. Reading with the write segment would put a
+            // write command on the wire with nothing behind it, on a platform
+            // where a desynchronised write stream has permanently degraded a
+            // radio's transmit.
+            assert_eq!(seg.command, cmd, "{what} segment carries the wrong opcode");
+        }
+    }
+
+    /// And each transport refuses a segment from the other table outright, so a
+    /// future caller reaching for the wrong constant gets an error instead of
+    /// the wire. Checked before any I/O, which is why it needs no port.
+    #[test]
+    fn a_transport_refuses_a_segment_from_the_other_table() {
+        let err = super::super::check_commands(&SETTINGS_SEGMENTS, &[0x52, 0x54], "read")
+            .expect_err("reading with the write segment must be refused");
+        assert!(err.contains("not a read command"), "{err}");
+
+        let err = super::super::check_commands(&SETTINGS_READ_SEGMENTS, &[0x57], "write")
+            .expect_err("writing with the read segment must be refused");
+        assert!(err.contains("not a write command"), "{err}");
+
+        // The pairings the driver actually uses are accepted.
+        super::super::check_commands(&SETTINGS_READ_SEGMENTS, &[0x52, 0x54], "read").unwrap();
+        super::super::check_commands(&SETTINGS_SEGMENTS, &[0x57], "write").unwrap();
     }
 
     /// Round-trip every field through the form's own representation.

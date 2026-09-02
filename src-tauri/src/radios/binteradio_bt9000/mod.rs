@@ -70,6 +70,12 @@ const TIMEOUT: Duration = Duration::from_secs(3);
 const ACK_TIMEOUT: Duration = Duration::from_secs(15);
 
 const HANDSHAKE: &[u8] = b"PROGRAMBT9000U";
+
+/// Block commands. Read and write are distinct opcodes in both the main space
+/// and the APRS one, and a `Segment` carries whichever its table is for.
+const CMD_READ: u8 = 0x52;
+const CMD_READ_APRS: u8 = 0x54;
+const CMD_WRITE: u8 = 0x57;
 const ACK: u8 = 0x06;
 const END: u8 = b'E';
 const BLOCK: usize = 0x80;
@@ -137,6 +143,28 @@ pub(crate) const WRITE_SEGMENTS: [Segment; 6] = [
     Segment { name: "mod_param", command: 0x57, address: 0xB000, file_offset: 0x7C00, length: 0x0200 },
     Segment { name: "mod_names", command: 0x57, address: 0xD000, file_offset: 0x7E00, length: 0x0300 },
 ];
+
+/// Refuse a segment whose opcode does not belong to the transport being asked
+/// to carry it.
+///
+/// A [`Segment`] carries its own command byte, and [`READ_SEGMENTS`] and
+/// [`WRITE_SEGMENTS`] describe the SAME blocks with different ones. Handing a
+/// write segment to the reader would put write opcodes on the wire with nothing
+/// behind them, on the platform where a desynchronised write stream has already
+/// permanently degraded one radio's transmit. Cheap to check, so it is checked
+/// rather than left to the caller picking the right constant.
+fn check_commands(segments: &[Segment], allowed: &[u8], verb: &str) -> Result<(), String> {
+    for seg in segments {
+        if !allowed.contains(&seg.command) {
+            return Err(format!(
+                "internal error: refusing to {verb} segment {} with command 0x{:02X}, \
+                 which is not a {verb} command",
+                seg.name, seg.command
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// Address ranges that must never be written in the `0x52`/`0x57` space.
 ///
@@ -303,6 +331,7 @@ pub(crate) fn download_segments(
     segments: &[Segment],
 ) -> Result<Vec<u8>, String> {
     let mut image = vec![0u8; IMAGE_LEN];
+    check_commands(segments, &[CMD_READ, CMD_READ_APRS], "read")?;
     for seg in segments.iter().copied() {
         for off in (0..seg.length).step_by(BLOCK) {
             let addr = seg.address + off as u16;
@@ -327,6 +356,14 @@ pub(crate) fn download_segments(
 /// at risk for a change that never touched them. Narrowing a transport that has
 /// the reach to write everything is a deliberate act, not an optimisation.
 pub(crate) const SETTINGS_SEGMENTS: [Segment; 1] = [WRITE_SEGMENTS[2]];
+
+/// The same block, for READING. Deliberately a separate constant drawn from
+/// [`READ_SEGMENTS`]: a `Segment` carries its command byte, and this radio's
+/// read and write commands are different (`0x52` vs `0x57`). Handing the write
+/// segment to [`download_segments`] would put a WRITE opcode on the wire with
+/// no payload behind it — on the platform that has already had a radio's
+/// transmit permanently degraded by a desynchronised write stream.
+pub(crate) const SETTINGS_READ_SEGMENTS: [Segment; 1] = [READ_SEGMENTS[2]];
 
 /// Where the function block sits in the assembled image, and how long it is.
 pub(crate) const FUNCTION_OFFSET: usize = 0x7900;
@@ -363,6 +400,7 @@ pub(crate) fn upload_segments(
     p.set_timeout(ACK_TIMEOUT)
         .map_err(|e| format!("could not extend the serial timeout for writing: {e}"))?;
 
+    check_commands(segments, &[CMD_WRITE], "write")?;
     for seg in segments.iter().copied() {
         for off in (0..seg.length).step_by(BLOCK) {
             let addr = seg.address + off as u16;
