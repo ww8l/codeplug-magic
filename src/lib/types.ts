@@ -184,6 +184,10 @@ export interface DriverCapabilities {
   write_settings: boolean;
   write_channels: boolean;
   program_codeplug: boolean;
+  /// Whether a codeplug program ALSO writes the profile's settings. Only the
+  /// UV-5R does; every other radio here treats settings as a separate,
+  /// explicitly-acknowledged write and leaves the radio's own alone.
+  programs_settings: boolean;
   write_callsign_db: boolean;
   export: boolean;
   diagnostics: boolean;

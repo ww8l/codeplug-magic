@@ -1323,6 +1323,132 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
+    /// Issue #43, the step-4 gate: run the app's OWN pipeline against a real
+    /// database and count what came out against what went in. The BT-9000's
+    /// encoder has unit tests and a hardware ladder, and neither of those goes
+    /// through `resolve_codeplug_slots` — the thing that decides which channels
+    /// reach the radio at all, what they are called, and which slot each lands
+    /// in.
+    ///
+    /// What this pins for that radio specifically:
+    ///
+    /// * an out-of-band channel is EXCLUDED, not silently dropped or written —
+    ///   this radio stores whatever it is handed, so the pipeline is the only
+    ///   thing standing between a 222 MHz channel and a memory that keys up
+    ///   there;
+    /// * names are cut to 12 characters, the radio's real field width;
+    /// * slots are dense and sequential from 0, which is what makes the zones
+    ///   work at all — they are index arithmetic (`slot / 64 + 1`) and there is
+    ///   nowhere in the image to store a zone name;
+    /// * and the image decodes back to exactly the channels that went in.
+    #[tokio::test]
+    async fn a_bt9000_codeplug_reaches_the_image_through_the_apps_own_pipeline() {
+        let dir = std::env::temp_dir().join(format!("cpm_bt9000_{}", std::process::id()));
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        // Four channels. The third is inside the radio's coverage on RX but its
+        // repeater INPUT is not, and the fourth is out of band at both ends.
+        sqlx::query(
+            "INSERT INTO channels (id, name_long, name_short, rx_freq, offset, duplex, mode, source)
+             VALUES (1, 'A Very Long Repeater Name', NULL, 146.940, 0.6, '-', 'FM', 'manual'),
+                    (2, 'Simplex', 'SIMP', 146.520, NULL, NULL, 'FM', 'manual'),
+                    (3, 'UHF Machine', 'UHF', 442.000, 5.0, '+', 'FM', 'manual'),
+                    (4, '220 Repeater', '220', 223.500, 1.6, '-', 'FM', 'manual')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query("INSERT INTO channel_lists (id, name) VALUES (10, 'Local')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO channel_list_entries (channel_list_id, channel_id, position)
+             VALUES (10, 1, 0), (10, 2, 1), (10, 3, 2), (10, 4, 3)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let model_id: (i64,) =
+            sqlx::query_as("SELECT id FROM radio_models WHERE model = 'BT-9000'")
+                .fetch_one(&pool)
+                .await
+                .expect("the BT-9000 is seeded");
+        // A codeplug reaches its model through a radio PROFILE, which is also
+        // how the settings this radio now carries get to the same place.
+        sqlx::query(
+            "INSERT INTO radio_profiles (id, display_name, radio_model_id, non_channel_settings)
+             VALUES (1, 'BT-9000 test', ?1, '{\"squelch\": 4}')",
+        )
+        .bind(model_id.0)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO codeplugs (id, name, radio_profile_id) VALUES (1, 'Test', 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO codeplug_channel_lists (codeplug_id, channel_list_id, position) VALUES (1, 10, 0)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let (model, slots) = resolve_codeplug_slots(&pool, 1).await.expect("resolve slots");
+        assert_eq!(model.driver_key.as_deref(), Some("binteradio_bt9000"));
+
+        // 4 in, 3 out: the 220 MHz repeater is outside both band lists, and the
+        // pipeline refuses it rather than handing the driver a channel the radio
+        // would happily store and transmit on.
+        assert_eq!(slots.len(), 3, "the 220 MHz channel must not reach the radio");
+        assert!(
+            slots.iter().all(|s| s.channel.rx_freq != 223.500),
+            "223.500 reached the slot list"
+        );
+
+        // Dense and sequential, which is what makes zone = slot / 64 + 1 mean
+        // anything on a radio with no zone names.
+        for (i, s) in slots.iter().enumerate() {
+            assert_eq!(s.slot, i, "slots must be dense from 0");
+            assert!(
+                s.name.chars().count() <= 12,
+                "{:?} is longer than the radio's 12-character field",
+                s.name
+            );
+        }
+
+        // Through the driver's own image builder and back out again.
+        let driver = crate::radios::registry::driver_for_model(&model)
+            .expect("driver")
+            .as_image_programmer()
+            .expect("image programmer");
+        let base = vec![0u8; crate::radios::binteradio_bt9000::IMAGE_LEN];
+        let image = driver.build_image(&model, &slots, &base).expect("build_image");
+        let decoded = crate::radios::binteradio_bt9000::decode_channels(&image);
+
+        assert_eq!(decoded.len(), slots.len(), "channels in the image");
+        for (d, s) in decoded.iter().zip(&slots) {
+            // `trim_end` is not slack: the shared truncator cuts to the field
+            // width without regard for where words end, so a long name can
+            // arrive as "A Very Long " — 12 characters ending in a space — and
+            // this driver's decoder trims trailing blanks on the way back. The
+            // round trip is stable apart from that space, which is invisible on
+            // the radio. Asserted rather than papered over so the day the
+            // truncator learns to trim, this says so.
+            assert_eq!(d.name, s.name.trim_end(), "name round trip");
+            assert_eq!(d.zone, 1, "the first 64 slots are zone 1");
+        }
+        // The repeater's transmit frequency is the shifted one, not the input
+        // frequency repeated -- the pipeline resolves the shift, not the driver.
+        assert_eq!(decoded[0].rx_mhz, 146.940);
+        assert_eq!(decoded[0].tx_mhz, 146.340);
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
     /// Issue #83: CHIRP reads the Offset column of a `split` row as the
     /// absolute TRANSMIT FREQUENCY, not a shift. Writing the magnitude there
     /// gave a 33 cm pair (927.5 RX / 902.5 TX) the row `split, 25.000000` — a

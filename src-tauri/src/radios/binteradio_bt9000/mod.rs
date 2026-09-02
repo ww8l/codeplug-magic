@@ -54,7 +54,7 @@ use crate::commands::export::SlotChannel;
 use crate::models::{Channel, RadioModel};
 use crate::radios::driver::{
     CodeplugProgramReport, DecodedChannelSample, ImageProgramRequest, ImageProgrammer,
-    RadioDriver, RadioIdentity,
+    ImageRestorer, RadioDriver, RadioIdentity,
 };
 
 const BAUD: u32 = 115_200;
@@ -670,7 +670,19 @@ fn encode_channel(c: &Channel, name: &str, tx_hz: u64) -> [u8; ENTRY_LEN] {
 
     // bit 1 = TX enable, bit 6 = narrow. Everything else (FHSS, encryption,
     // busy lockout, scan-add, AM) stays off — measured defaults, not guesses.
-    let narrow = !matches!(c.mode.as_deref(), Some(m) if m.eq_ignore_ascii_case("FM"));
+    //
+    // ⚠ Narrow ONLY on an explicit narrow mode. `mode` is nullable in the
+    // schema and reachable from a CSV import with no mode column, and
+    // `export::channel_fit` resolves a NULL to "FM" when it decides the channel
+    // is programmable — so treating NULL as *not* FM narrowed a channel that
+    // the fit logic had just admitted as wide FM. The two now agree.
+    //
+    // ⚠ AM is a known gap, deliberately left. This radio receives AM and byte
+    // 15 bit 0 is claimed to select it, but that bit has never been measured
+    // here, and an AM channel inside 136-174 MHz therefore goes out as wide FM.
+    // `scratchpad/binteradio_bt9000/SCREEN-CHECK.md` carries the measurement;
+    // guessing the bit is how radios get damaged on this platform.
+    let narrow = matches!(c.mode.as_deref(), Some(m) if m.eq_ignore_ascii_case("NFM"));
     m[15] = 0x02 | if narrow { 0x40 } else { 0x00 };
 
     // 16-19 = FHSS code, left zero.
@@ -739,12 +751,84 @@ impl RadioDriver for BinteradioBt9000 {
         Some(self)
     }
 
+    fn as_image_restorer(&self) -> Option<&dyn ImageRestorer> {
+        Some(self)
+    }
+
     fn as_settings_reader(&self) -> Option<&dyn crate::radios::driver::SettingsReader> {
         Some(self)
     }
 
     fn as_settings_writer(&self) -> Option<&dyn crate::radios::driver::SettingsWriter> {
         Some(self)
+    }
+}
+
+/// Putting a backup back on the radio.
+///
+/// Offered because this driver's own error messages promise it. Every failure
+/// path in here hands the operator a pre-write backup and tells them it can go
+/// back over the same cable — and until this existed, no control in the app
+/// could do that, on the one radio in this crate whose platform has a
+/// documented unit with permanently degraded transmit.
+///
+/// It is not new risk: hardware ladder step 1 was exactly this operation — a
+/// byte-identical image written back and read back — and it passed.
+impl ImageRestorer for BinteradioBt9000 {
+    /// Refuse a file that is not a BT-9000 clone image before a byte of it
+    /// reaches the radio.
+    ///
+    /// Length is what separates the formats in `radio-backups/`, which holds
+    /// images for every radio this app talks to and is where the picker opens.
+    /// 33,152 bytes is this radio's exact clone payload and is shared with none
+    /// of the others.
+    ///
+    /// ⚠ The check is deliberately shape-only, and does NOT try to prove which
+    /// unit the image came from. Restoring a backup taken from another radio of
+    /// the same model is a normal thing to do, and this is the path reached for
+    /// after a bad write. There is also nothing in the image to key on: it
+    /// carries no serial number, no ident prefix and — measured in s127 — no
+    /// checksum anywhere in its 33,152 bytes.
+    fn check_restore_image(&self, image: &[u8]) -> Result<(), String> {
+        if image.len() != IMAGE_LEN {
+            return Err(format!(
+                "this file is {} bytes — a BT-9000 backup is exactly {IMAGE_LEN}. Pick a \
+                 .img taken from a BT-9000 (radio-backups/ also holds images for other \
+                 radios, which must not be written to this one).",
+                image.len()
+            ));
+        }
+        Ok(())
+    }
+
+    /// Write the whole backup back in one session, then read it back.
+    ///
+    /// ⚠ The read-back is not decoration on this radio: it acknowledges blocks
+    /// it does not always commit, so an all-ACKs write is not evidence. A
+    /// restore that cannot be confirmed says so rather than reporting success —
+    /// this is the path somebody reaches for when a write has already gone
+    /// wrong, and it is the worst possible place to be optimistic.
+    fn restore_image(&self, port: &str, image: &[u8]) -> Result<(), String> {
+        self.check_restore_image(image)?;
+        let mut p = open_port(port)?;
+        let hs = handshake(&mut *p)?;
+        upload(&mut *p, &hs, image)?;
+
+        std::thread::sleep(SETTLE);
+        let hs = handshake(&mut *p)?;
+        let back = download(&mut *p, &hs)?;
+        for seg in WRITE_SEGMENTS {
+            let r = seg.file_offset..seg.file_offset + seg.length;
+            if image[r.clone()] != back[r] {
+                return Err(format!(
+                    "the radio acknowledged the restore but segment {} read back \
+                     differently. The radio does NOT hold this backup. Power-cycle it \
+                     and try the restore again.",
+                    seg.name
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1067,6 +1151,34 @@ mod tests {
     }
 
     /// Blank and named channels use *different* pad bytes on this radio.
+    /// A channel with no mode is wide FM, because that is what
+    /// `export::channel_fit` decided when it let the channel through. The two
+    /// used to disagree, and the encoder silently narrowed it.
+    #[test]
+    fn a_null_mode_encodes_as_wide_fm() {
+        let wide = Channel { rx_freq: 146.52, ..Default::default() };
+        assert_eq!(encode_channel(&wide, "NOMODE", 146_520_000)[15] & 0x40, 0x00);
+
+        let fm = Channel { rx_freq: 146.52, mode: Some("FM".into()), ..Default::default() };
+        assert_eq!(encode_channel(&fm, "FM", 146_520_000)[15] & 0x40, 0x00);
+
+        let nfm = Channel { rx_freq: 146.52, mode: Some("NFM".into()), ..Default::default() };
+        assert_eq!(encode_channel(&nfm, "NFM", 146_520_000)[15] & 0x40, 0x40);
+
+        // Round-trips through the decoder, which knows only these two.
+        for (mode, want) in [(None, "FM"), (Some("FM"), "FM"), (Some("NFM"), "NFM")] {
+            let c = Channel {
+                rx_freq: 146.52,
+                mode: mode.map(str::to_string),
+                ..Default::default()
+            };
+            let rec = encode_channel(&c, "X", 146_520_000);
+            let mut image = vec![0xFFu8; IMAGE_LEN];
+            image[..ENTRY_LEN].copy_from_slice(&rec);
+            assert_eq!(decode_channels(&image)[0].narrow, want == "NFM", "{mode:?}");
+        }
+    }
+
     #[test]
     fn names_use_the_radios_two_sentinels() {
         assert_eq!(name_bytes(""), [0x00; NAME_LEN]);

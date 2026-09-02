@@ -173,7 +173,12 @@ pub(crate) fn apply_profile_settings(
     let (mut written, mut notes) = (0, Vec::new());
     for f in &FIELDS {
         let Some(v) = obj.get(f.key) else { continue };
-        if v.is_null() {
+        // ⚠ A CLEARED number input is stored as `""`, not null — the form's
+        // number field maps an empty box to the empty string. Treated as
+        // "leave it alone" like a missing key, because the alternative is what
+        // it used to do: reject the whole write, so clearing one field stopped
+        // every OTHER field from reaching the radio too.
+        if v.is_null() || v.as_str() == Some("") {
             continue;
         }
         match encode_field(f, v) {
@@ -498,6 +503,22 @@ mod tests {
         let vox = FIELDS.iter().find(|f| f.key == "vox-level").unwrap();
         assert_eq!(encode_field(sql, &json!(9)).unwrap(), 9);
         assert_eq!(encode_field(vox, &json!(7)).unwrap(), 6);
+    }
+
+    /// Clearing one field in the form must not stop the others reaching the
+    /// radio. The form stores an empty number box as `""`, and rejecting that
+    /// as "expected a number" used to fail the entire write.
+    #[test]
+    fn a_cleared_field_is_skipped_not_fatal() {
+        let mut image = vec![0u8; super::super::IMAGE_LEN];
+        let (n, notes) = apply_profile_settings(
+            &mut image,
+            &json!({"squelch": "", "vox-level": 5, "power-on-display": null}),
+        )
+        .expect("a cleared field must not fail the write");
+        assert_eq!(n, 1, "vox-level should still have been written");
+        assert!(notes.is_empty());
+        assert_eq!(image[FUNCTION_OFFSET + 0x02], 4, "vox-level 5 stores as 4");
     }
 
     /// A key the profile does not carry must come back off the radio untouched.

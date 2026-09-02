@@ -186,6 +186,14 @@ impl ImageRestorer for BaofengUv5r {
 }
 
 impl ImageProgrammer for BaofengUv5r {
+    /// The UV-5R is the only radio here that answers yes. It has no standalone
+    /// settings-write path — `SettingsWriter` is deliberately not implemented —
+    /// so the profile's settings ride out inside the image this uploads, which
+    /// is exactly why the two halves are separate traits.
+    fn carries_profile_settings(&self) -> bool {
+        true
+    }
+
     fn download_image(&self, port: &str) -> Result<(RadioIdentity, Vec<u8>), String> {
         let mut p = open_port(port)?;
         let (matched, ident) = ident_radio(&mut *p)?;

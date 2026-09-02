@@ -192,6 +192,22 @@ pub(crate) trait ImageProgrammer: Send + Sync {
         port: &str,
         req: &ImageProgramRequest,
     ) -> Result<CodeplugProgramReport, String>;
+
+    /// Whether `program_codeplug` writes the profile's non-channel settings
+    /// alongside the channels.
+    ///
+    /// It is NOT implied by `req.settings` being populated — the command layer
+    /// fills that for every driver, and most deliberately ignore it. A radio
+    /// with its own `SettingsWriter` generally treats settings as a separate,
+    /// explicitly-acknowledged operation and leaves the radio's own settings
+    /// alone during a channel program (the TD-H3 and the BT-9000 both do).
+    ///
+    /// Declared rather than inferred because the generic Program dialog states
+    /// in a safety banner what the operation will change, and that sentence was
+    /// promising settings on five of the six radios it serves.
+    fn carries_profile_settings(&self) -> bool {
+        false
+    }
 }
 
 /// Attach the pre-write backup to an error raised DURING the write phase.
@@ -591,6 +607,10 @@ pub struct DriverCapabilities {
     pub write_settings: bool,
     pub write_channels: bool,
     pub program_codeplug: bool,
+    /// Whether a codeplug program also writes the profile's settings. Only the
+    /// UV-5R does: it has no standalone settings-write path, so its settings
+    /// ride out inside the image `program_codeplug` uploads.
+    pub programs_settings: bool,
     pub write_callsign_db: bool,
     pub export: bool,
     pub diagnostics: bool,
@@ -608,6 +628,9 @@ impl DriverCapabilities {
             write_settings: driver.as_settings_writer().is_some(),
             write_channels: driver.as_channel_writer().is_some(),
             program_codeplug: driver.as_codeplug_programmer().is_some(),
+            programs_settings: driver
+                .as_image_programmer()
+                .is_some_and(ImageProgrammer::carries_profile_settings),
             write_callsign_db: driver.as_callsign_db_writer().is_some(),
             export: driver.as_codeplug_exporter().is_some(),
             diagnostics: driver.as_diagnostics().is_some(),
