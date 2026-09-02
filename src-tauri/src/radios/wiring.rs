@@ -40,8 +40,48 @@ fn production_half(src: &str) -> &str {
 }
 
 /// Every `radios/<key>/` folder that holds a driver.
+/// The README's "Supported radios" table, and its "Planned" table, as text.
+///
+/// ⚠ Line-based on purpose. The first version split the file into paragraphs on
+/// `"\n\n"`, which is not how the file looks on a Windows checkout: CRLF made
+/// every paragraph boundary `"\r\n\r\n"`, the Planned table was never found,
+/// and the fallback block matched a later section that happens to name a shipped
+/// radio. Green on macOS and Ubuntu, red on Windows — exactly the kind of defect
+/// the three-OS run exists to catch.
+fn readme_tables(readme: &str) -> (String, String) {
+    let line = |l: &str| l.trim_end_matches('\r').to_string();
+    let mut supported = String::new();
+    let mut planned = String::new();
+    let (mut in_supported, mut in_planned) = (false, false);
+    for raw in readme.lines() {
+        let l = line(raw);
+        if l.starts_with("## ") {
+            in_supported = l.contains("Supported radios");
+            in_planned = false;
+            continue;
+        }
+        if l.trim() == "**Planned**" {
+            in_planned = true;
+            continue;
+        }
+        // A table ends at the first non-table line after it has started.
+        if in_planned && !planned.is_empty() && !l.starts_with('|') {
+            in_planned = false;
+        }
+        if in_supported && l.starts_with('|') {
+            supported.push_str(&l);
+            supported.push('\n');
+        }
+        if in_planned && l.starts_with('|') {
+            planned.push_str(&l);
+            planned.push('\n');
+        }
+    }
+    (supported, planned)
+}
+
 /// Every radio the app can actually program must be listed in the README's
-/// "Supported radios" table.
+/// "Supported radios" table, and must NOT still be listed under "Planned".
 ///
 /// ⚠ This exists because it was missed twice. The TH-D72 shipped in v26.8.29 and
 /// never reached the table, and the BT-9000 was still sitting under "Planned"
@@ -54,13 +94,8 @@ fn production_half(src: &str) -> &str {
 fn every_seeded_radio_appears_in_the_readme() {
     let readme = std::fs::read_to_string(manifest_dir().join("../README.md"))
         .expect("README.md is readable from the crate");
-    let supported = readme
-        .split("## Supported radios")
-        .nth(1)
-        .expect("README has a `## Supported radios` heading")
-        .split("\n## ")
-        .next()
-        .expect("that section ends at the next heading");
+    let (supported, planned) = readme_tables(&readme);
+    assert!(!supported.is_empty(), "no `## Supported radios` table found");
 
     let mut checked = 0;
     for d in crate::radios::registry::all_drivers() {
@@ -71,20 +106,47 @@ fn every_seeded_radio_appears_in_the_readme() {
             "{name} is a working driver but is not in the README's Supported radios \
              table. Someone who owns one cannot tell that it works."
         );
-        // Bounded to the Planned TABLE, not to everything after the heading:
-        // the credits and feature sections name shipped radios too, and an
-        // unbounded match reported the AT-D890UV as still planned.
-        let planned = readme
-            .split("**Planned**")
-            .nth(1)
-            .and_then(|p| p.split("\n\n").find(|b| b.trim_start().starts_with('|')))
-            .unwrap_or("");
         assert!(
             !planned.contains(name),
             "{name} ships AND is still listed under Planned"
         );
     }
     assert!(checked > 0, "no drivers found — this test would pass vacuously");
+}
+
+/// The parser itself, against both line endings, because the difference between
+/// them is what broke it on Windows while two other platforms said it was fine.
+#[test]
+fn readme_tables_are_parsed_the_same_with_either_line_ending() {
+    const DOC: &str = "\
+## Supported radios
+
+| Radio | Notes |
+|---|---|
+| **Kept Radio** | works |
+
+Some prose that mentions Planned Radio in passing.
+
+## Future development
+
+**Planned**
+
+| Radio | Issue |
+|---|---|
+| **Planned Radio** | #1 |
+
+Trailing prose naming Kept Radio again.
+";
+    for (label, doc) in [("LF", DOC.to_string()), ("CRLF", DOC.replace('\n', "\r\n"))] {
+        let (supported, planned) = readme_tables(&doc);
+        assert!(supported.contains("Kept Radio"), "{label}: supported table lost a row");
+        assert!(!supported.contains("Planned Radio"), "{label}: tables bled together");
+        assert!(planned.contains("Planned Radio"), "{label}: planned table not found");
+        assert!(
+            !planned.contains("Kept Radio"),
+            "{label}: planned table ran past its end and swallowed later prose"
+        );
+    }
 }
 
 fn driver_dirs() -> Vec<PathBuf> {
