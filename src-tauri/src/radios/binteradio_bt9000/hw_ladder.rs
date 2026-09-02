@@ -47,6 +47,18 @@ fn slot(slot: usize, name: &str, rx: f64, tx: f64) -> SlotChannel {
 /// Read, back up, patch with `slots`, write, and read back. Returns the image
 /// the radio holds afterwards.
 fn program(slots: &[SlotChannel], tag: &str) -> Vec<u8> {
+    // A DELIBERATELY permissive model, so every probe goes out transmit-enabled.
+    // The seeded model would mark an out-of-band probe receive-only and write it
+    // with the PTT disabled — which is correct for a codeplug and would defeat
+    // the band probe, whose entire question is whether the radio keys there.
+    let model = RadioModel {
+        analog_capable: true,
+        tx_bands: Some("[[1.0,1000.0]]".to_string()),
+        rx_bands: Some("[[1.0,1000.0]]".to_string()),
+        freq_min: Some(1.0),
+        freq_max: Some(1000.0),
+        ..Default::default()
+    };
     let port = port();
     let mut p = open_port(&port).expect("open the port");
 
@@ -62,7 +74,7 @@ fn program(slots: &[SlotChannel], tag: &str) -> Vec<u8> {
     println!("  backup: {}", backup.display());
 
     let mut image = base.clone();
-    patch_image(&mut image, slots);
+    patch_image(&mut image, slots, &model);
 
     std::thread::sleep(SETTLE);
     let hs = handshake(&mut *p).expect("re-handshake before writing");

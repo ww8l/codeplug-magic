@@ -1355,7 +1355,9 @@ mod tests {
              VALUES (1, 'A Very Long Repeater Name', NULL, 146.940, 0.6, '-', 'FM', 'manual'),
                     (2, 'Simplex', 'SIMP', 146.520, NULL, NULL, 'FM', 'manual'),
                     (3, 'UHF Machine', 'UHF', 442.000, 5.0, '+', 'FM', 'manual'),
-                    (4, '220 Repeater', '220', 223.500, 1.6, '-', 'FM', 'manual')",
+                    (4, '220 Repeater', '220', 223.500, 1.6, '-', 'FM', 'manual'),
+                    (5, 'Airband', 'AIR', 108.000, NULL, NULL, 'FM', 'manual'),
+                    (6, 'Way Out', 'OUT', 1200.000, NULL, NULL, 'FM', 'manual')",
         )
         .execute(&pool)
         .await
@@ -1367,7 +1369,7 @@ mod tests {
             .unwrap();
         sqlx::query(
             "INSERT INTO channel_list_entries (channel_list_id, channel_id, position)
-             VALUES (10, 1, 0), (10, 2, 1), (10, 3, 2), (10, 4, 3)",
+             VALUES (10, 1, 0), (10, 2, 1), (10, 3, 2), (10, 4, 3), (10, 5, 4), (10, 6, 5)",
         )
         .execute(&pool)
         .await
@@ -1400,13 +1402,30 @@ mod tests {
         let (model, slots) = resolve_codeplug_slots(&pool, 1).await.expect("resolve slots");
         assert_eq!(model.driver_key.as_deref(), Some("binteradio_bt9000"));
 
-        // 4 in, 3 out: the 220 MHz repeater is outside both band lists, and the
-        // pipeline refuses it rather than handing the driver a channel the radio
-        // would happily store and transmit on.
-        assert_eq!(slots.len(), 3, "the 220 MHz channel must not reach the radio");
+        // 6 in, 5 out. Each of the three verdicts is represented, and all three
+        // come from frequencies keyed on the real radio in s128:
+        //
+        //   * 223.500 is INCLUDED — the radio keys there, which the manual never
+        //     mentions and only the PTT could establish;
+        //   * 108.000 is RECEIVE-ONLY — it takes AM and refuses the PTT, so it
+        //     is programmed rather than dropped, with transmit disabled;
+        //   * 1200.000 is EXCLUDED — outside the receiver as well, and the VFO
+        //     will not even go there.
+        assert_eq!(slots.len(), 5, "only the 1200 MHz channel should be dropped");
         assert!(
-            slots.iter().all(|s| s.channel.rx_freq != 223.500),
-            "223.500 reached the slot list"
+            slots.iter().any(|s| s.channel.rx_freq == 223.500),
+            "223.500 must reach the radio — it was keyed on the real one"
+        );
+        assert!(
+            slots.iter().all(|s| s.channel.rx_freq != 1200.0),
+            "1200.000 is outside the receiver and must be dropped"
+        );
+        assert!(
+            matches!(
+                channel_fit(&slots.iter().find(|s| s.channel.rx_freq == 108.0).unwrap().channel, &model),
+                ChannelFit::ReceiveOnly(_)
+            ),
+            "108.000 receives AM and refuses the PTT, so it is receive-only"
         );
 
         // Dense and sequential, which is what makes zone = slot / 64 + 1 mean
@@ -1430,6 +1449,17 @@ mod tests {
         let decoded = crate::radios::binteradio_bt9000::decode_channels(&image);
 
         assert_eq!(decoded.len(), slots.len(), "channels in the image");
+
+        // ★ The receive-only memory goes out with byte 15 bit 1 CLEAR. That bit
+        // is measured: on the real radio a channel written this way refuses the
+        // PTT while its neighbour keys normally. Before it was measured this
+        // driver set it unconditionally, and a receive-only channel would have
+        // been programmed able to transmit on a radio that keys wherever it is
+        // told.
+        let air = slots.iter().position(|s| s.channel.rx_freq == 108.0).unwrap();
+        assert_eq!(image[air * 32 + 15] & 0x02, 0x00, "108.000 must be TX-disabled");
+        let two_m = slots.iter().position(|s| s.channel.rx_freq == 146.520).unwrap();
+        assert_eq!(image[two_m * 32 + 15] & 0x02, 0x02, "146.520 must be TX-enabled");
         for (d, s) in decoded.iter().zip(&slots) {
             // `trim_end` is not slack: the shared truncator cuts to the field
             // width without regard for where words end, so a long name can

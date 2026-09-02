@@ -675,7 +675,14 @@ fn encode_tones(c: &Channel) -> ([u8; 2], [u8; 2]) {
 /// The TX shift is carried entirely by the stored TX frequency — there is no
 /// separate direction field, confirmed against the radio (a −0.600 repeater
 /// channel differs from a simplex one only in bytes 4-7).
-fn encode_channel(c: &Channel, name: &str, tx_hz: u64) -> [u8; ENTRY_LEN] {
+/// `tx_enable` clears byte 15 bit 1 for a receive-only memory.
+///
+/// ⚠ That bit is **measured**, not inherited: a channel written with it clear
+/// refuses the PTT while its neighbour with the bit set keys normally, checked
+/// on the radio (s128). It was a source claim until then, which is why this
+/// driver spent a release setting it unconditionally and guarding the gap with
+/// a test instead of guessing.
+fn encode_channel(c: &Channel, name: &str, tx_hz: u64, tx_enable: bool) -> [u8; ENTRY_LEN] {
     let mut m = [0u8; ENTRY_LEN];
 
     m[0..4].copy_from_slice(&hz_to_lbcd((c.rx_freq * 1e6).round() as u64));
@@ -704,7 +711,7 @@ fn encode_channel(c: &Channel, name: &str, tx_hz: u64) -> [u8; ENTRY_LEN] {
     // `scratchpad/binteradio_bt9000/SCREEN-CHECK.md` carries the measurement;
     // guessing the bit is how radios get damaged on this platform.
     let narrow = matches!(c.mode.as_deref(), Some(m) if m.eq_ignore_ascii_case("NFM"));
-    m[15] = 0x02 | if narrow { 0x40 } else { 0x00 };
+    m[15] = if tx_enable { 0x02 } else { 0x00 } | if narrow { 0x40 } else { 0x00 };
 
     // 16-19 = FHSS code, left zero.
     m[20..32].copy_from_slice(&name_bytes(name));
@@ -716,7 +723,7 @@ fn encode_channel(c: &Channel, name: &str, tx_hz: u64) -> [u8; ENTRY_LEN] {
 /// Only the channel segment is touched. Slots the codeplug does not fill are
 /// **cleared to the radio's own empty form** rather than left alone, so
 /// programming a shorter codeplug does not leave stale channels behind.
-pub(crate) fn patch_image(image: &mut [u8], slots: &[SlotChannel]) {
+pub(crate) fn patch_image(image: &mut [u8], slots: &[SlotChannel], model: &RadioModel) {
     for i in 0..CHANNEL_COUNT {
         image[i * ENTRY_LEN..(i + 1) * ENTRY_LEN].fill(0xFF);
     }
@@ -725,7 +732,15 @@ pub(crate) fn patch_image(image: &mut [u8], slots: &[SlotChannel]) {
             continue;
         }
         let tx_hz = (crate::commands::export::tx_frequency(&s.channel) * 1e6).round() as u64;
-        let rec = encode_channel(&s.channel, &s.name, tx_hz);
+        // A channel the radio can hear but not transmit on is programmed with
+        // the PTT disabled rather than dropped — and rather than left
+        // transmit-enabled, which on a radio that validates nothing would hand
+        // the operator a memory that keys up out of band.
+        let tx_enable = !matches!(
+            crate::commands::export::channel_fit(&s.channel, model),
+            crate::commands::export::ChannelFit::ReceiveOnly(_)
+        );
+        let rec = encode_channel(&s.channel, &s.name, tx_hz, tx_enable);
         image[s.slot * ENTRY_LEN..(s.slot + 1) * ENTRY_LEN].copy_from_slice(&rec);
     }
 }
@@ -881,7 +896,7 @@ impl ImageProgrammer for BinteradioBt9000 {
 
     fn build_image(
         &self,
-        _model: &RadioModel,
+        model: &RadioModel,
         channels: &[SlotChannel],
         base: &[u8],
     ) -> Result<Vec<u8>, String> {
@@ -893,7 +908,7 @@ impl ImageProgrammer for BinteradioBt9000 {
             ));
         }
         let mut image = base.to_vec();
-        patch_image(&mut image, channels);
+        patch_image(&mut image, channels, model);
         Ok(image)
     }
 
@@ -934,7 +949,7 @@ impl ImageProgrammer for BinteradioBt9000 {
         // 2. Patch channels into the image we just read, so every byte we do
         //    not own goes back exactly as it came.
         let channels_written = req.channels.len();
-        patch_image(&mut image, req.channels);
+        patch_image(&mut image, req.channels, req.model);
 
         let restore_hint = |e: String| {
             crate::radios::driver::with_restore_hint(
@@ -1178,13 +1193,13 @@ mod tests {
     #[test]
     fn a_null_mode_encodes_as_wide_fm() {
         let wide = Channel { rx_freq: 146.52, ..Default::default() };
-        assert_eq!(encode_channel(&wide, "NOMODE", 146_520_000)[15] & 0x40, 0x00);
+        assert_eq!(encode_channel(&wide, "NOMODE", 146_520_000, true)[15] & 0x40, 0x00);
 
         let fm = Channel { rx_freq: 146.52, mode: Some("FM".into()), ..Default::default() };
-        assert_eq!(encode_channel(&fm, "FM", 146_520_000)[15] & 0x40, 0x00);
+        assert_eq!(encode_channel(&fm, "FM", 146_520_000, true)[15] & 0x40, 0x00);
 
         let nfm = Channel { rx_freq: 146.52, mode: Some("NFM".into()), ..Default::default() };
-        assert_eq!(encode_channel(&nfm, "NFM", 146_520_000)[15] & 0x40, 0x40);
+        assert_eq!(encode_channel(&nfm, "NFM", 146_520_000, true)[15] & 0x40, 0x40);
 
         // Round-trips through the decoder, which knows only these two.
         for (mode, want) in [(None, "FM"), (Some("FM"), "FM"), (Some("NFM"), "NFM")] {
@@ -1193,11 +1208,26 @@ mod tests {
                 mode: mode.map(str::to_string),
                 ..Default::default()
             };
-            let rec = encode_channel(&c, "X", 146_520_000);
+            let rec = encode_channel(&c, "X", 146_520_000, true);
             let mut image = vec![0xFFu8; IMAGE_LEN];
             image[..ENTRY_LEN].copy_from_slice(&rec);
             assert_eq!(decode_channels(&image)[0].narrow, want == "NFM", "{mode:?}");
         }
+    }
+
+    /// ⚠ MEASURED on the radio (s128), not inherited: a channel written with
+    /// byte 15 bit 1 clear refuses the PTT while its neighbour with the bit set
+    /// keys normally. Before that check this driver set the bit unconditionally,
+    /// because clearing an unverified bit on this platform is how radios have
+    /// been damaged.
+    #[test]
+    fn a_receive_only_channel_is_written_with_the_ptt_disabled() {
+        let c = Channel { rx_freq: 146.52, mode: Some("FM".into()), ..Default::default() };
+        assert_eq!(encode_channel(&c, "TX", 146_520_000, true)[15] & 0x02, 0x02);
+        assert_eq!(encode_channel(&c, "RX", 146_520_000, false)[15] & 0x02, 0x00);
+        // The bandwidth bit is independent of it.
+        let n = Channel { mode: Some("NFM".into()), ..c.clone() };
+        assert_eq!(encode_channel(&n, "RX", 146_520_000, false)[15], 0x40);
     }
 
     #[test]

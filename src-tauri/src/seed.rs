@@ -348,15 +348,37 @@ fn models() -> Vec<ModelSeed> {
             covers_900: false,
             freq_min: 136.0,
             freq_max: 520.0,
-            // ⚠ DELIBERATELY CONSERVATIVE, pending the band probe (ladder step
-            // 4). The manual states 136-174 and 400-520, and the first two
-            // pairs of the radio's `F` handshake blob agree. That blob's third
-            // pair reads 200-260, and the vendor's web copy claims TX on CB and
-            // 18-32 MHz — none of it measured. Under-claiming excludes a
-            // channel with a reason the operator can see; over-claiming writes
-            // a SILENTLY EMPTY memory slot while reporting success.
-            tx_bands: Some("[[136.0,174.0],[400.0,520.0]]"),
-            rx_bands: Some("[[136.0,174.0],[400.0,520.0]]"),
+            // MEASURED on the radio (s128), one channel per band edge and the
+            // PTT pressed on each. The image could not answer this — it stores
+            // every frequency it is given — so each of these was keyed.
+            //
+            // | probe | keys? |
+            // |---|---|
+            // | 27.500, 50.125 | yes (27.5 needs the 18-64 Work Band selected) |
+            // | 108.000 | **NO** — receives AM, refuses to transmit |
+            // | 136.000, 145.100, 174.000 | yes |
+            // | 200.000, 223.500, 260.000 | yes — the `F` blob's third pair is REAL |
+            // | 400.000, 431.100, 520.000 | yes |
+            // | 580.000 | not settable on the VFO at all |
+            //
+            // So the radio DOES gate transmit — 108 refusing is what proves the
+            // other twelve "yes" answers mean something — and 220 MHz is real,
+            // which the manual never mentions.
+            //
+            // ⚠ The spans between tested points are NOT measured: 64-108,
+            // 108-136, 174-200, 260-400 and 520-580 are excluded because
+            // nothing was keyed there, not because anything refused. The three
+            // narrow spans take both of their own edges from a successful key;
+            // 18-64 takes the range the radio's own Work Band menu declares,
+            // with 27.5 and 50.125 confirmed inside it.
+            tx_bands: Some("[[18.0,64.0],[136.0,174.0],[200.0,260.0],[400.0,520.0]]"),
+            // The receiver is wider than the transmitter, which is why these
+            // now differ. The Work Band menu offers 18-64 and 64-999, and
+            // 108.000 was confirmed receiving AM inside the second. A channel
+            // that lands here but not in `tx_bands` is programmed receive-only —
+            // byte 15 bit 1 clear — which is measured, not assumed: such a
+            // channel refuses the PTT while its neighbour keys normally.
+            rx_bands: Some("[[18.0,999.0]]"),
             memory_channels: 960,
             zones_supported: false,
             max_zones: None,
@@ -892,41 +914,36 @@ mod tests {
     /// ⚠️ `UIS` mirrors the keys of `PROGRAM_DIALOGS` in
     /// `src/components/codeplugs/programDialogs.ts`; adding a bespoke dialog
     /// means adding its key in both places.
-    /// ⚠ TRIPWIRE, not an invariant anybody wants to keep.
+    /// The tripwire this replaces has done its job.
     ///
-    /// The BT-9000's `rx_bands` and `tx_bands` are currently the SAME two
-    /// spans, which is the only reason `channel_fit` can never return
-    /// `ReceiveOnly` for this radio — and the only reason its encoder gets
-    /// away with setting the per-channel TX-enable bit unconditionally
-    /// (`m[15] = 0x02 | narrow` in `radios/binteradio_bt9000/mod.rs`).
+    /// It fired if the BT-9000's `rx_bands` and `tx_bands` ever diverged, because
+    /// the encoder set the per-channel TX-enable bit unconditionally and a
+    /// receive-only channel would therefore have been programmed able to
+    /// transmit — on a radio that validates nothing and keys wherever it is
+    /// told. The bit it was waiting on (byte 15 bit 1) was measured on the radio
+    /// in s128: a channel written with it clear refuses the PTT while its
+    /// neighbour with it set keys normally.
     ///
-    /// Widening `rx_bands` is an EXPECTED outcome of issue #43's band work:
-    /// this radio receives broadcast FM, AM and SSB, and its `F` handshake
-    /// blob hints at a third span at 200-260 MHz. The moment `rx_bands` grows
-    /// past `tx_bands`, every out-of-TX channel starts being programmed
-    /// transmit-enabled — on a radio that validates NOTHING and will key up
-    /// wherever it is told.
-    ///
-    /// So before widening them, settle what byte 15 bit 1 actually does. It is
-    /// claimed as "TX enable" by the inherited reverse-engineering and has
-    /// never been measured here, and clearing an unverified bit on this
-    /// platform is how radios get damaged. `scratchpad/binteradio_bt9000/`
-    /// carries the campaign; the FT5D's opposite choice
-    /// (`receive_only_channels_encode_as_ordinary_memories`) does NOT transfer,
-    /// because its reasoning is "the radio polices its own TX bands" and this
-    /// one does not police anything.
+    /// So the bands now legitimately differ, and what needs guarding is the
+    /// other half: that the encoder actually honours the distinction.
     #[test]
-    fn bt9000_receive_only_channels_cannot_arise_yet() {
+    fn bt9000_receive_only_channels_are_possible_and_handled() {
         let bt = models()
             .into_iter()
             .find(|m| m.driver_key == Some("binteradio_bt9000"))
             .expect("the BT-9000 is seeded");
-        assert_eq!(
+        assert_ne!(
             bt.rx_bands, bt.tx_bands,
-            "BT-9000 rx_bands and tx_bands have diverged, so a receive-only channel \
-             is now possible — decide what the encoder does with byte 15 bit 1 \
-             (claimed TX-enable, never measured) BEFORE shipping this. See the \
-             comment on this test."
+            "the BT-9000 receives wider than it transmits — 108 MHz takes AM and \
+             refuses the PTT — so these are expected to differ"
+        );
+        // The encoder's own test proves the bit; this proves the schema still
+        // asks it to be used.
+        let rx: Vec<[f64; 2]> = serde_json::from_str(bt.rx_bands.unwrap()).unwrap();
+        let tx: Vec<[f64; 2]> = serde_json::from_str(bt.tx_bands.unwrap()).unwrap();
+        assert!(
+            rx.iter().any(|r| tx.iter().all(|t| t[0] > r[1] || t[1] < r[0] || t != r)),
+            "rx_bands must cover ground tx_bands does not, or receive-only is dead code"
         );
     }
 
