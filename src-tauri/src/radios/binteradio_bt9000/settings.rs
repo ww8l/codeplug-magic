@@ -285,8 +285,22 @@ impl SettingsWriter for super::BinteradioBt9000 {
         //    hammering a write path on this platform is how radios have been
         //    damaged.
         std::thread::sleep(SETTLE);
-        if matches!(verify(&mut *p, &expected), Ok((false, _))) {
-            let hs = handshake(&mut *p)?;
+        // ⚠ Verify ONCE and keep the answer. Calling it again for the report
+        // meant a proven-committed write could still be announced as
+        // unverified, because the second call is a fresh handshake and download
+        // on a radio this driver documents as needing seconds to settle and as
+        // wedging its handshake. Only an actual retry earns a second look.
+        let mut outcome = verify(&mut *p, &expected);
+        if matches!(outcome, Ok((false, _))) {
+            let hs = handshake(&mut *p).map_err(|e| {
+                crate::radios::driver::with_restore_hint(
+                    e,
+                    &backup_path,
+                    "The first write did not commit and the radio would not answer for \
+                     a retry. Keep that file — it is the radio as it was read.",
+                )
+                .to_string()
+            })?;
             upload_segments(&mut *p, &hs, &image, &SETTINGS_SEGMENTS).map_err(|e| {
                 crate::radios::driver::with_restore_hint(
                     e,
@@ -301,8 +315,9 @@ impl SettingsWriter for super::BinteradioBt9000 {
                     .to_string(),
             );
             std::thread::sleep(SETTLE);
+            outcome = verify(&mut *p, &expected);
         }
-        let (verified, verify_note) = match verify(&mut *p, &expected) {
+        let (verified, verify_note) = match outcome {
             Ok(v) => v,
             Err(e) => (
                 false,
@@ -339,7 +354,8 @@ fn verify(
     // comparing the whole 256 bytes reported a mismatch on a restore that had
     // in fact landed perfectly (measured on the radio, s128). Everything this
     // driver writes lives below `0x46`.
-    let got = &back[FUNCTION_OFFSET..FUNCTION_OFFSET + FUNCTION_LIVE_LEN];
+    let live = super::comparable(SETTINGS_READ_SEGMENTS[0]);
+    let got = &back[live];
     let expected = &expected[..FUNCTION_LIVE_LEN];
     if got == expected {
         return Ok((true, None));
@@ -451,6 +467,26 @@ mod tests {
         // The pairings the driver actually uses are accepted.
         super::super::check_commands(&SETTINGS_READ_SEGMENTS, &[0x52, 0x54], "read").unwrap();
         super::super::check_commands(&SETTINGS_SEGMENTS, &[0x57], "write").unwrap();
+    }
+
+    /// ⚠ Every field must live inside the area the read-back compares.
+    ///
+    /// `verify` truncates to `FUNCTION_LIVE_LEN` (0x46) and then indexes
+    /// `FIELDS` addresses into that slice. The highest address today is 0x44 —
+    /// one byte of headroom — and the sheet still has rows owed. A field at 0x46
+    /// or above would never be verified AND would panic inside the
+    /// mismatch-reporting loop, which only runs when a write failed to commit.
+    #[test]
+    fn every_field_lives_inside_the_verified_area() {
+        for f in &FIELDS {
+            assert!(
+                f.addr < FUNCTION_LIVE_LEN,
+                "{} is at 0x{:02X}, outside the 0x{:02X} bytes `verify` compares",
+                f.key,
+                f.addr,
+                FUNCTION_LIVE_LEN
+            );
+        }
     }
 
     /// Round-trip every field through the form's own representation.

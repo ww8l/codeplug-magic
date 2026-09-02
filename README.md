@@ -26,7 +26,7 @@ card — or exported as CSV for tools that expect it.
 | **Icom ID-52** | D-STAR + Analog | VHF / UHF TX, 108–174 / 225–479 MHz RX | microSD — patches the radio's own `.icf` file | 1000 memories in 100 groups; memories and menu settings restore in one operation |
 | **Kenwood TH-D72** | APRS + Analog | 2 m / 70 cm TX, 118–174 / 320–524 MHz RX | Direct USB — read, write, settings | 1000 memories; 113 menu settings over the radio's own `MU` command |
 | **Kenwood TH-D75** | D-STAR + APRS + Analog | VHF / 1.25 m / UHF TX, 0.1–524 MHz RX | microSD — patches the radio's own `.d75` file | 1000 memories in 30 groups; memories and menu settings, including the APRS setup |
-| **Binteradio BT-9000** | Analog FM/NFM | 18–64 / 136–174 / 200–260 / 400–520 MHz TX, 18–999 MHz RX | Direct USB — read, write, settings | 960 channels in 15 fixed zones; 42 menu settings. Also sold as the Radtel RT-950 Pro, Bajeton BJ-9000 and Tenway TP-900 Pro — the radio reports itself as `RT-950` |
+| **Binteradio BT-9000** | Analog FM/NFM | 18–64 / 136–174 / 200–260 / 400–520 MHz TX, 18–520 MHz RX | Direct USB — read, write, settings | 960 channels in 15 fixed zones; 42 menu settings. Also sold as the Radtel RT-950 Pro, Bajeton BJ-9000 and Tenway TP-900 Pro — the radio reports itself as `RT-950` |
 
 Direct USB programming reads the radio's current image, applies your changes, backs up the
 original, writes, and can verify the result byte-for-byte.

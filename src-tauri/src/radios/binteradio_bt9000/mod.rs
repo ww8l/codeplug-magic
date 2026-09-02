@@ -150,6 +150,25 @@ pub(crate) const WRITE_SEGMENTS: [Segment; 6] = [
     Segment { name: "mod_names", command: 0x57, address: 0xD000, file_offset: 0x7E00, length: 0x0300 },
 ];
 
+/// The bytes of `seg` a read-back may legitimately be compared against.
+///
+/// ⚠ Two ranges inside [`WRITE_SEGMENTS`] are FIRMWARE-OWNED and move on their
+/// own, so comparing them reports a mismatch on a write that landed perfectly:
+///
+/// - the `vfo` journal, already excluded by that segment stopping at `0x80`;
+/// - the back half of `function`, `0x9080`-`0x90FF`, a shadow copy of the live
+///   settings (`+0xD0` onward is byte-for-byte the live block).
+///
+/// This exists as a helper because the first fix for it was applied to ONE of
+/// the three comparisons in this driver. The other two — the restore and the
+/// codeplug read-back — kept telling the operator their write had not landed,
+/// and the restore is the path somebody reaches for when things have already
+/// gone wrong.
+pub(crate) fn comparable(seg: Segment) -> std::ops::Range<usize> {
+    let len = if seg.name == "function" { FUNCTION_LIVE_LEN } else { seg.length };
+    seg.file_offset..seg.file_offset + len
+}
+
 /// Refuse a segment whose opcode does not belong to the transport being asked
 /// to carry it.
 ///
@@ -854,7 +873,7 @@ impl ImageRestorer for BinteradioBt9000 {
         let hs = handshake(&mut *p)?;
         let back = download(&mut *p, &hs)?;
         for seg in WRITE_SEGMENTS {
-            let r = seg.file_offset..seg.file_offset + seg.length;
+            let r = comparable(seg);
             if image[r.clone()] != back[r] {
                 return Err(format!(
                     "the radio acknowledged the restore but segment {} read back \
@@ -1011,8 +1030,9 @@ const SETTLE: Duration = Duration::from_secs(5);
 
 /// Read the image back and compare only the regions we actually wrote.
 ///
-/// The VFO journal and the APRS block are excluded because the radio owns them:
-/// comparing them would report a difference on every single write.
+/// The VFO journal, the function block's shadow half and the APRS block are all
+/// excluded because the radio owns them: comparing them would report a
+/// difference on every single write. See [`comparable`].
 fn verify_after_write(
     p: &mut dyn SerialPort,
     expected: &[u8],
@@ -1021,7 +1041,7 @@ fn verify_after_write(
     let actual = download(p, &hs)?;
     let mut mismatched = Vec::new();
     for seg in WRITE_SEGMENTS {
-        let range = seg.file_offset..seg.file_offset + seg.length;
+        let range = comparable(seg);
         if expected[range.clone()] != actual[range] {
             mismatched.push(seg.name);
         }

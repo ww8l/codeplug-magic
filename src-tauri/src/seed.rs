@@ -209,12 +209,18 @@ fn models() -> Vec<ModelSeed> {
             p25_capable: false,
             m17_capable: false,
             aprs_capable: false,
-            covers_hf: false,
+            // Updated with the measured bands: `tx_bands` now reaches 18-64 MHz
+            // (27.500 and 50.125 both keyed, so part of it is HF) and 200-260
+            // (223.500 keyed, which is 1.25 m). These flags are display only —
+            // `tx_capable` reads `tx_bands` — but they are what the band chips
+            // in the codeplug and profile screens show, and therefore what an
+            // operator picks a radio by.
+            covers_hf: true,
             covers_vhf: true,
             covers_uhf: true,
-            covers_220: false,
+            covers_220: true,
             covers_900: false,
-            freq_min: 136.0,
+            freq_min: 18.0,
             freq_max: 520.0,
             tx_bands: None,
             rx_bands: None,
@@ -341,12 +347,18 @@ fn models() -> Vec<ModelSeed> {
             // Claiming the capability would put an APRS form in front of the
             // operator that silently does nothing.
             aprs_capable: false,
-            covers_hf: false,
+            // Updated with the measured bands: `tx_bands` now reaches 18-64 MHz
+            // (27.500 and 50.125 both keyed, so part of it is HF) and 200-260
+            // (223.500 keyed, which is 1.25 m). These flags are display only —
+            // `tx_capable` reads `tx_bands` — but they are what the band chips
+            // in the codeplug and profile screens show, and therefore what an
+            // operator picks a radio by.
+            covers_hf: true,
             covers_vhf: true,
             covers_uhf: true,
-            covers_220: false,
+            covers_220: true,
             covers_900: false,
-            freq_min: 136.0,
+            freq_min: 18.0,
             freq_max: 520.0,
             // MEASURED on the radio (s128), one channel per band edge and the
             // PTT pressed on each. The image could not answer this — it stores
@@ -372,13 +384,22 @@ fn models() -> Vec<ModelSeed> {
             // 18-64 takes the range the radio's own Work Band menu declares,
             // with 27.5 and 50.125 confirmed inside it.
             tx_bands: Some("[[18.0,64.0],[136.0,174.0],[200.0,260.0],[400.0,520.0]]"),
-            // The receiver is wider than the transmitter, which is why these
-            // now differ. The Work Band menu offers 18-64 and 64-999, and
-            // 108.000 was confirmed receiving AM inside the second. A channel
-            // that lands here but not in `tx_bands` is programmed receive-only —
-            // byte 15 bit 1 clear — which is measured, not assumed: such a
-            // channel refuses the PTT while its neighbour keys normally.
-            rx_bands: Some("[[18.0,999.0]]"),
+            // The receiver is wider than the transmitter, which is why these now
+            // differ. A channel that lands here but not in `tx_bands` is
+            // programmed receive-only — byte 15 bit 1 clear — which is measured,
+            // not assumed: such a channel refuses the PTT while its neighbour
+            // keys normally.
+            //
+            // ⚠ CAPPED AT 520, not at the 999 the Work Band menu advertises.
+            // The highest frequency anything was confirmed at is 520.000, and
+            // the next probe up — 580.000 — could not be dialled on the VFO at
+            // all. Claiming 999 on the strength of a menu label would make a 902
+            // MHz repeater (RepeaterBook carries them) `ReceiveOnly` instead of
+            // `Excluded`: it would take a memory slot and be reported as
+            // written, on a radio that cannot tune it. That is the
+            // silently-empty-slot failure this project already recorded once on
+            // the ID-52, and the old conservative seed did not have it.
+            rx_bands: Some("[[18.0,520.0]]"),
             memory_channels: 960,
             zones_supported: false,
             max_zones: None,
@@ -941,8 +962,29 @@ mod tests {
         // asks it to be used.
         let rx: Vec<[f64; 2]> = serde_json::from_str(bt.rx_bands.unwrap()).unwrap();
         let tx: Vec<[f64; 2]> = serde_json::from_str(bt.tx_bands.unwrap()).unwrap();
+        // ⚠ "Some rx band is not fully covered by the UNION of the tx bands."
+        //
+        // The first version of this asserted `t != r` among its disjuncts, which
+        // made it true for any bands that merely differ — so `rx = [[137,173]]`
+        // strictly INSIDE `tx = [[136,174]]` would have passed while receive-only
+        // was dead code, which is the exact thing it claims to rule out. A guard
+        // that cannot fail proves nothing.
+        let uncovered = rx.iter().any(|r| {
+            // Walk the rx span, swallowing any tx span that overlaps it. If a gap
+            // survives, the receiver reaches somewhere the transmitter does not.
+            let mut lo = r[0];
+            let mut spans: Vec<[f64; 2]> = tx.iter().copied().filter(|t| t[1] > r[0] && t[0] < r[1]).collect();
+            spans.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());
+            for t in spans {
+                if t[0] > lo {
+                    return true;
+                }
+                lo = lo.max(t[1]);
+            }
+            lo < r[1]
+        });
         assert!(
-            rx.iter().any(|r| tx.iter().all(|t| t[0] > r[1] || t[1] < r[0] || t != r)),
+            uncovered,
             "rx_bands must cover ground tx_bands does not, or receive-only is dead code"
         );
     }

@@ -101,13 +101,19 @@ fn every_seeded_radio_appears_in_the_readme() {
     for d in crate::radios::registry::all_drivers() {
         let name = d.display_name();
         checked += 1;
+        // ⚠ Matched as the bolded cell `**Name**`, not as a bare substring of the
+        // table. "Icom ID-51" is a substring of the planned "Icom ID-5100", so a
+        // substring match would report the ID-51 as still planned the day it
+        // ships (#50), and would accept an ID-5100 row as proof the ID-51 is
+        // supported.
+        let cell = format!("**{name}**");
         assert!(
-            supported.contains(name),
+            supported.contains(&cell),
             "{name} is a working driver but is not in the README's Supported radios \
              table. Someone who owns one cannot tell that it works."
         );
         assert!(
-            !planned.contains(name),
+            !planned.contains(&cell),
             "{name} ships AND is still listed under Planned"
         );
     }
@@ -139,12 +145,18 @@ Trailing prose naming Kept Radio again.
 ";
     for (label, doc) in [("LF", DOC.to_string()), ("CRLF", DOC.replace('\n', "\r\n"))] {
         let (supported, planned) = readme_tables(&doc);
-        assert!(supported.contains("Kept Radio"), "{label}: supported table lost a row");
-        assert!(!supported.contains("Planned Radio"), "{label}: tables bled together");
-        assert!(planned.contains("Planned Radio"), "{label}: planned table not found");
+        assert!(supported.contains("**Kept Radio**"), "{label}: supported table lost a row");
+        assert!(!supported.contains("**Planned Radio**"), "{label}: tables bled together");
+        assert!(planned.contains("**Planned Radio**"), "{label}: planned table not found");
         assert!(
-            !planned.contains("Kept Radio"),
+            !planned.contains("**Kept Radio**"),
             "{label}: planned table ran past its end and swallowed later prose"
+        );
+        // A shorter name must not match a longer one that starts with it — the
+        // ID-51 / ID-5100 collision this guard would otherwise have.
+        assert!(
+            !planned.contains("**Planned Rad**"),
+            "{label}: a prefix matched a longer name"
         );
     }
 }
