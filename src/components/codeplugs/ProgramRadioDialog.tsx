@@ -83,6 +83,22 @@ export function ProgramRadioDialog({
   // way the cable UI never flashes on for a radio that will hide it once the
   // capabilities land, and a normal radio never waits on them.
   const showCable = isProgrammable(model) && (media == null || cableCapable);
+  // ⚠ `showCable` says a PORT section belongs here; it does NOT say anything
+  // may be written. Every registered driver implements `identify`, so a cable
+  // radio always earns the port picker — but the write affordances have to ask
+  // `cableCapable` separately.
+  //
+  // The two were one flag until the TM-D710 (#113): the first driver registered
+  // with a cable modality and NO capability trait, deliberately, because
+  // nothing had been written to that radio yet. `media == null` was standing in
+  // for "has a cable path", which had been true of every non-media radio until
+  // then — so seeding the model turned "Program radio" into a button that
+  // confirmed a destructive write and then failed at the backend with "cannot
+  // be programmed over the cable". Same shape as #65: the gate existed, the
+  // button just never consulted it.
+  const canWriteOverCable = showCable && cableCapable;
+  // Cable or card — anything at all that ends with a codeplug on the radio.
+  const canWriteAnything = canWriteOverCable || media != null;
   const [ports, setPorts] = useState<PortInfo[]>([]);
   const [port, setPort] = useState<string>("");
   const [preview, setPreview] = useState<ExportPreview | null>(null);
@@ -383,7 +399,7 @@ export function ProgramRadioDialog({
                       </Button>
                     </>
                   )}
-                  {showCable && (
+                  {canWriteOverCable && (
                     <Button
                       variant="primary"
                       onClick={() => setConfirming(true)}
@@ -420,8 +436,10 @@ export function ProgramRadioDialog({
           </div>
         ) : (
           <>
-            {/* Safety banner */}
-            {showCable && (
+            {/* Safety banner. Gated on the WRITE capability, not on
+                `showCable`: promising a backup-then-write-then-verify run for a
+                radio that cannot be written is worse than saying nothing. */}
+            {canWriteOverCable && (
               <div className="flex items-start gap-2 border-b border-sky-200 bg-sky-50 px-5 py-2.5 text-xs text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/40 dark:text-sky-300">
                 <ShieldCheck size={15} className="mt-px shrink-0" />
                 <span>
@@ -500,8 +518,17 @@ export function ProgramRadioDialog({
             {preview && (
               <div className={`space-y-2 px-5 ${showCable ? "" : "pt-4"}`}>
                 <div className="text-xs text-slate-600 dark:text-slate-300">
-                  Programming <strong>{writeCount}</strong> channel
-                  {writeCount === 1 ? "" : "s"} into {modelName}
+                  {/* The breakdown below is worth showing even for a radio
+                      nothing can be written to — it is the codeplug's FIT
+                      against this model, and the receive-only count is the
+                      part an operator most needs before buying a cable. Only
+                      the verb has to change: "Programming 62 channels" is a
+                      promise, and this dialog cannot keep it. */}
+                  {canWriteAnything ? "Programming " : "This codeplug holds "}
+                  <strong>{writeCount}</strong> channel
+                  {writeCount === 1 ? "" : "s"}
+                  {canWriteAnything ? " into " : " for "}
+                  {modelName}
                   {receiveOnly.length > 0 && (
                     <>
                       {" "}
