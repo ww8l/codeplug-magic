@@ -176,6 +176,19 @@ pub const THD75_SETTINGS_SCHEMA: &str = include_str!("thd75_settings_schema.json
 /// for the six-of-six cross-check that showed the two carry the same values.
 pub const THD72_SETTINGS_SCHEMA: &str = include_str!("thd72_settings_schema.json");
 
+/// The BT-9000 profile-settings schema, GENERATED alongside the Rust field
+/// table by `scratchpad/binteradio_bt9000/gen_bt9000_settings.py` from that
+/// folder's `MEASURED.md`. `radios/binteradio_bt9000/settings.rs` asserts the
+/// two halves still describe the same fields.
+///
+/// ⚠ It is SHORT on purpose. The sheet grades ~43 candidate fields and this
+/// carries only the ones whose encoding was settled on the radio's own screen.
+/// This radio validates nothing — it stored 127 in fields whose maxima are 9,
+/// 2, 3 and 1 — so an unsettled encoding would be stored rather than refused,
+/// and the schema is where that decision is enforced.
+pub const BT9000_SETTINGS_SCHEMA: &str =
+    include_str!("bt9000_settings_schema.json");
+
 
 fn models() -> Vec<ModelSeed> {
     vec![
@@ -196,12 +209,18 @@ fn models() -> Vec<ModelSeed> {
             p25_capable: false,
             m17_capable: false,
             aprs_capable: false,
-            covers_hf: false,
+            // Updated with the measured bands: `tx_bands` now reaches 18-64 MHz
+            // (27.500 and 50.125 both keyed, so part of it is HF) and 200-260
+            // (223.500 keyed, which is 1.25 m). These flags are display only —
+            // `tx_capable` reads `tx_bands` — but they are what the band chips
+            // in the codeplug and profile screens show, and therefore what an
+            // operator picks a radio by.
+            covers_hf: true,
             covers_vhf: true,
             covers_uhf: true,
-            covers_220: false,
+            covers_220: true,
             covers_900: false,
-            freq_min: 136.0,
+            freq_min: 18.0,
             freq_max: 520.0,
             tx_bands: None,
             rx_bands: None,
@@ -297,6 +316,108 @@ fn models() -> Vec<ModelSeed> {
                 {"key": "limits.uhf.upper", "label": "UHF Upper Limit (MHz)", "type": "integer", "min": 1, "max": 1000, "default": 520},
                 {"key": "limits.uhf.enable", "label": "UHF TX Enabled", "type": "boolean", "default": true}
             ]"#,
+        },
+        // --------------------------------------------------------
+        // 9. Binteradio BT-9000 (issue #43) — analog FM/NFM/AM clone-mode HT.
+        //    One badge on an OEM platform also sold as the Radtel RT-950 Pro,
+        //    Bajeton BJ-9000 and Tenway TP-900 Pro; the radio reports its model
+        //    as "RT-950" whatever the case says.
+        //
+        //    960 channels in 15 FIXED zones of 64. Zones carry no names in the
+        //    radio — membership is index/64 and the vendor CPS keeps labels
+        //    only in its own file — so `zones_supported` is false: this app
+        //    would be offering a name the radio cannot store.
+        // --------------------------------------------------------
+        ModelSeed {
+            manufacturer: "Binteradio",
+            model: "BT-9000",
+            driver_key: Some("binteradio_bt9000"),
+            programming_ui: Some("generic"),
+            display_name: "Binteradio BT-9000",
+            analog_capable: true,
+            dmr_capable: false,
+            dstar_capable: false,
+            ysf_capable: false,
+            nxdn_capable: false,
+            p25_capable: false,
+            m17_capable: false,
+            // The radio HAS APRS and GPS, and its APRS block decodes correctly.
+            // The flag stays false because the block cannot be WRITTEN: 0x55
+            // answers 0x06 and never commits (issue #43, measured four times).
+            // Claiming the capability would put an APRS form in front of the
+            // operator that silently does nothing.
+            aprs_capable: false,
+            // Updated with the measured bands: `tx_bands` now reaches 18-64 MHz
+            // (27.500 and 50.125 both keyed, so part of it is HF) and 200-260
+            // (223.500 keyed, which is 1.25 m). These flags are display only —
+            // `tx_capable` reads `tx_bands` — but they are what the band chips
+            // in the codeplug and profile screens show, and therefore what an
+            // operator picks a radio by.
+            covers_hf: true,
+            covers_vhf: true,
+            covers_uhf: true,
+            covers_220: true,
+            covers_900: false,
+            freq_min: 18.0,
+            freq_max: 520.0,
+            // MEASURED on the radio (s128), one channel per band edge and the
+            // PTT pressed on each. The image could not answer this — it stores
+            // every frequency it is given — so each of these was keyed.
+            //
+            // | probe | keys? |
+            // |---|---|
+            // | 27.500, 50.125 | yes (27.5 needs the 18-64 Work Band selected) |
+            // | 108.000 | **NO** — receives AM, refuses to transmit |
+            // | 136.000, 145.100, 174.000 | yes |
+            // | 200.000, 223.500, 260.000 | yes — the `F` blob's third pair is REAL |
+            // | 400.000, 431.100, 520.000 | yes |
+            // | 580.000 | not settable on the VFO at all |
+            //
+            // So the radio DOES gate transmit — 108 refusing is what proves the
+            // other twelve "yes" answers mean something — and 220 MHz is real,
+            // which the manual never mentions.
+            //
+            // ⚠ The spans between tested points are NOT measured: 64-108,
+            // 108-136, 174-200, 260-400 and 520-580 are excluded because
+            // nothing was keyed there, not because anything refused. The three
+            // narrow spans take both of their own edges from a successful key;
+            // 18-64 takes the range the radio's own Work Band menu declares,
+            // with 27.5 and 50.125 confirmed inside it.
+            tx_bands: Some("[[18.0,64.0],[136.0,174.0],[200.0,260.0],[400.0,520.0]]"),
+            // The receiver is wider than the transmitter, which is why these now
+            // differ. A channel that lands here but not in `tx_bands` is
+            // programmed receive-only — byte 15 bit 1 clear — which is measured,
+            // not assumed: such a channel refuses the PTT while its neighbour
+            // keys normally.
+            //
+            // ⚠ CAPPED AT 520, not at the 999 the Work Band menu advertises.
+            // The highest frequency anything was confirmed at is 520.000, and
+            // the next probe up — 580.000 — could not be dialled on the VFO at
+            // all. Claiming 999 on the strength of a menu label would make a 902
+            // MHz repeater (RepeaterBook carries them) `ReceiveOnly` instead of
+            // `Excluded`: it would take a memory slot and be reported as
+            // written, on a radio that cannot tune it. That is the
+            // silently-empty-slot failure this project already recorded once on
+            // the ID-52, and the old conservative seed did not have it.
+            rx_bands: Some("[[18.0,520.0]]"),
+            memory_channels: 960,
+            zones_supported: false,
+            max_zones: None,
+            channels_per_zone: None,
+            // Per-channel scan-add flag (byte 15 bit 2), not named scan lists.
+            scan_lists_supported: false,
+            max_scan_lists: None,
+            banks_supported: false,
+            max_name_length: 12,
+            export_format: "chirp_csv",
+            connection_type: "Kenwood K1 (2-pin)",
+            // Generated from scratchpad/binteradio_bt9000/MEASURED.md, and
+            // carrying only the fields whose encoding was settled on the
+            // radio's own screen. The sheet names ~43 candidates; the rest are
+            // measured but not settled, and are listed by the generator on
+            // stderr rather than emitted. SCREEN-CHECK.md is the runbook that
+            // closes the gap.
+            non_channel_settings_schema: BT9000_SETTINGS_SCHEMA,
         },
         // --------------------------------------------------------
         // 2. TIDRADIO TD-H3 — analog FM/NFM/AM, 200 ch, no zones, 8 char.
@@ -814,6 +935,60 @@ mod tests {
     /// ⚠️ `UIS` mirrors the keys of `PROGRAM_DIALOGS` in
     /// `src/components/codeplugs/programDialogs.ts`; adding a bespoke dialog
     /// means adding its key in both places.
+    /// The tripwire this replaces has done its job.
+    ///
+    /// It fired if the BT-9000's `rx_bands` and `tx_bands` ever diverged, because
+    /// the encoder set the per-channel TX-enable bit unconditionally and a
+    /// receive-only channel would therefore have been programmed able to
+    /// transmit — on a radio that validates nothing and keys wherever it is
+    /// told. The bit it was waiting on (byte 15 bit 1) was measured on the radio
+    /// in s128: a channel written with it clear refuses the PTT while its
+    /// neighbour with it set keys normally.
+    ///
+    /// So the bands now legitimately differ, and what needs guarding is the
+    /// other half: that the encoder actually honours the distinction.
+    #[test]
+    fn bt9000_receive_only_channels_are_possible_and_handled() {
+        let bt = models()
+            .into_iter()
+            .find(|m| m.driver_key == Some("binteradio_bt9000"))
+            .expect("the BT-9000 is seeded");
+        assert_ne!(
+            bt.rx_bands, bt.tx_bands,
+            "the BT-9000 receives wider than it transmits — 108 MHz takes AM and \
+             refuses the PTT — so these are expected to differ"
+        );
+        // The encoder's own test proves the bit; this proves the schema still
+        // asks it to be used.
+        let rx: Vec<[f64; 2]> = serde_json::from_str(bt.rx_bands.unwrap()).unwrap();
+        let tx: Vec<[f64; 2]> = serde_json::from_str(bt.tx_bands.unwrap()).unwrap();
+        // ⚠ "Some rx band is not fully covered by the UNION of the tx bands."
+        //
+        // The first version of this asserted `t != r` among its disjuncts, which
+        // made it true for any bands that merely differ — so `rx = [[137,173]]`
+        // strictly INSIDE `tx = [[136,174]]` would have passed while receive-only
+        // was dead code, which is the exact thing it claims to rule out. A guard
+        // that cannot fail proves nothing.
+        let uncovered = rx.iter().any(|r| {
+            // Walk the rx span, swallowing any tx span that overlaps it. If a gap
+            // survives, the receiver reaches somewhere the transmitter does not.
+            let mut lo = r[0];
+            let mut spans: Vec<[f64; 2]> = tx.iter().copied().filter(|t| t[1] > r[0] && t[0] < r[1]).collect();
+            spans.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());
+            for t in spans {
+                if t[0] > lo {
+                    return true;
+                }
+                lo = lo.max(t[1]);
+            }
+            lo < r[1]
+        });
+        assert!(
+            uncovered,
+            "rx_bands must cover ground tx_bands does not, or receive-only is dead code"
+        );
+    }
+
     #[test]
     fn every_seeded_driver_key_resolves_and_pairs_with_a_known_ui() {
         const UIS: [&str; 3] = ["generic", "tdh3", "anytone"];

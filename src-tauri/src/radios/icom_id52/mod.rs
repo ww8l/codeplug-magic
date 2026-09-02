@@ -188,6 +188,7 @@ mod tests {
                 write_settings: false,
                 write_channels: false,
                 program_codeplug: false,
+                programs_settings: false,
                 write_callsign_db: false,
                 export: true,
                 diagnostics: false,

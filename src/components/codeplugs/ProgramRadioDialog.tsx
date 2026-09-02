@@ -426,9 +426,21 @@ export function ProgramRadioDialog({
                 <ShieldCheck size={15} className="mt-px shrink-0" />
                 <span>
                   Programming <strong>downloads a full backup first</strong>, then
-                  writes the channels, names, and your profile’s radio settings, and
-                  reads the channels back to verify. Only the values your profile
-                  defines change — everything else is written back as it was read.
+                  writes the channels and names
+                  {caps?.programs_settings
+                    ? " and your profile’s radio settings"
+                    : ""}
+                  , and reads the channels back to verify. Only the values your
+                  profile defines change — everything else is written back as it
+                  was read.
+                  {caps?.programs_settings === false && caps?.write_settings && (
+                    <>
+                      {" "}
+                      This radio’s settings are written separately — open the
+                      profile under <strong>Radios</strong> and use{" "}
+                      <strong>Write to radio</strong>.
+                    </>
+                  )}
                 </span>
               </div>
             )}

@@ -23,8 +23,9 @@ use crate::models::RadioModel;
 /// Every driver compiled into the app. Order is not significant — lookups are
 /// by `key()`, which is unique. (A static array rather than a slice literal:
 /// references to statics aren't const-promotable inside a returned temporary.)
-static DRIVERS: [&dyn RadioDriver; 7] = [
+static DRIVERS: [&dyn RadioDriver; 8] = [
     &super::baofeng_uv5r::DRIVER,
+    &super::binteradio_bt9000::DRIVER,
     &super::tidradio_tdh3::DRIVER,
     &super::anytone_atd890uv::DRIVER,
     &super::yaesu_ft5d::DRIVER,
@@ -75,6 +76,7 @@ mod tests {
     fn every_driver_key_resolves_and_is_unique() {
         for key in [
             "baofeng_uv5r",
+            "binteradio_bt9000",
             "tidradio_tdh3",
             "anytone_atd890uv",
             "yaesu_ft5d",
@@ -114,6 +116,19 @@ mod tests {
                 // `MU` ASCII command — no clone session involved, which is why
                 // it claims both halves where the card radios claim neither.
                 "kenwood_thd72" => (true, true),
+                // BT-9000: both. Like the TH-D72 it reads and writes its own
+                // settings, but through a clone session rather than an ASCII
+                // command — and the WRITE is narrowed to the one 256-byte
+                // function segment, because the same transport could rewrite
+                // all 960 channel records to change a squelch level.
+                //
+                // ⚠ The schema behind this is deliberately SHORT. It carries
+                // only the fields whose encoding was settled on the radio's own
+                // screen; the measurement sheet grades ~43 candidates and the
+                // generator withholds the rest. A wrong encoding here is not
+                // caught anywhere downstream — this radio stored 127 in fields
+                // whose maxima are 9, 2, 3 and 1 (issue #43).
+                "binteradio_bt9000" => (true, true),
                 _ => (true, true),
             };
             assert_eq!(
@@ -174,8 +189,10 @@ mod tests {
     #[test]
     fn all_drivers_identify_but_only_clone_radios_download_images() {
         for d in all_drivers() {
-            let expect_image =
-                matches!(d.key(), "baofeng_uv5r" | "tidradio_tdh3" | "kenwood_thd72");
+            let expect_image = matches!(
+                d.key(),
+                "baofeng_uv5r" | "tidradio_tdh3" | "kenwood_thd72" | "binteradio_bt9000"
+            );
             assert_eq!(
                 d.as_image_programmer().is_some(),
                 expect_image,

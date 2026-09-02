@@ -3,7 +3,14 @@ import {
   confirm as confirmDialog,
   open as openDialog,
 } from "@tauri-apps/plugin-dialog";
-import { Trash2, Save, DownloadCloud, RefreshCw, HardDrive } from "lucide-react";
+import {
+  Trash2,
+  Save,
+  DownloadCloud,
+  UploadCloud,
+  RefreshCw,
+  HardDrive,
+} from "lucide-react";
 import clsx from "clsx";
 import { toast } from "sonner";
 import { api, withToast } from "../../lib/api";
@@ -116,6 +123,154 @@ function RadioSyncBar({
         {busy ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
         Download from radio
       </Button>
+    </div>
+  );
+}
+
+/**
+ * Push this profile's saved settings to the radio. The exact inverse of
+ * RadioSyncBar, and gated the same way — on the DRIVER's `write_settings`
+ * capability, never on a model name.
+ *
+ * ⚠ It exists because the capability did not have a caller. `SettingsWriter`
+ * was implemented and hardware-proven on two radios, `write_radio_settings` was
+ * registered, and the only controls that reached it were the TD-H3's and the
+ * AnyTone's own program dialogs — so a radio using the generic UI could read
+ * its settings into this form and had no way to send them back. That is the
+ * dead-write-path trap one layer up from where it was caught before: the read
+ * half works, so nothing looks broken.
+ *
+ * It writes what is SAVED, not what is typed. The command reads the profile out
+ * of the database, so an unsaved edit in this form would not go to the radio —
+ * hence the Save prompt rather than a silent partial write.
+ */
+function WriteToRadioBar({
+  profileId,
+  modelLabel,
+  dirty,
+  neverSaved,
+}: {
+  profileId: number;
+  modelLabel: string;
+  dirty: boolean;
+  /// The profile row carries no settings yet, so there is nothing to send and
+  /// the command would only error. Treated like `dirty`: same button, same
+  /// instruction.
+  neverSaved: boolean;
+}) {
+  const [ports, setPorts] = useState<PortInfo[]>([]);
+  const [port, setPort] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  const refresh = async () => {
+    try {
+      const list = await api.listSerialPorts();
+      setPorts(list);
+      const usb = list.find((p) => p.kind === "usb");
+      setPort((cur) => cur || usb?.name || list[0]?.name || "");
+    } catch {
+      /* surfaced on write */
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const upload = async () => {
+    if (!port) return;
+    setConfirming(false);
+    setBusy(true);
+    const res = await withToast(api.writeRadioSettings(port, profileId), {
+      error: "Could not write settings to the radio",
+    });
+    setBusy(false);
+    if (!res) return;
+    const { toast } = await import("sonner");
+    const n = res.fields_written;
+    const applied = `Wrote ${n} setting${n === 1 ? "" : "s"} to the radio`;
+    // ⚠ `note` carries the fields that were DROPPED — out of range for the
+    // schema, or a select value this app cannot name — so it has to be shown
+    // whether or not the write verified. Reporting "verified ✓" while silently
+    // discarding the list of what never made it is worse than not reporting.
+    const suffix = res.note ? ` — ${res.note}` : "";
+    // Three states, not two. `verified: null` means the radio offers no
+    // in-session read-back (the AnyTone reboots on commit), which is not the
+    // same as a read-back that disagreed.
+    if (res.verified === true) {
+      toast.success(`${applied} · read back and verified ✓${suffix}`);
+    } else if (res.verified === null) {
+      toast.info(
+        `${applied}. This radio cannot be read back in the same session, so the write is unverified${suffix}`,
+      );
+    } else {
+      toast.warning(res.note || `${applied}, but the read-back did not confirm it.`);
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2.5 dark:border-amber-900/50 dark:bg-amber-950/20">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="flex-1">
+          <span className="mb-1 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+            Write these settings to a connected {modelLabel}
+          </span>
+          <div className="flex items-center gap-2">
+            <Select
+              className="min-w-0 flex-1"
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+            >
+              {ports.length === 0 && <option value="">No ports found</option>}
+              {ports.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.name}
+                  {p.kind === "usb" ? "  ·  USB" : ""}
+                  {p.product ? `  ·  ${p.product}` : ""}
+                </option>
+              ))}
+            </Select>
+            <Button variant="ghost" onClick={refresh} title="Rescan ports">
+              <RefreshCw size={14} />
+            </Button>
+          </div>
+        </div>
+        <Button
+          variant="primary"
+          onClick={() => setConfirming(true)}
+          disabled={!port || busy || dirty || neverSaved}
+          title={
+            dirty || neverSaved
+              ? "Save this profile first — the radio gets the saved values"
+              : undefined
+          }
+        >
+          {busy ? <Spinner className="h-3.5 w-3.5" /> : <UploadCloud size={14} />}
+          Write to radio
+        </Button>
+      </div>
+      {(dirty || neverSaved) && (
+        <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">
+          {neverSaved
+            ? "This profile has not been saved yet. The radio is written from the saved profile, so Save first."
+            : "This profile has unsaved changes. The radio is written from the saved profile, so Save first."}
+        </p>
+      )}
+      {confirming && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-100/70 px-3 py-2 text-xs dark:border-amber-800 dark:bg-amber-900/30">
+          <span className="flex-1 text-slate-700 dark:text-slate-200">
+            This changes settings on the radio. Channels are left untouched, and a
+            backup of the radio is written beside the app's data first.
+          </span>
+          <Button variant="ghost" onClick={() => setConfirming(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={upload}>
+            Write to radio
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -739,6 +894,11 @@ export function ProfileEditor({
   // from a radio rather than from the operator, and blocking the save over it
   // would strand a profile they never typed into (see below).
   const [baseline, setBaseline] = useState<SettingsValues>({});
+  // What the DATABASE holds, which is a different question from `baseline`.
+  // `baseline` means "not typed by the operator" and deliberately absorbs a
+  // read from the radio, so it cannot answer "is this profile saved?" — and
+  // `write_radio_settings` sends the SAVED row, not the form.
+  const [saved, setSaved] = useState<SettingsValues>({});
   const [lastId, setLastId] = useState<number | null>(null);
   if (profile.id !== lastId) {
     setName(profile.display_name);
@@ -753,6 +913,7 @@ export function ProfileEditor({
     );
     setValues(seeded);
     setBaseline(seeded);
+    setSaved(seeded);
     setLastId(profile.id);
     setTab("settings");
     setSubTab(null);
@@ -760,6 +921,23 @@ export function ProfileEditor({
 
   const setValue = (key: string, v: string | number | boolean) =>
     setValues((s) => ({ ...s, [key]: v }));
+
+  // `write_radio_settings` sends the profile as STORED, so anything the form
+  // holds that the database does not must block the write.
+  //
+  // ⚠ This compares against `saved`, NOT `baseline`. `baseline` absorbs a read
+  // from the radio on purpose, so using it here made the button live again the
+  // instant "Download from radio" finished — and that write would have sent the
+  // PREVIOUSLY SAVED values straight back over the ones just read, while the
+  // form went on displaying the radio's. The one path that most needs the guard
+  // was the one path it did not cover.
+  const dirty = useMemo(
+    () =>
+      name !== profile.display_name ||
+      notes !== (profile.notes ?? "") ||
+      fields.some((f) => values[f.key] !== saved[f.key]),
+    [name, notes, values, saved, fields, profile],
+  );
 
   // Values that came off the radio (or its card) are the new starting point,
   // not an edit — a radio is allowed to hold a value this app's schema does not
@@ -816,7 +994,10 @@ export function ProfileEditor({
       { success: "Profile saved" },
     );
     setSaving(false);
-    if (updated) onSaved(updated);
+    if (updated) {
+      setSaved(values);
+      onSaved(updated);
+    }
   };
 
   const remove = async () => {
@@ -897,6 +1078,25 @@ export function ProfileEditor({
                 onLoaded={loadFromRadio}
               />
             )}
+            {/* The inverse, gated on the driver's write capability for the same
+                reason. Card radios never get it: their settings are patched
+                into the file the export writes, not sent over a cable.
+                ⚠ And only for radios on the GENERIC programming UI. A radio
+                with a bespoke dialog already offers this write there, in a
+                place that can speak to what makes it unusual — the AnyTone's
+                settings commit reboots the radio and re-enumerates USB, so it
+                reports `verified: null` plus an `expected_path` to diff in a
+                fresh session, and a generic bar would show neither. */}
+            {caps?.write_settings &&
+              fields.length > 0 &&
+              (model.programming_ui ?? "generic") === "generic" && (
+                <WriteToRadioBar
+                  profileId={profile.id}
+                  modelLabel={model.display_name}
+                  dirty={dirty}
+                  neverSaved={!profile.non_channel_settings}
+                />
+              )}
             {/* A card radio's settings come off its microSD rather than a
                 cable, so it gets a file picker where the others get a port
                 picker. Keyed on the export format — the same key that names the
