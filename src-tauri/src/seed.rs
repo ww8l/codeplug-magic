@@ -299,6 +299,69 @@ fn models() -> Vec<ModelSeed> {
             ]"#,
         },
         // --------------------------------------------------------
+        // 9. Binteradio BT-9000 (issue #43) — analog FM/NFM/AM clone-mode HT.
+        //    One badge on an OEM platform also sold as the Radtel RT-950 Pro,
+        //    Bajeton BJ-9000 and Tenway TP-900 Pro; the radio reports its model
+        //    as "RT-950" whatever the case says.
+        //
+        //    960 channels in 15 FIXED zones of 64. Zones carry no names in the
+        //    radio — membership is index/64 and the vendor CPS keeps labels
+        //    only in its own file — so `zones_supported` is false: this app
+        //    would be offering a name the radio cannot store.
+        // --------------------------------------------------------
+        ModelSeed {
+            manufacturer: "Binteradio",
+            model: "BT-9000",
+            driver_key: Some("binteradio_bt9000"),
+            programming_ui: Some("generic"),
+            display_name: "Binteradio BT-9000",
+            analog_capable: true,
+            dmr_capable: false,
+            dstar_capable: false,
+            ysf_capable: false,
+            nxdn_capable: false,
+            p25_capable: false,
+            m17_capable: false,
+            // The radio HAS APRS and GPS, and its APRS block decodes correctly.
+            // The flag stays false because the block cannot be WRITTEN: 0x55
+            // answers 0x06 and never commits (issue #43, measured four times).
+            // Claiming the capability would put an APRS form in front of the
+            // operator that silently does nothing.
+            aprs_capable: false,
+            covers_hf: false,
+            covers_vhf: true,
+            covers_uhf: true,
+            covers_220: false,
+            covers_900: false,
+            freq_min: 136.0,
+            freq_max: 520.0,
+            // ⚠ DELIBERATELY CONSERVATIVE, pending the band probe (ladder step
+            // 4). The manual states 136-174 and 400-520, and the first two
+            // pairs of the radio's `F` handshake blob agree. That blob's third
+            // pair reads 200-260, and the vendor's web copy claims TX on CB and
+            // 18-32 MHz — none of it measured. Under-claiming excludes a
+            // channel with a reason the operator can see; over-claiming writes
+            // a SILENTLY EMPTY memory slot while reporting success.
+            tx_bands: Some("[[136.0,174.0],[400.0,520.0]]"),
+            rx_bands: Some("[[136.0,174.0],[400.0,520.0]]"),
+            memory_channels: 960,
+            zones_supported: false,
+            max_zones: None,
+            channels_per_zone: None,
+            // Per-channel scan-add flag (byte 15 bit 2), not named scan lists.
+            scan_lists_supported: false,
+            max_scan_lists: None,
+            banks_supported: false,
+            max_name_length: 12,
+            export_format: "chirp_csv",
+            connection_type: "Kenwood K1 (2-pin)",
+            // Empty on purpose. Sixteen function-block fields are measured and
+            // screen-confirmed (see scratchpad FINDINGS.md), but the settings
+            // read/write path is not wired yet, and seeding a schema whose
+            // fields nothing carries to the radio is the dead-write-path trap.
+            non_channel_settings_schema: r#"[]"#,
+        },
+        // --------------------------------------------------------
         // 2. TIDRADIO TD-H3 — analog FM/NFM/AM, 200 ch, no zones, 8 char.
         //    Wide-RX (18-600) dual/tri-band HT; TX 136-600 on the unlocked
         //    variant (220 MHz behind the TX-220 toggle). Export only (CHIRP
