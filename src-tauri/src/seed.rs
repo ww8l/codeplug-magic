@@ -892,6 +892,44 @@ mod tests {
     /// ⚠️ `UIS` mirrors the keys of `PROGRAM_DIALOGS` in
     /// `src/components/codeplugs/programDialogs.ts`; adding a bespoke dialog
     /// means adding its key in both places.
+    /// ⚠ TRIPWIRE, not an invariant anybody wants to keep.
+    ///
+    /// The BT-9000's `rx_bands` and `tx_bands` are currently the SAME two
+    /// spans, which is the only reason `channel_fit` can never return
+    /// `ReceiveOnly` for this radio — and the only reason its encoder gets
+    /// away with setting the per-channel TX-enable bit unconditionally
+    /// (`m[15] = 0x02 | narrow` in `radios/binteradio_bt9000/mod.rs`).
+    ///
+    /// Widening `rx_bands` is an EXPECTED outcome of issue #43's band work:
+    /// this radio receives broadcast FM, AM and SSB, and its `F` handshake
+    /// blob hints at a third span at 200-260 MHz. The moment `rx_bands` grows
+    /// past `tx_bands`, every out-of-TX channel starts being programmed
+    /// transmit-enabled — on a radio that validates NOTHING and will key up
+    /// wherever it is told.
+    ///
+    /// So before widening them, settle what byte 15 bit 1 actually does. It is
+    /// claimed as "TX enable" by the inherited reverse-engineering and has
+    /// never been measured here, and clearing an unverified bit on this
+    /// platform is how radios get damaged. `scratchpad/binteradio_bt9000/`
+    /// carries the campaign; the FT5D's opposite choice
+    /// (`receive_only_channels_encode_as_ordinary_memories`) does NOT transfer,
+    /// because its reasoning is "the radio polices its own TX bands" and this
+    /// one does not police anything.
+    #[test]
+    fn bt9000_receive_only_channels_cannot_arise_yet() {
+        let bt = models()
+            .into_iter()
+            .find(|m| m.driver_key == Some("binteradio_bt9000"))
+            .expect("the BT-9000 is seeded");
+        assert_eq!(
+            bt.rx_bands, bt.tx_bands,
+            "BT-9000 rx_bands and tx_bands have diverged, so a receive-only channel \
+             is now possible — decide what the encoder does with byte 15 bit 1 \
+             (claimed TX-enable, never measured) BEFORE shipping this. See the \
+             comment on this test."
+        );
+    }
+
     #[test]
     fn every_seeded_driver_key_resolves_and_pairs_with_a_known_ui() {
         const UIS: [&str; 3] = ["generic", "tdh3", "anytone"];
