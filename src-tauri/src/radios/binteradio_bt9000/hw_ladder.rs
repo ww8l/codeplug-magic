@@ -1,4 +1,4 @@
-//! THROWAWAY (issue #43): hardware ladder steps 3 and 4 for the BT-9000.
+//! THROWAWAY (issue #43): hardware ladder steps 3, 4 and 5 for the BT-9000.
 //!
 //! Steps 1 and 2 — identity write and a one-name write — were run with the
 //! scratch tooling and passed; they proved the container and that there is no
@@ -13,7 +13,7 @@
 //!   cargo test --lib binteradio_bt9000::hw_ladder -- --ignored --nocapture
 //! ```
 //!
-//! ⚠ Both tests WRITE to the radio. Each takes its own backup first and prints
+//! ⚠ All three tests WRITE to the radio. Each takes its own backup first and prints
 //! the path. ⚠ And an ACK from this radio does not mean a commit — every
 //! assertion below is made against a fresh read-back, never against the write.
 
@@ -214,4 +214,100 @@ fn step4_band_probe() {
            given without validating it, so the IMAGE cannot settle tx_bands. Only selecting\n  \
            each channel on the radio and keying up can."
     );
+}
+
+/// Ladder step 5 — the settings spot check, through the driver's own
+/// `SettingsWriter` rather than the scratch Python.
+///
+/// The Python tooling in `scratchpad/binteradio_bt9000/` has already put values
+/// in this block and read them back, so this is not asking whether the radio
+/// stores settings — it is asking whether *this driver's* narrowed write does.
+/// That is a different question, and it is the one step 3 had to be re-run to
+/// answer for channels.
+///
+/// What it proves, all against a fresh read-back and never against an ACK:
+///
+/// 1. `write_settings` reaches the radio at all.
+/// 2. It writes **only the function block** — every other segment is compared
+///    against the pre-write backup and must be untouched. On a driver whose
+///    whole-image `upload` would rewrite 960 channel records to change a
+///    squelch level, that is the assertion that matters.
+/// 3. `read_settings` decodes back exactly what was asked for, including the
+///    two "Level 1-9" fields two bytes apart that store their values
+///    differently.
+///
+/// ⚠ It restores the settings it found before returning, so the radio is left
+/// as it was even though the backup would also serve.
+#[test]
+#[ignore = "writes to a real BT-9000 on the cable"]
+fn step5_settings_write_through_the_driver() {
+    use crate::radios::driver::{SettingsReader, SettingsWriter};
+    use serde_json::json;
+
+    let port = port();
+    let dir = backup_dir();
+    let schema = crate::seed::BT9000_SETTINGS_SCHEMA;
+
+    // 1. What the radio holds now, decoded by the shipping reader, plus a whole
+    //    image to compare every untouched segment against later.
+    let before = DRIVER.read_settings(&port, schema).expect("read settings");
+    println!("  before: {}", before.settings);
+    let base = before.backup.clone();
+
+    // 2. A value in every settled field that is NOT what the radio has, so a
+    //    field that did not move is distinguishable from one that did.
+    let want = json!({
+        "squelch": if before.settings["squelch"] == json!(3) { 7 } else { 3 },
+        "vox-level": if before.settings["vox-level"] == json!(4) { 8 } else { 4 },
+        "power-on-display":
+            if before.settings["power-on-display"] == json!("Voltage") { "Picture" } else { "Voltage" },
+    });
+    println!("  writing: {want}");
+
+    std::thread::sleep(SETTLE);
+    let report = DRIVER
+        .write_settings(&port, &want, schema, &dir)
+        .expect("write settings");
+    println!(
+        "  wrote {} field(s), verified {:?}, backup {}",
+        report.fields_written, report.verified, report.backup_path
+    );
+    assert_eq!(report.fields_written, 3, "every settled field should be written");
+    // ⚠ This radio acknowledges blocks it does not always commit — the APRS
+    // block answers 0x06 forever and never changes — so the driver's own
+    // read-back verdict is the claim under test, not a formality.
+    assert_eq!(report.verified, Some(true), "the driver's read-back must confirm the write");
+
+    // 3. Read it back independently of the write session.
+    std::thread::sleep(SETTLE);
+    let after = DRIVER.read_settings(&port, schema).expect("read settings back");
+    println!("  after:  {}", after.settings);
+    for key in ["squelch", "vox-level", "power-on-display"] {
+        assert_eq!(after.settings[key], want[key], "{key} did not come back as written");
+    }
+
+    // 4. ★ Nothing outside the function block moved. This is the assertion that
+    //    a narrowed write exists for: the operator's 960 channels, the VFO, the
+    //    DTMF codes and the modulation memories are all still exactly as read.
+    for seg in READ_SEGMENTS {
+        if seg.name == "function" {
+            continue;
+        }
+        let r = seg.file_offset..seg.file_offset + seg.length;
+        assert_eq!(
+            base[r.clone()],
+            after.backup[r],
+            "segment {} changed during a SETTINGS write",
+            seg.name
+        );
+    }
+    println!("  ★ every segment but `function` is byte-identical to the pre-write image.");
+
+    // 5. Put back what the radio had, so the campaign's own baseline survives.
+    std::thread::sleep(SETTLE);
+    let restored = DRIVER
+        .write_settings(&port, &before.settings, schema, &dir)
+        .expect("restore the original settings");
+    assert_eq!(restored.verified, Some(true), "restore must verify");
+    println!("  restored the settings the radio started with.");
 }
