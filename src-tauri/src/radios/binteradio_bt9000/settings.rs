@@ -45,7 +45,7 @@ use crate::radios::driver::{SettingsCapture, SettingsReader, SettingsWriteReport
 use super::bt9000_settings_table::{Enc, Kind, FIELDS, SF};
 use super::{
     download_segments, handshake, open_port, upload_segments, FUNCTION_LEN, FUNCTION_OFFSET,
-    READ_SEGMENTS, SETTINGS_READ_SEGMENTS, SETTINGS_SEGMENTS, SETTLE,
+    FUNCTION_LIVE_LEN, READ_SEGMENTS, SETTINGS_READ_SEGMENTS, SETTINGS_SEGMENTS, SETTLE,
 };
 
 // ============================================================
@@ -272,9 +272,36 @@ impl SettingsWriter for super::BinteradioBt9000 {
             )
         })?;
 
-        // 4. Read the block back. On this radio that is the ONLY evidence the
-        //    write committed — it acknowledges blocks it does not always store.
+        // 4. Read the block back, and RETRY ONCE if it disagrees.
+        //
+        //    Measured on the radio (s128): a settings write acknowledged every
+        //    block and did not commit, and an identical second write landed
+        //    perfectly. The read-back is what caught it, so acting on the
+        //    result is the point of having one — reporting "it did not take,
+        //    try again" while holding a proven-idempotent 0.35 s write in hand
+        //    is worse for the operator and no safer.
+        //
+        //    Exactly one retry. A radio that fails twice is not flaky, and
+        //    hammering a write path on this platform is how radios have been
+        //    damaged.
         std::thread::sleep(SETTLE);
+        if matches!(verify(&mut *p, &expected), Ok((false, _))) {
+            let hs = handshake(&mut *p)?;
+            upload_segments(&mut *p, &hs, &image, &SETTINGS_SEGMENTS).map_err(|e| {
+                crate::radios::driver::with_restore_hint(
+                    e,
+                    &backup_path,
+                    "The first write did not commit and the retry failed. Keep that \
+                     file — it is the radio as it was before either attempt.",
+                )
+            })?;
+            notes.push(
+                "The radio acknowledged the first write without committing it, so it \
+                 was written a second time."
+                    .to_string(),
+            );
+            std::thread::sleep(SETTLE);
+        }
         let (verified, verify_note) = match verify(&mut *p, &expected) {
             Ok(v) => v,
             Err(e) => (
@@ -307,7 +334,13 @@ fn verify(
 ) -> Result<(bool, Option<String>), String> {
     let hs = handshake(p)?;
     let back = download_segments(p, &hs, &SETTINGS_READ_SEGMENTS)?;
-    let got = &back[FUNCTION_OFFSET..FUNCTION_OFFSET + FUNCTION_LEN];
+    // ⚠ Compare the LIVE area only. `0x80-0xFF` of this segment is a
+    // firmware-maintained shadow of the settings, and it moves on its own —
+    // comparing the whole 256 bytes reported a mismatch on a restore that had
+    // in fact landed perfectly (measured on the radio, s128). Everything this
+    // driver writes lives below `0x46`.
+    let got = &back[FUNCTION_OFFSET..FUNCTION_OFFSET + FUNCTION_LIVE_LEN];
+    let expected = &expected[..FUNCTION_LIVE_LEN];
     if got == expected {
         return Ok((true, None));
     }

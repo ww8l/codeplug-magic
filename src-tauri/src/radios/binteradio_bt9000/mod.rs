@@ -369,6 +369,21 @@ pub(crate) const SETTINGS_READ_SEGMENTS: [Segment; 1] = [READ_SEGMENTS[2]];
 pub(crate) const FUNCTION_OFFSET: usize = 0x7900;
 pub(crate) const FUNCTION_LEN: usize = 0x0100;
 
+/// How much of the function block is LIVE settings.
+///
+/// ⚠ Measured on the radio (s128), and the rest of the segment is not padding:
+///
+/// | range | what |
+/// |---|---|
+/// | `0x00-0x45` | the settings the menus edit |
+/// | `0x46-0x7F` | `0xFF` filler |
+/// | `0x80-0xFF` | a **firmware-maintained SHADOW** — `+0xD0` onward is byte-for-byte the live block |
+///
+/// The shadow moves on its own, exactly like the VFO journal at radio `0x8080`.
+/// So a settings write can only be VERIFIED across the live area; comparing the
+/// whole segment reports a mismatch on bytes the radio owns and we never set.
+pub(crate) const FUNCTION_LIVE_LEN: usize = 0x46;
+
 /// Write an image back. Only [`WRITE_SEGMENTS`] is addressed, so the CPS gap,
 /// the VFO journal and the APRS block are never touched.
 ///
