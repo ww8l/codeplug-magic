@@ -13,7 +13,7 @@
 //! wrong encoding is stored rather than refused, and this table is the
 //! only thing standing between the operator and a bad value.
 //!
-//! 31 field(s). The sheet's other rows are measured but not
+//! 41 field(s). The sheet's other rows are measured but not
 //! settled; see its Tally section for what is still owed.
 
 /// How a field's value is carried in the byte.
@@ -54,7 +54,7 @@ pub(crate) struct SF {
     pub options: &'static [&'static str],
 }
 
-pub(crate) const FIELDS: [SF; 31] = [
+pub(crate) const FIELDS: [SF; 41] = [
     SF {
         key: "vox-level",
         label: "VOX Level",
@@ -333,5 +333,95 @@ pub(crate) const FIELDS: [SF; 31] = [
         kind: Kind::Enum,
         enc: Enc::Direct,
         options: &["RADIO", "MONI", "SCAN", "SEARCH", "SOS", "SPECTRUM", "Beacon TX"],
+    },
+    SF {
+        key: "key0-long",
+        label: "key [0] long press",
+        menu: "User Key → key [0] long press",
+        addr: 0x3B,
+        kind: Kind::Enum,
+        enc: Enc::Direct,
+        options: &["NONE", "RADIO", "VOX", "SEARCH", "SPECTRUM", "NOAA", "SCAN QT", "SQUELCH", "FREQ STEP", "TX POWER", "CH-MEMORY", "ZONE SELECT", "STANDBY SET", "CTCSS DCS", "FREQ OFFSET", "FREQ DIR", "RX MODULATION", "TONE TX", "TRANSFER", "GPS SWITCH", "APRS SWITCH", "ROGER"],
+    },
+    SF {
+        key: "key1-long",
+        label: "key [1] long press",
+        menu: "User Key → key [1] long press",
+        addr: 0x3C,
+        kind: Kind::Enum,
+        enc: Enc::Direct,
+        options: &["NONE", "RADIO", "VOX", "SEARCH", "SPECTRUM", "NOAA", "SCAN QT", "SQUELCH", "FREQ STEP", "TX POWER", "CH-MEMORY", "ZONE SELECT", "STANDBY SET", "CTCSS DCS", "FREQ OFFSET", "FREQ DIR", "RX MODULATION", "TONE TX", "TRANSFER", "GPS SWITCH", "APRS SWITCH", "ROGER"],
+    },
+    SF {
+        key: "key2-long",
+        label: "key [2] long press",
+        menu: "User Key → key [2] long press",
+        addr: 0x3D,
+        kind: Kind::Enum,
+        enc: Enc::Direct,
+        options: &["NONE", "RADIO", "VOX", "SEARCH", "SPECTRUM", "NOAA", "SCAN QT", "SQUELCH", "FREQ STEP", "TX POWER", "CH-MEMORY", "ZONE SELECT", "STANDBY SET", "CTCSS DCS", "FREQ OFFSET", "FREQ DIR", "RX MODULATION", "TONE TX", "TRANSFER", "GPS SWITCH", "APRS SWITCH", "ROGER"],
+    },
+    SF {
+        key: "key3-long",
+        label: "key [3] long press",
+        menu: "User Key → key [3] long press",
+        addr: 0x3E,
+        kind: Kind::Enum,
+        enc: Enc::Direct,
+        options: &["NONE", "RADIO", "VOX", "SEARCH", "SPECTRUM", "NOAA", "SCAN QT", "SQUELCH", "FREQ STEP", "TX POWER", "CH-MEMORY", "ZONE SELECT", "STANDBY SET", "CTCSS DCS", "FREQ OFFSET", "FREQ DIR", "RX MODULATION", "TONE TX", "TRANSFER", "GPS SWITCH", "APRS SWITCH", "ROGER"],
+    },
+    SF {
+        key: "key4-long",
+        label: "key [4] long press",
+        menu: "User Key → key [4] long press",
+        addr: 0x3F,
+        kind: Kind::Enum,
+        enc: Enc::Direct,
+        options: &["NONE", "RADIO", "VOX", "SEARCH", "SPECTRUM", "NOAA", "SCAN QT", "SQUELCH", "FREQ STEP", "TX POWER", "CH-MEMORY", "ZONE SELECT", "STANDBY SET", "CTCSS DCS", "FREQ OFFSET", "FREQ DIR", "RX MODULATION", "TONE TX", "TRANSFER", "GPS SWITCH", "APRS SWITCH", "ROGER"],
+    },
+    SF {
+        key: "key5-long",
+        label: "key [5] long press",
+        menu: "User Key → key [5] long press",
+        addr: 0x40,
+        kind: Kind::Enum,
+        enc: Enc::Direct,
+        options: &["NONE", "RADIO", "VOX", "SEARCH", "SPECTRUM", "NOAA", "SCAN QT", "SQUELCH", "FREQ STEP", "TX POWER", "CH-MEMORY", "ZONE SELECT", "STANDBY SET", "CTCSS DCS", "FREQ OFFSET", "FREQ DIR", "RX MODULATION", "TONE TX", "TRANSFER", "GPS SWITCH", "APRS SWITCH", "ROGER"],
+    },
+    SF {
+        key: "key6-long",
+        label: "key [6] long press",
+        menu: "User Key → key [6] long press",
+        addr: 0x41,
+        kind: Kind::Enum,
+        enc: Enc::Direct,
+        options: &["NONE", "RADIO", "VOX", "SEARCH", "SPECTRUM", "NOAA", "SCAN QT", "SQUELCH", "FREQ STEP", "TX POWER", "CH-MEMORY", "ZONE SELECT", "STANDBY SET", "CTCSS DCS", "FREQ OFFSET", "FREQ DIR", "RX MODULATION", "TONE TX", "TRANSFER", "GPS SWITCH", "APRS SWITCH", "ROGER"],
+    },
+    SF {
+        key: "key7-long",
+        label: "key [7] long press",
+        menu: "User Key → key [7] long press",
+        addr: 0x42,
+        kind: Kind::Enum,
+        enc: Enc::Direct,
+        options: &["NONE", "RADIO", "VOX", "SEARCH", "SPECTRUM", "NOAA", "SCAN QT", "SQUELCH", "FREQ STEP", "TX POWER", "CH-MEMORY", "ZONE SELECT", "STANDBY SET", "CTCSS DCS", "FREQ OFFSET", "FREQ DIR", "RX MODULATION", "TONE TX", "TRANSFER", "GPS SWITCH", "APRS SWITCH", "ROGER"],
+    },
+    SF {
+        key: "key8-long",
+        label: "key [8] long press",
+        menu: "User Key → key [8] long press",
+        addr: 0x43,
+        kind: Kind::Enum,
+        enc: Enc::Direct,
+        options: &["NONE", "RADIO", "VOX", "SEARCH", "SPECTRUM", "NOAA", "SCAN QT", "SQUELCH", "FREQ STEP", "TX POWER", "CH-MEMORY", "ZONE SELECT", "STANDBY SET", "CTCSS DCS", "FREQ OFFSET", "FREQ DIR", "RX MODULATION", "TONE TX", "TRANSFER", "GPS SWITCH", "APRS SWITCH", "ROGER"],
+    },
+    SF {
+        key: "key9-long",
+        label: "key [9] long press",
+        menu: "User Key → key [9] long press",
+        addr: 0x44,
+        kind: Kind::Enum,
+        enc: Enc::Direct,
+        options: &["NONE", "RADIO", "VOX", "SEARCH", "SPECTRUM", "NOAA", "SCAN QT", "SQUELCH", "FREQ STEP", "TX POWER", "CH-MEMORY", "ZONE SELECT", "STANDBY SET", "CTCSS DCS", "FREQ OFFSET", "FREQ DIR", "RX MODULATION", "TONE TX", "TRANSFER", "GPS SWITCH", "APRS SWITCH", "ROGER"],
     },
 ];
