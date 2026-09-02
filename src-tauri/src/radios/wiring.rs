@@ -40,6 +40,53 @@ fn production_half(src: &str) -> &str {
 }
 
 /// Every `radios/<key>/` folder that holds a driver.
+/// Every radio the app can actually program must be listed in the README's
+/// "Supported radios" table.
+///
+/// ⚠ This exists because it was missed twice. The TH-D72 shipped in v26.8.29 and
+/// never reached the table, and the BT-9000 was still sitting under "Planned"
+/// under a manufacturer name that is not even its own on the day it shipped. A
+/// radio someone owns and cannot tell is supported may as well not be.
+///
+/// Keyed on `display_name`, which is what the table prints and what the app
+/// shows the operator, so the two cannot drift into describing it differently.
+#[test]
+fn every_seeded_radio_appears_in_the_readme() {
+    let readme = std::fs::read_to_string(manifest_dir().join("../README.md"))
+        .expect("README.md is readable from the crate");
+    let supported = readme
+        .split("## Supported radios")
+        .nth(1)
+        .expect("README has a `## Supported radios` heading")
+        .split("\n## ")
+        .next()
+        .expect("that section ends at the next heading");
+
+    let mut checked = 0;
+    for d in crate::radios::registry::all_drivers() {
+        let name = d.display_name();
+        checked += 1;
+        assert!(
+            supported.contains(name),
+            "{name} is a working driver but is not in the README's Supported radios \
+             table. Someone who owns one cannot tell that it works."
+        );
+        // Bounded to the Planned TABLE, not to everything after the heading:
+        // the credits and feature sections name shipped radios too, and an
+        // unbounded match reported the AT-D890UV as still planned.
+        let planned = readme
+            .split("**Planned**")
+            .nth(1)
+            .and_then(|p| p.split("\n\n").find(|b| b.trim_start().starts_with('|')))
+            .unwrap_or("");
+        assert!(
+            !planned.contains(name),
+            "{name} ships AND is still listed under Planned"
+        );
+    }
+    assert!(checked > 0, "no drivers found — this test would pass vacuously");
+}
+
 fn driver_dirs() -> Vec<PathBuf> {
     let radios = manifest_dir().join("src/radios");
     let mut dirs: Vec<PathBuf> = std::fs::read_dir(&radios)

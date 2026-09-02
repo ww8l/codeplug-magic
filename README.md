@@ -24,7 +24,9 @@ card — or exported as CSV for tools that expect it.
 | **AnyTone AT-D890UV** | DMR + Analog | VHF / UHF | Direct USB — channels, zones, scan lists, settings, call-sign DB | 4000 channels; full DMR: zones, talkgroups, 308k-entry caller-ID database |
 | **Yaesu FT5D** | C4FM (System Fusion) + Analog | VHF / UHF TX, wideband RX | microSD — patches the radio's own backup file | 900 channels in 24 banks; channels, banks, and menu settings |
 | **Icom ID-52** | D-STAR + Analog | VHF / UHF TX, 108–174 / 225–479 MHz RX | microSD — patches the radio's own `.icf` file | 1000 memories in 100 groups; memories and menu settings restore in one operation |
+| **Kenwood TH-D72** | APRS + Analog | 2 m / 70 cm TX, 118–174 / 320–524 MHz RX | Direct USB — read, write, settings | 1000 memories; 113 menu settings over the radio's own `MU` command |
 | **Kenwood TH-D75** | D-STAR + APRS + Analog | VHF / 1.25 m / UHF TX, 0.1–524 MHz RX | microSD — patches the radio's own `.d75` file | 1000 memories in 30 groups; memories and menu settings, including the APRS setup |
+| **Binteradio BT-9000** | Analog FM/NFM | 18–64 / 136–174 / 200–260 / 400–520 MHz TX, 18–999 MHz RX | Direct USB — read, write, settings | 960 channels in 15 fixed zones; 42 menu settings. Also sold as the Radtel RT-950 Pro, Bajeton BJ-9000 and Tenway TP-900 Pro — the radio reports itself as `RT-950` |
 
 Direct USB programming reads the radio's current image, applies your changes, backs up the
 original, writes, and can verify the result byte-for-byte.
@@ -35,8 +37,13 @@ radio restores it from its own menu with no vendor software involved. Because th
 the radio's settings as well as its memories, the codeplug and the radio profile travel together.
 
 Channels the radio can hear but not transmit on (GMRS, marine, NOAA, air band, 220) are
-programmed **receive-only** rather than dropped, and frequencies outside the receiver's real
-coverage are excluded with a reason rather than silently written to an empty slot.
+programmed **receive-only** rather than dropped — where the radio has a per-channel transmit
+inhibit, the app sets it — and frequencies outside the receiver's real coverage are excluded with
+a reason rather than silently written to an empty slot.
+
+Band limits are measured on the radio, not copied from its manual. The BT-9000's 220 MHz
+transmit capability, for instance, appears in no published source for it and was found by
+programming a channel there and keying up.
 
 ## Future development
 
@@ -51,8 +58,8 @@ settings together, then verify on the actual radio before shipping.
 |-------|-------|-------|
 | **AnyTone AT-D578UV** | DMR + Analog mobile | [#47](https://github.com/ww8l/codeplug-magic/issues/47) |
 | **AnyTone AT-D868UV** | DMR + Analog handheld | [#51](https://github.com/ww8l/codeplug-magic/issues/51) |
-| **BTECH / Btrianium BT-9000** | Analog mobile | [#43](https://github.com/ww8l/codeplug-magic/issues/43) |
 | **Icom ID-51** | D-STAR + Analog handheld | [#50](https://github.com/ww8l/codeplug-magic/issues/50) |
+| **Kenwood TM-D710** | APRS + Analog mobile | [#113](https://github.com/ww8l/codeplug-magic/issues/113) |
 | **Icom ID-5100** | D-STAR + Analog mobile | [#49](https://github.com/ww8l/codeplug-magic/issues/49) |
 | **Icom IC-9100** | HF / VHF / UHF base | [#45](https://github.com/ww8l/codeplug-magic/issues/45) |
 | **Icom IC-7610** | HF / 6 m SDR base | [#46](https://github.com/ww8l/codeplug-magic/issues/46) |
