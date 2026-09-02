@@ -242,6 +242,15 @@
   "type": "boolean"
  },
  {
+  "key": "language",
+  "label": "Language",
+  "type": "select",
+  "options": [
+   "English",
+   "Chinese"
+  ]
+ },
+ {
   "key": "keypad-lock",
   "label": "Keypad Lock",
   "type": "select",

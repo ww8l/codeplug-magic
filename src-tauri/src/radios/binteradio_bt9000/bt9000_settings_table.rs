@@ -13,7 +13,7 @@
 //! wrong encoding is stored rather than refused, and this table is the
 //! only thing standing between the operator and a bad value.
 //!
-//! 41 field(s). The sheet's other rows are measured but not
+//! 42 field(s). The sheet's other rows are measured but not
 //! settled; see its Tally section for what is still owed.
 
 /// How a field's value is carried in the byte.
@@ -54,7 +54,7 @@ pub(crate) struct SF {
     pub options: &'static [&'static str],
 }
 
-pub(crate) const FIELDS: [SF; 41] = [
+pub(crate) const FIELDS: [SF; 42] = [
     SF {
         key: "vox-level",
         label: "VOX Level",
@@ -252,6 +252,15 @@ pub(crate) const FIELDS: [SF; 41] = [
         kind: Kind::Bool,
         enc: Enc::Direct,
         options: &[],
+    },
+    SF {
+        key: "language",
+        label: "Language",
+        menu: "Setting → 7. Language",
+        addr: 0x08,
+        kind: Kind::Enum,
+        enc: Enc::Direct,
+        options: &["English", "Chinese"],
     },
     SF {
         key: "keypad-lock",
