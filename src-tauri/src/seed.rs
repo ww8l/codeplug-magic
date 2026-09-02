@@ -176,6 +176,19 @@ pub const THD75_SETTINGS_SCHEMA: &str = include_str!("thd75_settings_schema.json
 /// for the six-of-six cross-check that showed the two carry the same values.
 pub const THD72_SETTINGS_SCHEMA: &str = include_str!("thd72_settings_schema.json");
 
+/// The BT-9000 profile-settings schema, GENERATED alongside the Rust field
+/// table by `scratchpad/binteradio_bt9000/gen_bt9000_settings.py` from that
+/// folder's `MEASURED.md`. `radios/binteradio_bt9000/settings.rs` asserts the
+/// two halves still describe the same fields.
+///
+/// ⚠ It is SHORT on purpose. The sheet grades ~43 candidate fields and this
+/// carries only the ones whose encoding was settled on the radio's own screen.
+/// This radio validates nothing — it stored 127 in fields whose maxima are 9,
+/// 2, 3 and 1 — so an unsettled encoding would be stored rather than refused,
+/// and the schema is where that decision is enforced.
+pub const BT9000_SETTINGS_SCHEMA: &str =
+    include_str!("bt9000_settings_schema.json");
+
 
 fn models() -> Vec<ModelSeed> {
     vec![
@@ -355,11 +368,13 @@ fn models() -> Vec<ModelSeed> {
             max_name_length: 12,
             export_format: "chirp_csv",
             connection_type: "Kenwood K1 (2-pin)",
-            // Empty on purpose. Sixteen function-block fields are measured and
-            // screen-confirmed (see scratchpad FINDINGS.md), but the settings
-            // read/write path is not wired yet, and seeding a schema whose
-            // fields nothing carries to the radio is the dead-write-path trap.
-            non_channel_settings_schema: r#"[]"#,
+            // Generated from scratchpad/binteradio_bt9000/MEASURED.md, and
+            // carrying only the fields whose encoding was settled on the
+            // radio's own screen. The sheet names ~43 candidates; the rest are
+            // measured but not settled, and are listed by the generator on
+            // stderr rather than emitted. SCREEN-CHECK.md is the runbook that
+            // closes the gap.
+            non_channel_settings_schema: BT9000_SETTINGS_SCHEMA,
         },
         // --------------------------------------------------------
         // 2. TIDRADIO TD-H3 — analog FM/NFM/AM, 200 ch, no zones, 8 char.

@@ -116,13 +116,19 @@ mod tests {
                 // `MU` ASCII command — no clone session involved, which is why
                 // it claims both halves where the card radios claim neither.
                 "kenwood_thd72" => (true, true),
-                // BT-9000: neither, yet. Its settings block decodes and 16
-                // fields are screen-confirmed on the radio, but nothing carries
-                // them to it. Claiming the capability here would put a settings
-                // action in front of the operator that reads and never writes
-                // — the dead-write-path trap this project has already shipped
-                // once (issue #43).
-                "binteradio_bt9000" => (false, false),
+                // BT-9000: both. Like the TH-D72 it reads and writes its own
+                // settings, but through a clone session rather than an ASCII
+                // command — and the WRITE is narrowed to the one 256-byte
+                // function segment, because the same transport could rewrite
+                // all 960 channel records to change a squelch level.
+                //
+                // ⚠ The schema behind this is deliberately SHORT. It carries
+                // only the fields whose encoding was settled on the radio's own
+                // screen; the measurement sheet grades ~43 candidates and the
+                // generator withholds the rest. A wrong encoding here is not
+                // caught anywhere downstream — this radio stored 127 in fields
+                // whose maxima are 9, 2, 3 and 1 (issue #43).
+                "binteradio_bt9000" => (true, true),
                 _ => (true, true),
             };
             assert_eq!(

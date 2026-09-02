@@ -39,7 +39,9 @@
 //! fields whose real maxima are 9, 2, 3 and 1. There is no hardware backstop;
 //! every bound has to be enforced here.
 
+pub(crate) mod bt9000_settings_table;
 pub(crate) mod dcs;
+pub(crate) mod settings;
 #[cfg(test)]
 mod hw_ladder;
 
@@ -286,8 +288,22 @@ pub(crate) fn handshake(p: &mut dyn SerialPort) -> Result<Handshake, String> {
 
 /// Read the whole clone image. Always exactly [`IMAGE_LEN`] bytes.
 pub(crate) fn download(p: &mut dyn SerialPort, hs: &Handshake) -> Result<Vec<u8>, String> {
+    download_segments(p, hs, &READ_SEGMENTS)
+}
+
+/// Read `segments` only, into an otherwise-zeroed full-length image.
+///
+/// The buffer stays [`IMAGE_LEN`] so that a caller reading one segment indexes
+/// it with the same offsets as one reading the whole radio. Bytes outside
+/// `segments` are zero and must not be written back — [`upload_segments`] with
+/// the matching segment list is the only safe partner for this.
+pub(crate) fn download_segments(
+    p: &mut dyn SerialPort,
+    hs: &Handshake,
+    segments: &[Segment],
+) -> Result<Vec<u8>, String> {
     let mut image = vec![0u8; IMAGE_LEN];
-    for seg in READ_SEGMENTS {
+    for seg in segments.iter().copied() {
         for off in (0..seg.length).step_by(BLOCK) {
             let addr = seg.address + off as u16;
             let header = [seg.command, (addr >> 8) as u8, addr as u8, BLOCK as u8];
@@ -303,6 +319,19 @@ pub(crate) fn download(p: &mut dyn SerialPort, hs: &Handshake) -> Result<Vec<u8>
     Ok(image)
 }
 
+/// The function-configuration segment, on its own.
+///
+/// A settings write must not go out through the whole-image [`upload`]: that
+/// rewrites all 960 channel records to change a squelch level, taking four
+/// minutes instead of a third of a second and putting the operator's memories
+/// at risk for a change that never touched them. Narrowing a transport that has
+/// the reach to write everything is a deliberate act, not an optimisation.
+pub(crate) const SETTINGS_SEGMENTS: [Segment; 1] = [WRITE_SEGMENTS[2]];
+
+/// Where the function block sits in the assembled image, and how long it is.
+pub(crate) const FUNCTION_OFFSET: usize = 0x7900;
+pub(crate) const FUNCTION_LEN: usize = 0x0100;
+
 /// Write an image back. Only [`WRITE_SEGMENTS`] is addressed, so the CPS gap,
 /// the VFO journal and the APRS block are never touched.
 ///
@@ -310,6 +339,21 @@ pub(crate) fn download(p: &mut dyn SerialPort, hs: &Handshake) -> Result<Vec<u8>
 /// caution for its own sake: streaming past a missing ACK desynchronises the
 /// radio's write pointer, and doing so is what damaged a radio on this platform.
 pub(crate) fn upload(p: &mut dyn SerialPort, hs: &Handshake, image: &[u8]) -> Result<(), String> {
+    upload_segments(p, hs, image, &WRITE_SEGMENTS)
+}
+
+/// Write `segments` of `image` back, and nothing else.
+///
+/// `segments` must be drawn from [`WRITE_SEGMENTS`] — the address guard below
+/// is the backstop, not the policy. The whole image is still required as the
+/// argument so that every offset means the same thing everywhere in this
+/// driver, and so a caller cannot hand over a buffer that has been shifted.
+pub(crate) fn upload_segments(
+    p: &mut dyn SerialPort,
+    hs: &Handshake,
+    image: &[u8],
+    segments: &[Segment],
+) -> Result<(), String> {
     if image.len() != IMAGE_LEN {
         return Err(format!(
             "refusing to write a {}-byte image; a BT-9000 clone is exactly {IMAGE_LEN} bytes",
@@ -319,7 +363,7 @@ pub(crate) fn upload(p: &mut dyn SerialPort, hs: &Handshake, image: &[u8]) -> Re
     p.set_timeout(ACK_TIMEOUT)
         .map_err(|e| format!("could not extend the serial timeout for writing: {e}"))?;
 
-    for seg in WRITE_SEGMENTS {
+    for seg in segments.iter().copied() {
         for off in (0..seg.length).step_by(BLOCK) {
             let addr = seg.address + off as u16;
             if forbidden(addr) {
@@ -654,6 +698,14 @@ impl RadioDriver for BinteradioBt9000 {
     }
 
     fn as_image_programmer(&self) -> Option<&dyn ImageProgrammer> {
+        Some(self)
+    }
+
+    fn as_settings_reader(&self) -> Option<&dyn crate::radios::driver::SettingsReader> {
+        Some(self)
+    }
+
+    fn as_settings_writer(&self) -> Option<&dyn crate::radios::driver::SettingsWriter> {
         Some(self)
     }
 }

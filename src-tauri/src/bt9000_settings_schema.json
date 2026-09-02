@@ -1,0 +1,40 @@
+[
+ {
+  "key": "section-vox",
+  "label": "VOX",
+  "type": "section"
+ },
+ {
+  "key": "vox-level",
+  "label": "VOX Level",
+  "type": "integer",
+  "min": 1,
+  "max": 9
+ },
+ {
+  "key": "section-radio",
+  "label": "Radio",
+  "type": "section"
+ },
+ {
+  "key": "squelch",
+  "label": "SQL",
+  "type": "integer",
+  "min": 1,
+  "max": 9
+ },
+ {
+  "key": "section-setting",
+  "label": "Setting",
+  "type": "section"
+ },
+ {
+  "key": "power-on-display",
+  "label": "Power On Display",
+  "type": "select",
+  "options": [
+   "Picture",
+   "Voltage"
+  ]
+ }
+]
