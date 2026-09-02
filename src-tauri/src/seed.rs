@@ -189,6 +189,16 @@ pub const THD72_SETTINGS_SCHEMA: &str = include_str!("thd72_settings_schema.json
 pub const BT9000_SETTINGS_SCHEMA: &str =
     include_str!("bt9000_settings_schema.json");
 
+/// The TM-D710 profile-settings schema, GENERATED alongside the Rust field
+/// table by `scratchpad/kenwood_tmd710/gen_tmd710_settings.py` from
+/// `scratchpad/kenwood_tmd710/MEASURED.md`. One parse emits both, and a test in
+/// `radios/kenwood_tmd710/settings.rs` asserts they still agree.
+///
+/// 35 of the radio's 42 `MU` menu parameters. The other seven — the six PF-key
+/// assignments and p25, which no source names — have MEASURED ranges and
+/// undetermined meanings, so they are deliberately absent rather than guessed.
+pub const TMD710_SETTINGS_SCHEMA: &str = include_str!("tmd710_settings_schema.json");
+
 
 fn models() -> Vec<ModelSeed> {
     vec![
@@ -957,11 +967,17 @@ fn models() -> Vec<ModelSeed> {
         //    (e) max_name_length 8 is measured on the wire, not read
         //    off Menu 200: a ninth character comes back SILENTLY
         //    TRUNCATED rather than refused.
-        //    (f) the settings schema is deliberately EMPTY. `MU`
-        //    carries all 42 menu parameters in one line and the
-        //    driver already parses it, but not one of them has been
-        //    attributed to a named setting yet. Seeding guesses is
-        //    worse than seeding nothing; Phase 4 fills this in.
+        //    (f) ★ settings are the radio's own 42 `MU` menu
+        //    parameters, and every RANGE in them was measured on the
+        //    radio rather than read off a sheet: the TM-D710 answers
+        //    an out-of-range menu value with `?`, so a sweep gives the
+        //    exact size of each enum. That caught five errors in the
+        //    published table, two of which would have shipped wrong
+        //    values — the beep and voice volumes are 7 levels, not 8,
+        //    so the display is the stored value PLUS ONE. 35 of the 42
+        //    are exposed; the six PF-key assignments and p25 have
+        //    measured ranges and undetermined meanings and are left
+        //    out rather than guessed.
         // --------------------------------------------------------
         ModelSeed {
             manufacturer: "Kenwood",
@@ -996,11 +1012,7 @@ fn models() -> Vec<ModelSeed> {
             max_name_length: 8,
             export_format: "chirp_csv",
             connection_type: "Serial cable (COM port, rear of the operation panel)",
-            // ⚠ Empty on purpose — see note (f). The generic program dialog is
-            // capability-driven and this driver claims no capability trait, so
-            // nothing here is offered to an operator until the hardware ladder
-            // has been climbed.
-            non_channel_settings_schema: "[]",
+            non_channel_settings_schema: TMD710_SETTINGS_SCHEMA,
         },
     ]
 }

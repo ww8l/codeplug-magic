@@ -58,6 +58,7 @@ use super::driver::{RadioDriver, RadioIdentity};
 
 pub(crate) mod encode;
 pub(crate) mod memory;
+pub(crate) mod settings;
 pub(crate) mod tone;
 
 /// Menu 528 on this radio sets it. 57600 is what Tim's is on and what the
@@ -222,6 +223,18 @@ impl RadioDriver for KenwoodTmD710 {
 
     fn baud(&self) -> u32 {
         BAUD
+    }
+
+    // Both halves, for the same reason the TH-D72 claims both: `MU` reads and
+    // writes the radio's menu over one ASCII command, with no clone session
+    // involved. Claimed only as of Phase 4 (#113) — writing every one of the 42
+    // parameters was proven on Tim's radio first.
+    fn as_settings_reader(&self) -> Option<&dyn crate::radios::driver::SettingsReader> {
+        Some(self)
+    }
+
+    fn as_settings_writer(&self) -> Option<&dyn crate::radios::driver::SettingsWriter> {
+        Some(self)
     }
 
     /// Ask the radio what it is. Reads no memory and changes nothing, so it is

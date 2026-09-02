@@ -779,6 +779,189 @@ fn d710_rx_band_sweep() {
     assert!(!ranges.is_empty(), "the radio accepted no frequency at all");
 }
 
+/// ★ **Every `MU` menu parameter's range, swept off the radio (Phase 4).**
+///
+/// The same instrument as `d710_field_bounds`, pointed at the menu instead of a
+/// memory. `MU` sets all 42 parameters in one line and the radio refuses a
+/// value it does not have, so the accepted count *is* the size of the enum
+/// behind that menu — which is what turns the manual's menu list from a
+/// suggestion into a match: a menu with eight options can only be a field that
+/// takes `0..=7`.
+///
+/// It measures a **size, never a meaning.** Which option is which still takes
+/// the radio's own screen. That half is Tim's, and it is the cheap half once
+/// the sizes have narrowed the candidates.
+///
+/// ## Safety
+///
+/// - **Nothing here changes the port speed.** Menu 920 (PC PORT SPEED) and the
+///   COM port speed are not `MU` parameters — the line reaches menu 507 at p29
+///   and the published field list has no port speed in it. That was checked
+///   before a byte was written, because sweeping a baud-rate field would drop
+///   the connection mid-write with the radio on an unknown rate.
+/// - **The original line is restored after every field**, not once at the end,
+///   so an abort leaves at most one parameter moved.
+/// - p37 is APO on the published list. Restoring per-field means it never
+///   stays on a timeout long enough to power the radio down mid-sweep.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_menu_bounds() {
+    use crate::radios::kenwood_tmd710::{memory::Menu, write_menu};
+
+    // p29-p34 are two-digit HEX (the capture holds `0C` and `0E`), so their
+    // candidates have to be hex or the sweep measures the wrong alphabet.
+    const HEX_FIELDS: [usize; 6] = [29, 30, 31, 32, 33, 34];
+
+    let fields: Vec<usize> = match std::env::var("D710_FIELDS") {
+        Ok(list) => list.split(',').map(|v| v.trim().parse().expect("field")).collect(),
+        Err(_) => (1..=42).collect(),
+    };
+
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+
+    let original = Menu::parse(&ask(&mut *p, "MU").expect("MU").0).expect("parse");
+    println!("\noriginal: {}\n", original.to_line());
+
+    for f in fields {
+        let width = original.field(f).expect("field").len();
+        let hex = HEX_FIELDS.contains(&f);
+        let limit = match (width, hex) {
+            (1, _) => 10,
+            (_, true) => 0x40,
+            _ => 64,
+        };
+
+        let mut taken = Vec::new();
+        let mut first_refused = None;
+        for v in 0..limit {
+            let text = if hex {
+                format!("{v:02X}")
+            } else {
+                format!("{v:0width$}")
+            };
+            if text.len() > width {
+                break;
+            }
+            let wanted = original.with_field(f, &text).expect("with_field");
+            // ★ `MU` refuses differently from `ME`. A memory the radio dislikes
+            // is acknowledged and quietly not stored; an out-of-range MENU value
+            // draws an explicit `?`, which `ask` turns into an error. Both are
+            // the same measurement — the value is not one this radio has — so
+            // an Err here is a refusal, not a failure of the probe.
+            let accepted = match write_menu(&mut *p, &wanted) {
+                Ok(failed) => failed.is_empty(),
+                Err(_) => false,
+            };
+            if accepted {
+                taken.push(v);
+            } else if first_refused.is_none() {
+                first_refused = Some(v);
+            }
+            // Put it back before moving on — see the safety note. A `?` can
+            // leave the parser mid-line, so the restore gets the same one
+            // retry `ask_settling` gives every session.
+            let back = match write_menu(&mut *p, &original) {
+                Ok(diff) => diff,
+                Err(_) => write_menu(&mut *p, &original).expect("restore"),
+            };
+            assert!(back.is_empty(), "p{f}: could not restore the menu line: {back:?}");
+        }
+
+        let contiguous = taken.iter().enumerate().all(|(i, &v)| i == v);
+        println!(
+            "p{f:<2} (width {width}{}) accepted {:>2}{}",
+            if hex { ", hex" } else { "" },
+            taken.len(),
+            if contiguous {
+                format!("  0..={}", taken.len().saturating_sub(1))
+            } else {
+                format!("  {taken:?} ⚠ NOT contiguous")
+            }
+        );
+        let _ = first_refused;
+    }
+
+    let after = Menu::parse(&ask(&mut *p, "MU").expect("MU").0).expect("parse");
+    assert_eq!(
+        after.to_line(),
+        original.to_line(),
+        "the sweep did not leave the menu as it found it"
+    );
+    println!("\n--- menu restored exactly\n");
+}
+
+/// ★ **The settings path end to end, through the traits the app actually calls.**
+///
+/// `d710_menu_bounds` proved the radio takes a menu write. This proves the
+/// *driver* does — `SettingsReader::read_settings` and
+/// `SettingsWriter::write_settings`, the same two methods the profile editor
+/// reaches, rather than the raw command underneath them.
+///
+/// That distinction is the whole point: in this repo a working read path has
+/// twice hidden a dead write path, most expensively on the ID-52, where the
+/// form filled correctly and the values simply never reached the radio.
+///
+/// Changes one field, reads it back through the decoder, and puts it back —
+/// asserting the whole 42-parameter line is byte-identical to how it started,
+/// which is also what proves the write is a PATCH and not a rebuild.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_settings_roundtrip() {
+    use crate::radios::driver::{SettingsReader, SettingsWriter};
+    use crate::radios::kenwood_tmd710::DRIVER;
+    use serde_json::json;
+
+    let path = port_path();
+    let dir = std::env::temp_dir().join("d710-settings-probe");
+
+    // Straight through the trait, exactly as `read_radio_settings` does.
+    let before = DRIVER.read_settings(&path, "[]").expect("read settings");
+    let line_before = String::from_utf8(before.backup.clone()).expect("the backup is the MU line");
+    println!("\nbefore: {line_before}");
+    println!("beep volume reads {}", before.settings["beep-volume"]);
+
+    // Something audible and harmless, and pick a value it is NOT already on so
+    // the write cannot pass by doing nothing — the trap that made a TH-D72
+    // settings write look verified against its own unread buffer.
+    let was = before.settings["beep-volume"].as_str().expect("an option label");
+    let target = if was == "2" { "6" } else { "2" };
+
+    let report = DRIVER
+        .write_settings(&path, &json!({ "beep-volume": target }), "[]", &dir)
+        .expect("write settings");
+    println!(
+        "wrote {} field(s), verified={:?}{}",
+        report.fields_written,
+        report.verified,
+        report.note.as_deref().unwrap_or("")
+    );
+    assert_eq!(report.fields_written, 1, "expected exactly one field to change");
+    assert_eq!(report.verified, Some(true), "the radio did not take the write");
+
+    let mid = DRIVER.read_settings(&path, "[]").expect("re-read");
+    assert_eq!(
+        mid.settings["beep-volume"],
+        json!(target),
+        "the decoder does not see the value the write claimed to make"
+    );
+
+    // Put it back, and require the WHOLE line to match — that is what says the
+    // write patched one parameter instead of rebuilding all 42.
+    DRIVER
+        .write_settings(&path, &json!({ "beep-volume": was }), "[]", &dir)
+        .expect("restore");
+    let after = DRIVER.read_settings(&path, "[]").expect("final read");
+    let line_after = String::from_utf8(after.backup).expect("utf8");
+    println!("after:  {line_after}");
+    assert_eq!(
+        line_after, line_before,
+        "the settings round trip did not leave the menu as it found it"
+    );
+    println!("\n--- settings read + write proven through the driver traits\n");
+}
+
 /// Clear slots back to empty — `ME nnn,C`, the documented form, tested here.
 ///
 /// `d710_restore` can overwrite a memory but cannot **un-write** one, so every

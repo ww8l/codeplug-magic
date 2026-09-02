@@ -132,14 +132,17 @@ mod tests {
                 // caught anywhere downstream — this radio stored 127 in fields
                 // whose maxima are 9, 2, 3 and 1 (issue #43).
                 "binteradio_bt9000" => (true, true),
-                // The TM-D710 reads its whole menu in one `MU` line and could
-                // claim SettingsReader today. It does not, because the same
-                // capability flag would put a settings *write* in front of an
-                // operator, and **nothing has ever been written to this radio**
-                // (issue #113). Two of the published menu enums were already
-                // wrong when checked against the hardware. Identify only until
-                // the ladder in the `new-radio` skill has been climbed.
-                "kenwood_tmd710" => (false, false),
+                // TM-D710: reads and writes its 42 menu parameters over the
+                // same `MU` ASCII command as the TH-D72 above, and for the same
+                // reason — a live-mode radio has no image for settings to live
+                // in. It claimed NEITHER half until Phase 4 (#113), because
+                // "nothing has ever been written to this radio" was true and a
+                // capability flag would have put a settings write in front of an
+                // operator. Writing is now proven: `d710_menu_bounds` wrote and
+                // restored every one of the 42 parameters on Tim's radio, and
+                // every exposed range was measured there rather than read off
+                // the published sheet that was wrong about five of them.
+                "kenwood_tmd710" => (true, true),
                 _ => (true, true),
             };
             assert_eq!(
