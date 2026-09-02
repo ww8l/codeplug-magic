@@ -318,6 +318,258 @@ fn d710_read_slots() {
     println!();
 }
 
+/// ★ **`0M PROGRAM` mode — the radio's OTHER transport, and where APRS lives.**
+///
+/// `MU` carries 42 menu parameters and stops at the 500-series. The TM-D710's
+/// APRS and TNC settings are the **600-series menus**, and there is no `MU`
+/// parameter for any of them — which is why a settings read built on `MU` alone
+/// comes back with no APRS at all. On an APRS radio that is most of the point of
+/// the thing missing.
+///
+/// MCP-2A does not use `MU`. It puts the radio into a block-transfer mode and
+/// reads a **memory image**, so this radio is not purely live-mode after all:
+/// it has a second transport, and everything `MU` cannot reach lives in there.
+///
+/// ```text
+/// "0M PROGRAM\r"          -> "0M\r"        the display shows PROG MCP
+/// R <addr:2 BE> <len:1>   -> W <addr:2> <len:1> <data...>   (len 0 = 256)
+///                            then the host sends 06 and the radio answers 06
+/// "E"                     -> 06 0D 00      back to normal
+/// ```
+///
+/// ## ★ The handshake is the whole trick
+///
+/// The first three attempts at this all showed the same shape — the first `R`
+/// after entering the mode returned a block and every one after it timed out —
+/// which read like a refusal and was not. **The host must acknowledge each
+/// block with `0x06`, and the radio acknowledges that back**, so a reader that
+/// skips it is left holding a stream one byte out of step. The giveaway was a
+/// header that came back `06 57 00 00`: a status byte, then `W`, then the
+/// address. Published notes for this mode do not mention it.
+///
+/// ## This one is read-only and it still changes the radio's state
+///
+/// Nothing here writes a byte of configuration. But entering the mode puts the
+/// radio into `PROG MCP` on its own display, and **leaving it there strands the
+/// operator** until they power-cycle. So the exit is not on the happy path: the
+/// dump runs inside a closure and `E` is sent afterwards either way.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_program_mode_dump() {
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+    let id = ask(&mut *p, "ID").expect("ID").0;
+    assert!(id.contains("TM-D710"), "not a TM-D710: {id:?}");
+
+    let entered = ask(&mut *p, "0M PROGRAM").expect("enter program mode").0;
+    println!("\n0M PROGRAM -> {entered:?}");
+    assert!(entered.starts_with("0M"), "the radio refused program mode: {entered:?}");
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut image: Vec<u8> = Vec::new();
+        let mut addr: u32 = 0;
+        while addr < 0x1_0000 {
+            match read_block(&mut *p, addr as u16, 0) {
+                Ok(data) => {
+                    let n = data.len();
+                    image.extend_from_slice(&data);
+                    addr += n as u32;
+                }
+                Err(e) => {
+                    println!("stopped at 0x{addr:04X}: {e}");
+                    break;
+                }
+            }
+        }
+        image
+    }));
+
+    // ⚠ Always. See the doc comment.
+    let _ = p.write_all(b"E");
+    let _ = p.flush();
+    std::thread::sleep(Duration::from_millis(300));
+    let mut ack = [0u8; 3];
+    let _ = read_exact_timeout(&mut *p, &mut ack);
+    println!("E -> {ack:02X?}");
+
+    let image = result.expect("the dump panicked; the radio was still taken out of program mode");
+    println!("=== {} bytes ({:.1} KiB)", image.len(), image.len() as f64 / 1024.0);
+    assert!(image.len() > 256, "program mode gave back only {} bytes", image.len());
+
+    let out = format!("../scratchpad/kenwood_tmd710/progmode-{}.bin", std::process::id());
+    std::fs::write(&out, &image).expect("write");
+    println!("--- saved {out}\n");
+}
+
+/// Raw stream capture — no framing, no interpretation.
+///
+/// The first full dump came back drifting **one byte per block**: the same
+/// content, sliding. That is a reader bug, not radio data, and guessing at it
+/// costs more than looking. This sends three small requests and prints every
+/// byte that comes back with a gap-based split, so the actual framing is
+/// visible rather than inferred.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_program_mode_raw() {
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+    assert!(ask(&mut *p, "ID").expect("ID").0.contains("TM-D710"));
+    assert!(ask(&mut *p, "0M PROGRAM").expect("enter").0.starts_with("0M"));
+
+    // Drain whatever is in flight, then send one request and read everything
+    // that arrives until the line goes quiet.
+    let drain = |p: &mut dyn SerialPort, label: &str, req: &[u8]| {
+        let _ = p.clear(serialport::ClearBuffer::Input);
+        let _ = p.write_all(req);
+        let _ = p.flush();
+        let mut got = Vec::new();
+        let deadline = Instant::now() + Duration::from_millis(900);
+        let mut b = [0u8; 1];
+        while Instant::now() < deadline {
+            match p.read(&mut b) {
+                Ok(1) => got.push(b[0]),
+                _ => {
+                    if !got.is_empty() {
+                        break;
+                    }
+                }
+            }
+        }
+        println!("  {label}: sent {req:02X?}\n      got {got:02X?}");
+        got
+    };
+
+    // ★ Address byte order. The 256-byte block at 0x0000 has `00 00 30 30` at
+    // offset 0x10, so whichever request returns those is the right way round —
+    // and 0x0000 itself cannot answer it, which is exactly what let the first
+    // dump walk one byte per block instead of 256.
+    drain(&mut *p, "hi-first 0x0010", &[b'R', 0x00, 0x10, 0x10]);
+    drain(&mut *p, "  ack          ", &[0x06]);
+    drain(&mut *p, "lo-first 0x0010", &[b'R', 0x10, 0x00, 0x10]);
+    drain(&mut *p, "  ack          ", &[0x06]);
+
+    let _ = p.write_all(b"E");
+    let _ = p.flush();
+    std::thread::sleep(Duration::from_millis(300));
+    let mut ack = [0u8; 3];
+    let _ = read_exact_timeout(&mut *p, &mut ack);
+    println!("  E -> {ack:02X?}\n");
+}
+
+/// One block, with the acknowledgement the radio waits for.
+///
+/// `len` of 0 means 256 bytes, which is what the radio's own header uses.
+fn read_block(p: &mut dyn SerialPort, addr: u16, len: u8) -> Result<Vec<u8>, String> {
+    // ⚠ BIG-endian, high byte first. The published note for this mode says
+    // little-endian, and 0x0000 — the only address anyone checks first — reads
+    // the same either way, so the error survives. It cost this driver a 64 KiB
+    // dump that drifted exactly one byte per block: stepping to 0x0100 sent
+    // `00 01`, which the radio read as 0x0001.
+    let req = [b'R', (addr >> 8) as u8, (addr & 0xFF) as u8, len];
+    p.write_all(&req).map_err(|e| e.to_string())?;
+    p.flush().map_err(|e| e.to_string())?;
+
+    let mut head = [0u8; 4];
+    read_exact_timeout(p, &mut head)?;
+    if head[0] != b'W' {
+        return Err(format!("expected a W header, got {head:02X?}"));
+    }
+    let n = if head[3] == 0 { 256 } else { head[3] as usize };
+    let mut data = vec![0u8; n];
+    read_exact_timeout(p, &mut data)?;
+
+    // ★ The handshake. Without it the next request is never answered.
+    p.write_all(&[0x06]).map_err(|e| e.to_string())?;
+    p.flush().map_err(|e| e.to_string())?;
+    let mut status = [0u8; 1];
+    read_exact_timeout(p, &mut status)?;
+    if status[0] != 0x06 {
+        return Err(format!("the radio answered the ack with {:02X}", status[0]));
+    }
+    Ok(data)
+}
+
+/// Why the second block read in a session never answers.
+///
+/// Both earlier probes show the same shape: the **first** `R` after entering
+/// program mode returns a block, and every one after it times out. That is not
+/// an addressing problem — it happened at four different addresses — so the
+/// question is what the radio is waiting for between blocks. The obvious
+/// candidate is the `0x06` the radio itself sends to acknowledge a write: a
+/// host that never acknowledges a block may simply be left holding one.
+///
+/// Also settles the address byte order as a side effect, which the first dump
+/// could not: it read `0x0000`, where both orders are the same two bytes.
+/// Offset `0x10` of that block is `00 00 30 30`, so whichever request returns
+/// those is the right way round.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_program_mode_handshake() {
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+    assert!(ask(&mut *p, "ID").expect("ID").0.contains("TM-D710"));
+    assert!(ask(&mut *p, "0M PROGRAM").expect("enter").0.starts_with("0M"));
+
+    fn one(p: &mut dyn SerialPort, req: [u8; 4], ack_after: bool) -> String {
+        let _ = p.write_all(&req);
+        let _ = p.flush();
+        let mut head = [0u8; 4];
+        if read_exact_timeout(p, &mut head).is_err() {
+            return "no reply".into();
+        }
+        let len = if head[3] == 0 { 256 } else { head[3] as usize };
+        let mut data = vec![0u8; len];
+        let body = match read_exact_timeout(p, &mut data) {
+            Ok(()) => format!("{:02X?}", &data[..len.min(4)]),
+            Err(e) => format!("(short: {e})"),
+        };
+        if ack_after {
+            let _ = p.write_all(&[0x06]);
+            let _ = p.flush();
+        }
+        format!("head {head:02X?} data {body}")
+    }
+
+    // Four in a row, acknowledging each. If the ACK is what was missing, all
+    // four answer where previously only the first did.
+    println!();
+    for (i, addr) in [0x0000u16, 0x0000, 0x0010, 0x0020].iter().enumerate() {
+        let req = [b'R', (addr & 0xFF) as u8, (addr >> 8) as u8, 0x04];
+        println!("  {i}: LE 0x{addr:04X} (sent {req:02X?}) -> {}", one(&mut *p, req, true));
+    }
+    let req = [b'R', 0x00, 0x10, 0x04];
+    println!("  BE 0x0010 (sent {req:02X?}) -> {}", one(&mut *p, req, true));
+
+    let _ = p.write_all(b"E");
+    let _ = p.flush();
+    std::thread::sleep(Duration::from_millis(300));
+    let mut ack = [0u8; 3];
+    let _ = read_exact_timeout(&mut *p, &mut ack);
+    println!("E -> {ack:02X?}\n");
+}
+
+/// Read exactly `buf.len()` bytes, or give up. Block transfers are binary and
+/// fixed-length, so the `\r`-terminated [`ask`] cannot be used for them.
+fn read_exact_timeout(p: &mut dyn SerialPort, buf: &mut [u8]) -> Result<(), String> {
+    let deadline = Instant::now() + Duration::from_millis(2000);
+    let mut got = 0;
+    while got < buf.len() {
+        if Instant::now() > deadline {
+            return Err(format!("timed out after {got} of {} bytes", buf.len()));
+        }
+        match p.read(&mut buf[got..]) {
+            Ok(0) => continue,
+            Ok(n) => got += n,
+            Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    Ok(())
+}
+
 // ⚠ Everything below WRITES to the radio. Above this line nothing does.
 // The safety net is that `memories.txt` and `mu-log.txt` hold the radio's
 // entire state as it was found, so `d710_restore` can put any of it back.
