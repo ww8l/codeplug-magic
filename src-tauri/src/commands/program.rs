@@ -937,9 +937,33 @@ pub async fn program_radio(
         .estr()??;
         program_report_to_generic(report)
     } else if let Some(imager) = driver.as_image_programmer() {
-        // Included channels pack contiguously from slot 0; excluded (e.g.
-        // digital-mode) channels drop out and the rest close up behind them.
-        let (_model, slots) = export::resolve_codeplug_slots(&state.pool, codeplug_id).await?;
+        // How the channels land in memory. Two layouts, chosen by the model:
+        //
+        // * Fixed-zone radios (the BT-9000: 15 blocks of 64, a memory's zone is
+        //   its index / 64) get one channel list per zone, so the zones the
+        //   operator switches between on the radio ARE the codeplug's lists.
+        //   Slots are deliberately NOT dense — the gap after a short list is
+        //   what keeps the next list in its own zone.
+        // * Everything else packs contiguously from slot 0; excluded (e.g.
+        //   digital-mode) channels drop out and the rest close up behind them.
+        let (slots, zones, mut layout_warnings) =
+            match export::fixed_zone_layout(&model) {
+                Some((per_zone, max_zones)) => {
+                    let (_model, zoned) = export::resolve_codeplug_zone_slots(
+                        &state.pool,
+                        codeplug_id,
+                        per_zone,
+                        max_zones,
+                    )
+                    .await?;
+                    (zoned.slots, zoned.zones.len(), zoned.warnings)
+                }
+                None => {
+                    let (_model, slots) =
+                        export::resolve_codeplug_slots(&state.pool, codeplug_id).await?;
+                    (slots, 0, Vec::new())
+                }
+            };
 
         // The radio profile's settings + the model's schema. Used by the
         // UV-5R and the BT-9000, whose settings live inside the image the
@@ -998,6 +1022,11 @@ pub async fn program_radio(
         report
             .warnings
             .extend(crate::radios::settings_bounds::note_line(&dropped));
+        // The zone layout is the command layer's, not the driver's: on these
+        // radios a zone is a range of slots, so the driver only ever saw
+        // channels at the positions this function chose for them.
+        report.zones_written = zones;
+        report.warnings.append(&mut layout_warnings);
         report
     } else {
         return Err(format!(

@@ -418,6 +418,17 @@ pub struct ExportPreviewRow {
     pub reason: Option<String>,
 }
 
+/// One zone in the preview's zone map, for a radio whose zones are fixed blocks
+/// of memories. The radio stores no zone names, so this map is the only place
+/// the operator can learn that zone 2 is their GMRS list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreviewZone {
+    /// 1-based zone number, as the radio's own zone selector shows it.
+    pub number: usize,
+    pub list_name: String,
+    pub channels: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportPreview {
     pub codeplug_id: i64,
@@ -432,6 +443,18 @@ pub struct ExportPreview {
     /// the rows.
     pub receive_only_count: usize,
     pub rows: Vec<ExportPreviewRow>,
+    /// The zone map, for radios that lay their memories out as fixed zone
+    /// blocks. Empty for everything else — including zone radios whose zones
+    /// are named records the driver writes (the AnyTone), because there the
+    /// zones are not a property of where the channels land.
+    ///
+    /// ⚠ A channel in two of the codeplug's lists appears in BOTH zones and is
+    /// programmed twice, so `zones` summed is the real memory count and
+    /// `included_count` (which dedups across lists) can be lower.
+    pub zones: Vec<PreviewZone>,
+    /// What the operator needs told about that layout: a list that outgrew one
+    /// zone, a list with nothing programmable in it, lists past the last zone.
+    pub zone_notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

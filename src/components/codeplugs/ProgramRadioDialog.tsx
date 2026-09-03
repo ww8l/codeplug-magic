@@ -229,7 +229,15 @@ export function ProgramRadioDialog({
     });
   };
 
-  const writeCount = preview?.included_count ?? 0;
+  // Radios whose zones are fixed memory blocks (the BT-9000) get one channel
+  // list per zone, and a channel that is in two lists is programmed in each —
+  // so the memories written is the zone map's total, not the deduped
+  // `included_count`. Empty for every other model, which keeps `writeCount`
+  // exactly what it was.
+  const zones = preview?.zones ?? [];
+  const zoneNotes = preview?.zone_notes ?? [];
+  const zoneTotal = zones.reduce((n, z) => n + z.channels, 0);
+  const writeCount = zones.length > 0 ? zoneTotal : (preview?.included_count ?? 0);
   // ⚠ From the MODEL, not a constant. This was hard-coded to 128 for the UV-5R
   // and TD-H3, and this is the GENERIC dialog — the TH-D72 holds 1000, so the
   // confirm for a destructive write quoted a number that was simply wrong for
@@ -514,7 +522,50 @@ export function ProgramRadioDialog({
                       · <strong>{skipped.length}</strong> skipped
                     </>
                   )}
+                  {zones.length > 0 && (
+                    <>
+                      {" "}
+                      · <strong>{zones.length}</strong> zone
+                      {zones.length === 1 ? "" : "s"}
+                    </>
+                  )}
                 </div>
+
+                {/* The zone map. Not decoration: these radios store no zone
+                    names, so after the write the radio can only tell the
+                    operator "zone 2" — this is the only place that says zone 2
+                    is their GMRS list. */}
+                {zones.length > 0 && (
+                  <div className="rounded-md border border-slate-200 dark:border-slate-700">
+                    <div className="border-b border-slate-200 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                      Zones on the radio
+                    </div>
+                    <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {zones.map((z) => (
+                        <li
+                          key={z.number}
+                          className="flex items-baseline justify-between gap-3 px-3 py-1 text-[11px] text-slate-700 dark:text-slate-200"
+                        >
+                          <span>
+                            <span className="font-mono text-slate-500 dark:text-slate-400">
+                              Zone {z.number}
+                            </span>{" "}
+                            {z.list_name}
+                          </span>
+                          <span className="shrink-0 text-slate-500 dark:text-slate-400">
+                            {z.channels} channel{z.channels === 1 ? "" : "s"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="border-t border-slate-200 px-3 py-1.5 text-[10px] text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                      {modelName} names no zones of its own — it shows them by
+                      number, in this order.
+                    </p>
+                  </div>
+                )}
+
+                {zoneNotes.length > 0 && <WarningList warnings={zoneNotes} />}
 
                 {receiveOnly.length > 0 && (
                   <ChannelNotice
@@ -530,7 +581,11 @@ export function ProgramRadioDialog({
                     tone="amber"
                     title={`${skipped.length} channel${skipped.length === 1 ? "" : "s"} will be skipped — ${modelName} cannot use ${skipped.length === 1 ? "it" : "them"}`}
                     rows={skipped}
-                    footer="These are dropped and the remaining channels close up with no gaps."
+                    footer={
+                      zones.length > 0
+                        ? "These are dropped and the rest of their channel list closes up behind them, inside its own zone."
+                        : "These are dropped and the remaining channels close up with no gaps."
+                    }
                   />
                 )}
               </div>
