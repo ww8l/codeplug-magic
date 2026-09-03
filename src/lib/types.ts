@@ -455,6 +455,16 @@ export interface ExportPreviewRow {
   reason: string | null;
 }
 
+/// One zone on a radio whose zones are fixed blocks of memories (the BT-9000:
+/// 10 blocks of 99, the last one 69 long). The radio stores no zone names, so this map is the only
+/// place the operator can learn which list landed in which zone.
+export interface PreviewZone {
+  /// 1-based, as the radio's own zone selector shows it.
+  number: number;
+  list_name: string;
+  channels: number;
+}
+
 export interface ExportPreview {
   codeplug_id: number;
   radio_model: string;
@@ -465,6 +475,16 @@ export interface ExportPreview {
   /// How many of `included_count` are receive-only.
   receive_only_count: number;
   rows: ExportPreviewRow[];
+  /// Whether this radio lays its memories out as fixed zone blocks at all.
+  /// ⚠ Not the same as `zones.length > 0`: a fixed-zone radio whose every
+  /// channel list was refused also has no zones.
+  fixed_zones: boolean;
+  /// The zone map, for fixed-zone radios; empty for every other model.
+  /// ⚠ A channel in two of the codeplug's lists lands in BOTH zones and is
+  /// programmed twice, so these summed can exceed `included_count`.
+  zones: PreviewZone[];
+  /// What to tell the operator about that layout.
+  zone_notes: string[];
 }
 
 // ---- direct radio programming (UV-5R) ----

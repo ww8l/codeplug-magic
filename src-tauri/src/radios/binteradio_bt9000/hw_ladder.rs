@@ -102,8 +102,14 @@ fn program(slots: &[SlotChannel], tag: &str) -> Vec<u8> {
 ///
 /// The step-3 rule is to check the memory list in every zone, not just the one
 /// the radio powers up on. Here that is mechanical: this radio's zones are
-/// index arithmetic, so a channel in the first and last slot of each of the 15
+/// index arithmetic, so a channel in the first and last slot of each of the 10
 /// zones proves the whole 960-slot map at once.
+///
+/// ⚠ This ran and PASSED in s128 against the wrong geometry — 15 zones of 64 —
+/// and could not have caught it: it wrote to computed addresses and compared
+/// the read-back against the same computation. The radio was never asked what
+/// it called any of them. A check that closes the loop on itself proves the
+/// transport and nothing about the layout.
 #[test]
 #[ignore = "writes to a real BT-9000 on the cable"]
 fn step3_full_codeplug_reaches_every_zone() {
@@ -114,7 +120,9 @@ fn step3_full_codeplug_reaches_every_zone() {
         // misplaced channel is visible on the radio rather than merely absent.
         slots.push(slot(base, &format!("Z{:02}FIRST", zone + 1), 145.0 + zone as f64 * 0.1, 145.0 + zone as f64 * 0.1));
         slots.push(slot(
-            base + CHANNELS_PER_ZONE - 1,
+            // Capacity, not `CHANNELS_PER_ZONE`: the tenth zone is 69 long, and
+            // multiplying would address memory 989 on a radio with 960.
+            base + zone_capacity(zone + 1) - 1,
             &format!("Z{:02}LAST", zone + 1),
             440.0 + zone as f64 * 0.1,
             440.0 + zone as f64 * 0.1,

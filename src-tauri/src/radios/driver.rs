@@ -197,10 +197,13 @@ pub(crate) trait ImageProgrammer: Send + Sync {
     /// alongside the channels.
     ///
     /// It is NOT implied by `req.settings` being populated — the command layer
-    /// fills that for every driver, and most deliberately ignore it. A radio
-    /// with its own `SettingsWriter` generally treats settings as a separate,
-    /// explicitly-acknowledged operation and leaves the radio's own settings
-    /// alone during a channel program (the TD-H3 and the BT-9000 both do).
+    /// fills that for every driver, and some deliberately ignore it. A radio
+    /// whose settings live outside the region a channel program writes treats
+    /// them as a separate, explicitly-acknowledged operation and leaves the
+    /// radio's own alone during a program (the TD-H3 does). A radio whose
+    /// program already rewrites the settings region either way should answer
+    /// true, or it puts the radio's old settings back over the profile's every
+    /// time (the BT-9000 did exactly that).
     ///
     /// Declared rather than inferred because the generic Program dialog states
     /// in a safety banner what the operation will change, and that sentence was
@@ -607,9 +610,11 @@ pub struct DriverCapabilities {
     pub write_settings: bool,
     pub write_channels: bool,
     pub program_codeplug: bool,
-    /// Whether a codeplug program also writes the profile's settings. Only the
-    /// UV-5R does: it has no standalone settings-write path, so its settings
-    /// ride out inside the image `program_codeplug` uploads.
+    /// Whether a codeplug program also writes the profile's settings. The
+    /// UV-5R and the BT-9000 do: their settings live inside the image
+    /// `program_codeplug` uploads, so they ride out with the channels. (The
+    /// BT-9000 also keeps its standalone narrow settings write, which is a
+    /// third of a second against four minutes.)
     pub programs_settings: bool,
     pub write_callsign_db: bool,
     pub export: bool,

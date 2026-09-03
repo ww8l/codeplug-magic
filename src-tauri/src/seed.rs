@@ -323,10 +323,28 @@ fn models() -> Vec<ModelSeed> {
         //    Bajeton BJ-9000 and Tenway TP-900 Pro; the radio reports its model
         //    as "RT-950" whatever the case says.
         //
-        //    960 channels in 15 FIXED zones of 64. Zones carry no names in the
-        //    radio — membership is index/64 and the vendor CPS keeps labels
-        //    only in its own file — so `zones_supported` is false: this app
-        //    would be offering a name the radio cannot store.
+        //    960 channels in FIXED zones of 99: nine full ones and a tenth
+        //    holding 69. Zones carry no names in the radio — membership is
+        //    index/99 and the vendor CPS keeps labels only in its own file.
+        //
+        //    ⚠⚠ NOT the manual's "15 zones ... 64 channels per zone", and not
+        //    the RT-950 Pro reference driver's `index // 64` either. Both are
+        //    wrong, and this app shipped a codeplug on them: the second channel
+        //    list went to memory 64, which the radio calls zone 1 CHANNEL 65,
+        //    so the operator got one zone. Eleven memories were written and
+        //    read back off the radio's own screen to settle it — three of them
+        //    as predictions. See `CHANNELS_PER_ZONE` in the driver.
+        //
+        //    ⚠ `zones_supported` was false for that reason, on the argument
+        //    that this app would be offering a name the radio cannot store.
+        //    That confused the LABEL with the ZONE. The radio has ten of them
+        //    and the operator switches between them; declaring otherwise did
+        //    not withhold a name, it dumped every channel list into one
+        //    undifferentiated run of memories. The flag now says what is true,
+        //    and `commands/export.rs` (`fixed_zone_layout`) reads these three
+        //    columns to lay one channel list into each zone. The names stay
+        //    ours: the Program dialog shows the zone map, because the radio
+        //    cannot.
         // --------------------------------------------------------
         ModelSeed {
             manufacturer: "Binteradio",
@@ -401,9 +419,9 @@ fn models() -> Vec<ModelSeed> {
             // the ID-52, and the old conservative seed did not have it.
             rx_bands: Some("[[18.0,520.0]]"),
             memory_channels: 960,
-            zones_supported: false,
-            max_zones: None,
-            channels_per_zone: None,
+            zones_supported: true,
+            max_zones: Some(10),
+            channels_per_zone: Some(99),
             // Per-channel scan-add flag (byte 15 bit 2), not named scan lists.
             scan_lists_supported: false,
             max_scan_lists: None,
@@ -1074,6 +1092,37 @@ mod tests {
 
         // The two ham bands it does key on.
         assert!(covers(&tx, 146.52) && covers(&tx, 446.0));
+    }
+
+    /// ★★★ The BT-9000's zone geometry, seeded from what the RADIO says.
+    ///
+    /// These three columns are what `commands/export.rs::fixed_zone_layout`
+    /// reads, so they alone decide which memory each channel lands in — the
+    /// driver writes by slot and never thinks in zones at all.
+    ///
+    /// They read 15 and 64 until s130, matching the manual and the RT-950 Pro
+    /// reference driver, and the driver's own constants agreed with them. Being
+    /// wrong TOGETHER is why nothing caught it: a codeplug's second channel
+    /// list went to memory 64, the radio calls that memory zone 1 channel 65,
+    /// and the operator got one zone. Eleven memories were then written and
+    /// read back off the radio's screen — three of them as predictions — and
+    /// they give 99 and 10.
+    #[test]
+    fn the_bt9000_zone_geometry_is_the_radios_own() {
+        let m = models().into_iter().find(|m| m.model == "BT-9000").unwrap();
+        assert!(m.zones_supported);
+        assert_eq!(m.channels_per_zone, Some(99), "zones are 99 wide, NOT the manual's 64");
+        assert_eq!(m.max_zones, Some(10), "ten zones, NOT the manual's 15");
+        assert_eq!(m.memory_channels, 960);
+        // ⚠ 99 does not divide 960. Nine full zones and a tenth of 69 — which
+        // is the radio's own answer for its last memory, 959: zone 10 ch 69.
+        let per = m.channels_per_zone.unwrap();
+        let last = m.memory_channels - (m.max_zones.unwrap() - 1) * per;
+        assert_eq!(last, 69, "the last zone is short, and anything that multiplies loses it");
+        assert_eq!(
+            crate::radios::binteradio_bt9000::CHANNELS_PER_ZONE as i64, per,
+            "the driver decodes a memory's zone with this too; the two must not drift"
+        );
     }
 
     /// A gap in a seeded receiver is not a detail — it decides whether a channel

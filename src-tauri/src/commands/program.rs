@@ -937,14 +937,55 @@ pub async fn program_radio(
         .estr()??;
         program_report_to_generic(report)
     } else if let Some(imager) = driver.as_image_programmer() {
-        // Included channels pack contiguously from slot 0; excluded (e.g.
-        // digital-mode) channels drop out and the rest close up behind them.
-        let (_model, slots) = export::resolve_codeplug_slots(&state.pool, codeplug_id).await?;
+        // How the channels land in memory. Two layouts, chosen by the model:
+        //
+        // * Fixed-zone radios (the BT-9000: 10 blocks of 99, the last one 69
+        //   long, and a memory's zone is its index / 99) get one channel list
+        //   per zone, so the zones the operator switches between on the radio
+        //   ARE the codeplug's lists.
+        //   Slots are deliberately NOT dense — the gap after a short list is
+        //   what keeps the next list in its own zone.
+        // * Everything else packs contiguously from slot 0; excluded (e.g.
+        //   digital-mode) channels drop out and the rest close up behind them.
+        // What the codeplug asks for, before any layout: the emptiness test
+        // below has to tell "nothing to program" apart from "nothing could be
+        // placed", and only the flat resolution knows the difference.
+        let (_model, slots_wanted) =
+            export::resolve_codeplug_slots(&state.pool, codeplug_id).await?;
+        let (slots, zones, mut layout_warnings) =
+            match export::fixed_zone_layout(&model) {
+                Some(layout) => {
+                    let (_model, zoned) =
+                        export::resolve_codeplug_zone_slots(&state.pool, codeplug_id, layout)
+                            .await?;
+                    // ⚠ A layout that placed NOTHING must not reach the port.
+                    // `program_codeplug` refuses a codeplug with more channels
+                    // than the radio holds — but after the zone layout runs, an
+                    // over-capacity codeplug arrives as an EMPTY slot list
+                    // instead of an over-long one, so that guard cannot fire and
+                    // the write would sail through, blanking all 960 memories to
+                    // "match" a codeplug whose channels it could not place.
+                    if zoned.slots.is_empty() && !slots_wanted.is_empty() {
+                        return Err(format!(
+                            "None of this codeplug's channel lists fit in the \
+                             {}'s {} zones, so programming it would clear the radio \
+                             rather than fill it.\n\n{}",
+                            model.display_name,
+                            layout.zones,
+                            zoned.warnings.join("\n")
+                        ));
+                    }
+                    (zoned.slots, zoned.zones.len(), zoned.warnings)
+                }
+                None => (slots_wanted, 0, Vec::new()),
+            };
 
-        // The radio profile's settings + the model's schema. Present on the
-        // UV-5R (which makes the profile authoritative over every editable
-        // setting during a program); the TD-H3 ignores them and pushes settings
-        // through its separate, explicitly-acknowledged settings write.
+        // The radio profile's settings + the model's schema. Used by the
+        // UV-5R and the BT-9000, whose settings live inside the image the
+        // program uploads; the TD-H3 ignores them and pushes settings through
+        // its separate, explicitly-acknowledged settings write. Which drivers
+        // use them is not guesswork — `carries_profile_settings` declares it,
+        // and the Program dialog's banner is written from that flag.
         let profile_settings: Option<String> = sqlx::query_scalar(
             "SELECT rp.non_channel_settings FROM codeplugs cp \
              JOIN radio_profiles rp ON rp.id = cp.radio_profile_id WHERE cp.id = ?1",
@@ -996,6 +1037,11 @@ pub async fn program_radio(
         report
             .warnings
             .extend(crate::radios::settings_bounds::note_line(&dropped));
+        // The zone layout is the command layer's, not the driver's: on these
+        // radios a zone is a range of slots, so the driver only ever saw
+        // channels at the positions this function chose for them.
+        report.zones_written = zones;
+        report.warnings.append(&mut layout_warnings);
         report
     } else {
         return Err(format!(

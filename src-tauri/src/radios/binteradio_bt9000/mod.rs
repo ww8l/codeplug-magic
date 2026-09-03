@@ -8,9 +8,15 @@
 //! reports its model as `RT-950`, so [`MODEL_TOKEN`] is what the handshake
 //! checks — never the badge on the case.
 //!
-//! 960 channels in 15 fixed zones of 64. Zones have **no names in the radio**:
-//! membership is `index / 64`, and the vendor CPS keeps zone labels only in its
-//! own `.dat` file. There is nowhere in the clone image to put them.
+//! 960 channels in **10 zones of 99** — nine full ones and a tenth holding 69.
+//! Zones have **no names in the radio**: membership is `index / 99`, and the
+//! vendor CPS keeps zone labels only in its own `.dat` file. There is nowhere
+//! in the clone image to put them.
+//!
+//! ⚠ The manual says fifteen zones of sixty-four, and so does the RT-950 Pro
+//! reference driver. Both are wrong; see [`CHANNELS_PER_ZONE`] for the eleven
+//! memories the radio was asked about. This is the fourth published claim about
+//! this radio that its own screen has refuted.
 //!
 //! ## Protocol
 //!
@@ -92,13 +98,54 @@ pub(crate) const IMAGE_LEN: usize = 33_152;
 const CHANNEL_COUNT: usize = 960;
 const ENTRY_LEN: usize = 32;
 const NAME_LEN: usize = 12;
-pub(crate) const CHANNELS_PER_ZONE: usize = 64;
-pub(crate) const ZONE_COUNT: usize = CHANNEL_COUNT / CHANNELS_PER_ZONE; // 15
+/// ★★★ MEASURED ON THE RADIO (s130). **Not 64**, which is what the manual says
+/// ("up to 15 zones can be set, with 64 channels per zone") and what the
+/// RT-950 Pro reference driver computes (`zone = index // 64 + 1`). Both are
+/// wrong for this radio, and believing them is what shipped a codeplug whose
+/// second channel list landed inside zone 1.
+///
+/// How it was settled: markers were written at known memories and the radio was
+/// asked what it called each. Eleven points, one model, no exceptions —
+/// including three written as PREDICTIONS before the radio was asked.
+///
+/// | memory | radio says | |
+/// |---|---|---|
+/// | 0 | zone 1 ch 1 | factory |
+/// | 63 | zone 1 ch 64 | factory |
+/// | 64 | zone 1 ch **65** | ⚠ kills the 64-wide model on its own |
+/// | 99 | zone 2 ch 1 | stored on the radio by hand |
+/// | 100, 128, 192 | zone 2 ch 2, 30, 94 | |
+/// | 198 | zone 3 ch 1 | stored on the radio by hand |
+/// | 296 | zone 3 ch 99 | predicted, then confirmed |
+/// | 297 | zone 4 ch 1 | predicted, then confirmed |
+/// | 959 | zone 10 ch 69 | predicted, then confirmed |
+///
+/// So `channel = memory - zone_base + 1`, `zone_base = (zone - 1) * 99`. 99 is
+/// almost certainly the two-digit channel display.
+pub(crate) const CHANNELS_PER_ZONE: usize = 99;
 
-/// The 960 memories are 15 fixed zones of 64, with no zone names anywhere in
-/// the image. Held as an invariant so a future edit to any one of these three
-/// cannot quietly disagree with the other two.
-const _: () = assert!(ZONE_COUNT * CHANNELS_PER_ZONE == CHANNEL_COUNT);
+/// ⚠ 99 does NOT divide 960: there are nine full zones and a **tenth holding
+/// 69**, which the radio confirmed at memory 959. Anything laying channels out
+/// by zone has to ask each zone's real capacity rather than multiply, or it
+/// places channels past the end of memory, where `patch_image` skips them
+/// without a word.
+///
+/// `#[cfg(test)]` on both: the shipping path here does not need them, because
+/// this driver writes by SLOT and never thinks in zones, and the layout that
+/// does — `commands/export.rs` — takes its geometry from the model's own
+/// columns so it can serve any fixed-zone radio. These carry the measurement
+/// and hold the seed to it, which is exactly the disagreement that caused all
+/// this.
+#[cfg(test)]
+pub(crate) const ZONE_COUNT: usize = CHANNEL_COUNT.div_ceil(CHANNELS_PER_ZONE); // 10
+
+/// How many memories zone `number` (1-based) actually holds. Every zone but the
+/// last holds [`CHANNELS_PER_ZONE`]; the last is short.
+#[cfg(test)]
+pub(crate) fn zone_capacity(number: usize) -> usize {
+    let base = (number - 1) * CHANNELS_PER_ZONE;
+    CHANNEL_COUNT.saturating_sub(base).min(CHANNELS_PER_ZONE)
+}
 
 // ============================================================
 // Segment tables
@@ -492,7 +539,9 @@ pub(crate) fn validate_image(image: &[u8]) -> Result<(), String> {
 #[derive(Serialize, PartialEq, Debug, Clone)]
 pub struct Bt9000DecodedChannel {
     pub index: usize,
-    /// 1-based zone, `index / 64 + 1`. The radio stores no zone names.
+    /// 1-based zone, `index / 99 + 1` — see [`CHANNELS_PER_ZONE`], which is 99
+    /// because the radio says so and not 64 because the manual does. The radio
+    /// stores no zone names.
     pub zone: usize,
     pub name: String,
     pub rx_mhz: f64,
@@ -689,6 +738,12 @@ fn encode_tones(c: &Channel) -> ([u8; 2], [u8; 2]) {
     }
 }
 
+/// Byte 15 bit 2: include this memory in the radio's scan.
+///
+/// Every channel this app programs gets it — see the note in
+/// [`encode_channel`] for why, and for what is and is not measured about it.
+const SCAN_ADD: u8 = 0x04;
+
 /// Build one 32-byte channel record.
 ///
 /// The TX shift is carried entirely by the stored TX frequency — there is no
@@ -715,8 +770,23 @@ fn encode_channel(c: &Channel, name: &str, tx_hz: u64, tx_enable: bool) -> [u8; 
     // channel property this app models, and the radio's own default is 0.
     m[14] = power_index(c) & 0x0F; // high nibble is the scrambler, left off
 
-    // bit 1 = TX enable, bit 6 = narrow. Everything else (FHSS, encryption,
-    // busy lockout, scan-add, AM) stays off — measured defaults, not guesses.
+    // bit 1 = TX enable, bit 2 = scan-add, bit 6 = narrow. Everything else
+    // (FHSS, encryption, busy lockout, AM) stays off.
+    //
+    // ⚠ Scan-add is set on EVERY programmed channel, and that is a choice, not
+    // a copy of what the radio had. The channel library has nowhere to store a
+    // per-channel skip, so the alternative is what this driver shipped with:
+    // every channel written with the bit clear, and an operator who scans and
+    // hears nothing on any memory they programmed. The TD-H3 made the same call
+    // for the same reason (`SCANADD_BASE`, set true beside `USEDFLAGS_BASE`),
+    // and a channel excluded from scan is the surprising default of the two.
+    //
+    // ⚠ The BIT is inherited, not measured here: `scratchpad/binteradio_bt9000/
+    // chirp_rt950/rt950pro/channel.py` decodes `flags & 0x04` as `scan_add` and
+    // round-trips it against the vendor CPS's own `.dat` files. Its neighbour at
+    // bit 1 was a source claim of exactly this kind until the radio was made to
+    // refuse a PTT, so treat this one as unproven until a scan on the radio
+    // stops on a programmed memory.
     //
     // ⚠ Narrow ONLY on an explicit narrow mode. `mode` is nullable in the
     // schema and reachable from a CSV import with no mode column, and
@@ -730,7 +800,7 @@ fn encode_channel(c: &Channel, name: &str, tx_hz: u64, tx_enable: bool) -> [u8; 
     // `scratchpad/binteradio_bt9000/SCREEN-CHECK.md` carries the measurement;
     // guessing the bit is how radios get damaged on this platform.
     let narrow = matches!(c.mode.as_deref(), Some(m) if m.eq_ignore_ascii_case("NFM"));
-    m[15] = if tx_enable { 0x02 } else { 0x00 } | if narrow { 0x40 } else { 0x00 };
+    m[15] = SCAN_ADD | if tx_enable { 0x02 } else { 0x00 } | if narrow { 0x40 } else { 0x00 };
 
     // 16-19 = FHSS code, left zero.
     m[20..32].copy_from_slice(&name_bytes(name));
@@ -888,6 +958,27 @@ impl ImageRestorer for BinteradioBt9000 {
 }
 
 impl ImageProgrammer for BinteradioBt9000 {
+    /// Yes. A codeplug program writes the profile's settings alongside the
+    /// channels.
+    ///
+    /// This read `false` until it was measured what the whole-image [`upload`]
+    /// already does: it addresses [`WRITE_SEGMENTS`], and the function block is
+    /// one of them — so a channel program was ALREADY rewriting the settings
+    /// segment, just with the bytes it had read a moment earlier. Nothing about
+    /// the write got wider here; what changed is that the profile's values go
+    /// into that segment before it goes out, instead of the radio's own.
+    ///
+    /// The old note said settings were held back because this radio validates
+    /// nothing and an unintended value would be stored rather than rejected.
+    /// That risk is bounded by [`settings::apply_profile_settings`] being a
+    /// PATCH: a key the profile does not carry is left exactly as the radio had
+    /// it, and the command layer only fills `req.settings` from a profile the
+    /// operator saved. The standalone `write_settings` path already accepted
+    /// the same values on the same encoder.
+    fn carries_profile_settings(&self) -> bool {
+        true
+    }
+
     fn download_image(&self, port: &str) -> Result<(RadioIdentity, Vec<u8>), String> {
         let mut p = open_port(port)?;
         let hs = handshake(&mut *p)?;
@@ -934,10 +1025,10 @@ impl ImageProgrammer for BinteradioBt9000 {
     /// Download + back up, patch channels into that image, write it back, read
     /// back and verify.
     ///
-    /// `req.settings` is ignored on purpose: a channel program leaves every
-    /// setting exactly as the radio had it. That matters more here than on most
-    /// radios — this one does not validate a settings write, so an unintended
-    /// value would be stored rather than rejected.
+    /// `req.settings` is patched into the function block on the way out, so a
+    /// program leaves the radio holding the profile in full — channels AND
+    /// settings. Only the keys the profile carries move; every other byte of
+    /// that block goes back exactly as it was read.
     fn program_codeplug(
         &self,
         port: &str,
@@ -969,6 +1060,29 @@ impl ImageProgrammer for BinteradioBt9000 {
         //    not own goes back exactly as it came.
         let channels_written = req.channels.len();
         patch_image(&mut image, req.channels, req.model);
+
+        // 2b. Patch the profile's settings into the function block, if the
+        //     profile carries any. Before the write, so a value this driver's
+        //     encoder refuses aborts with nothing on the wire. The range strip
+        //     runs first for the same reason it does in `write_settings`: a
+        //     stale profile value is dropped with a note rather than failing
+        //     the whole program. (The command layer strips too; this covers the
+        //     hardware-ladder callers, which reach the trait directly.)
+        let mut warnings: Vec<String> = Vec::new();
+        let settings_written = match req.settings {
+            Some((settings, schema)) => {
+                let mut settings = settings.clone();
+                warnings.extend(crate::radios::settings_bounds::strip_out_of_range(
+                    schema,
+                    &mut settings,
+                ));
+                let (written, skipped) =
+                    settings::apply_profile_settings(&mut image, &settings)?;
+                warnings.extend(skipped);
+                Some(written)
+            }
+            None => None,
+        };
 
         let restore_hint = |e: String| {
             crate::radios::driver::with_restore_hint(
@@ -1004,7 +1118,7 @@ impl ImageProgrammer for BinteradioBt9000 {
         Ok(CodeplugProgramReport {
             channels_written,
             slots_cleared: CHANNEL_COUNT - channels_written,
-            settings_written: None,
+            settings_written,
             verified: Some(verified),
             note,
             backup_path: backup_path.to_string_lossy().to_string(),
@@ -1018,7 +1132,7 @@ impl ImageProgrammer for BinteradioBt9000 {
             expected_path: None,
             windows_written: Vec::new(),
             skipped: Vec::new(),
-            warnings: Vec::new(),
+            warnings,
         })
     }
 }
@@ -1245,9 +1359,35 @@ mod tests {
         let c = Channel { rx_freq: 146.52, mode: Some("FM".into()), ..Default::default() };
         assert_eq!(encode_channel(&c, "TX", 146_520_000, true)[15] & 0x02, 0x02);
         assert_eq!(encode_channel(&c, "RX", 146_520_000, false)[15] & 0x02, 0x00);
-        // The bandwidth bit is independent of it.
+        // The bandwidth bit is independent of it. Scan-add is present either
+        // way: a receive-only memory is exactly the kind a scan should stop on.
         let n = Channel { mode: Some("NFM".into()), ..c.clone() };
-        assert_eq!(encode_channel(&n, "RX", 146_520_000, false)[15], 0x40);
+        assert_eq!(encode_channel(&n, "RX", 146_520_000, false)[15], 0x40 | SCAN_ADD);
+    }
+
+    /// Every programmed channel is in the scan; every empty slot is not.
+    ///
+    /// The driver shipped writing this bit clear on all 960 memories, which is
+    /// how a radio ends up scanning nothing the operator programmed.
+    ///
+    /// ⚠ The bit itself is inherited from the RT-950 Pro reference driver, not
+    /// measured on a BT-9000. This test pins the DECISION — scan by default —
+    /// so that if the bit turns out to be something else, what changes is one
+    /// constant and not the policy.
+    #[test]
+    fn every_programmed_channel_is_in_the_scan() {
+        let c = Channel { rx_freq: 146.52, mode: Some("FM".into()), ..Default::default() };
+        assert_eq!(encode_channel(&c, "SCAN", 146_520_000, true)[15] & SCAN_ADD, SCAN_ADD);
+
+        // An empty slot is the radio's own all-0xFF form, which the radio reads
+        // as "no memory here" — the flag byte inside it means nothing, and both
+        // images the radio authored agree (channel records 0xFF, byte 15
+        // included). Nothing to clear.
+        let mut image = vec![0xFFu8; IMAGE_LEN];
+        let rec = encode_channel(&c, "SCAN", 146_520_000, true);
+        image[..ENTRY_LEN].copy_from_slice(&rec);
+        assert_eq!(image[15] & SCAN_ADD, SCAN_ADD);
+        assert_eq!(image[ENTRY_LEN..ENTRY_LEN * 2], [0xFF; ENTRY_LEN]);
     }
 
     #[test]
@@ -1269,6 +1409,49 @@ mod tests {
         assert!(forbidden(0x80FF));
         assert!(!forbidden(0x8000));
         assert!(!forbidden(0x807F));
+    }
+
+    /// A codeplug program leaves the radio holding the PROFILE's settings.
+    ///
+    /// It did not, and the reason is worth pinning: the whole-image upload has
+    /// always addressed the function block, so declaring
+    /// `carries_profile_settings = false` protected nothing — it just wrote the
+    /// radio's own settings straight back over the profile's, every program.
+    /// The three facts the fix stands on are all here.
+    #[test]
+    fn a_program_carries_the_profile_settings() {
+        let caps = crate::radios::driver::DriverCapabilities::of(&DRIVER);
+        assert!(
+            caps.programs_settings,
+            "the program writes the function block either way; saying otherwise \
+             sends the radio's old settings back over the profile's"
+        );
+        assert!(
+            caps.write_settings,
+            "the narrow standalone write stays — a third of a second against the \
+             four minutes a full program takes"
+        );
+
+        // The block the settings encoder writes into is one the upload sends.
+        let seg = WRITE_SEGMENTS
+            .iter()
+            .find(|s| s.file_offset == FUNCTION_OFFSET)
+            .expect("the function block is part of a full program's write");
+        assert!(FUNCTION_LIVE_LEN <= seg.length);
+
+        // And a channel patch cannot reach it: the records stop first.
+        const { assert!(CHANNEL_COUNT * ENTRY_LEN <= FUNCTION_OFFSET) };
+
+        // The encoder lands inside that segment, so what it writes goes out.
+        const SQUELCH_ADDR: usize = 0x00;
+        let mut image = vec![0xFFu8; IMAGE_LEN];
+        let (written, notes) = settings::apply_profile_settings(
+            &mut image,
+            &serde_json::json!({ "squelch": 5 }),
+        )
+        .unwrap();
+        assert_eq!((written, notes.len()), (1, 0));
+        assert_eq!(image[FUNCTION_OFFSET + SQUELCH_ADDR], 5);
     }
 
     /// The read layout defines the image; the write layout must be a strict
@@ -1319,17 +1502,48 @@ mod tests {
         assert!(validate_image(&vec![0u8; 0x10000]).is_err());
     }
 
+    /// ★★★ The zone geometry, against the memories the RADIO was asked about.
+    ///
+    /// Every row here is a memory that was put on Tim's BT-9000 and read back
+    /// off its own screen in s130 — not a re-derivation of the constant. The
+    /// previous version of this test asserted memory 64 was zone 2, which is
+    /// what the manual and the reference driver both say and what the radio
+    /// flatly denies: it calls that memory zone 1, channel 65.
     #[test]
-    fn zones_are_positional_only() {
-        let mut records = Vec::new();
-        for slot in [0usize, 63, 64, 959] {
-            records.push((slot, RADIO_CH1));
+    fn the_zone_geometry_is_the_radios_own() {
+        // (memory, zone, channel-within-zone) — all measured, none derived.
+        const MEASURED: [(usize, usize, usize); 11] = [
+            (0, 1, 1),
+            (63, 1, 64),
+            (64, 1, 65),
+            (98, 1, 99),
+            (99, 2, 1),
+            (100, 2, 2),
+            (128, 2, 30),
+            (192, 2, 94),
+            (198, 3, 1),
+            (297, 4, 1),
+            (959, 10, 69),
+        ];
+        let image = image_with(&MEASURED.map(|(slot, _, _)| (slot, RADIO_CH1)));
+        let decoded = decode_channels(&image);
+        assert_eq!(decoded.len(), MEASURED.len());
+        for (d, (mem, zone, channel)) in decoded.iter().zip(MEASURED) {
+            assert_eq!(d.index, mem);
+            assert_eq!(d.zone, zone, "memory {mem}");
+            assert_eq!(mem - (zone - 1) * CHANNELS_PER_ZONE + 1, channel, "memory {mem}");
         }
-        let image = image_with(&records);
-        let ch = decode_channels(&image);
-        assert_eq!(ch[0].zone, 1);
-        assert_eq!(ch[1].zone, 1);
-        assert_eq!(ch[2].zone, 2);
-        assert_eq!(ch[3].zone, ZONE_COUNT);
+
+        // 99 does not divide 960, so the last zone is short — and the radio
+        // said so itself: memory 959 is zone 10 channel 69, not zone 10
+        // channel 99 and not zone 15 anything.
+        assert_eq!(ZONE_COUNT, 10);
+        assert_eq!(zone_capacity(1), 99);
+        assert_eq!(zone_capacity(ZONE_COUNT), 69);
+        assert_eq!(
+            (1..=ZONE_COUNT).map(zone_capacity).sum::<usize>(),
+            CHANNEL_COUNT,
+            "every memory belongs to exactly one zone"
+        );
     }
 }
