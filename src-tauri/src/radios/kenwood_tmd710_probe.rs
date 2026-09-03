@@ -1299,3 +1299,129 @@ fn d710_restore() {
         println!("⚠ menu fields that did not take: {failed:?}\n");
     }
 }
+
+/// ★★★ The whole image — the two thirds `d710_program_mode_dump` never saw.
+///
+/// That dump walked forward until a read failed and stopped at `0x7F00`,
+/// reporting 32 512 bytes as "the image". It is not. **`0x7F00` is a hole in
+/// the middle, not the end.** CHIRP's clone-mode driver
+/// (`chirp/drivers/tmd710.py`, `KenwoodTMD710Radio._read_mem`) reads blocks
+/// `0x00`-`0x9B` and skips exactly one of them with the comment
+/// `# Skip block 7f !!??`, then reads two odd tails at `0xFEF0` and `0xFF00`.
+/// A reader that treats the hole as an end loses everything above it.
+///
+/// What is up there matters: CHIRP maps SkyCommand around `0x8660`, and
+/// **nothing anywhere in `0x0000`-`0x7EFF` looks like an APRS setting** — no
+/// call sign but the power-on message, no path, no beacon text — on a radio
+/// whose 600-series holds 32 APRS and TNC menus. This is where they have to be.
+///
+/// ## Addresses here are RADIO addresses
+///
+/// The output is a `0x1_0000`-byte file with `FF` for every address never read,
+/// so a file offset *is* the address the radio answers to. CHIRP's own mmap
+/// concatenates blocks instead, which shifts everything above the skipped block
+/// down by 0x100 — that is why its `#seekto 0x08660` is really `0x8760` on the
+/// wire. Not a convention to inherit while measuring.
+///
+/// Read-only, and it still leaves `PROG MCP` on the display, so `E` is sent
+/// outside the happy path exactly as in `d710_program_mode_dump`.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_program_mode_dump_full() {
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+    let id = ask(&mut *p, "ID").expect("ID").0;
+    assert!(id.contains("TM-D710"), "not a TM-D710: {id:?}");
+
+    let entered = ask(&mut *p, "0M PROGRAM").expect("enter program mode").0;
+    println!("\n0M PROGRAM -> {entered:?}");
+    assert!(entered.starts_with("0M"), "the radio refused program mode: {entered:?}");
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut image = vec![0xFFu8; 0x1_0000];
+        let mut read: Vec<(u16, usize)> = Vec::new();
+        let mut holes: Vec<(u16, String)> = Vec::new();
+
+        // Every request CHIRP makes, in its order. `len` 0 means 256.
+        //
+        // ⚠ 0x7F00 is left out, and that IS measured rather than inherited: the
+        // first run of this probe asked for it and the radio answered with
+        // nothing at all — `timed out after 0 of 4 bytes`. CHIRP's `!!??` is a
+        // real hole in the address space. Asking costs the rest of the dump,
+        // because the recovery from a dead request desynchronises the stream.
+        let mut plan: Vec<(u16, u8)> =
+            (0u16..0x9C).filter(|b| *b != 0x7F).map(|b| (b << 8, 0u8)).collect();
+        plan.push((0xFEF0, 0x10));
+        plan.push((0xFF00, 0x90));
+
+        for (addr, len) in plan {
+            match read_block(&mut *p, addr, len) {
+                Ok(data) => {
+                    let end = addr as usize + data.len();
+                    assert!(end <= image.len(), "block at 0x{addr:04X} overruns 64 KiB");
+                    image[addr as usize..end].copy_from_slice(&data);
+                    read.push((addr, data.len()));
+                }
+                Err(e) => {
+                    // A failed read leaves the stream mid-block, and every
+                    // address after it would then be measuring the desync
+                    // rather than the radio. Stop and report where.
+                    println!("  0x{addr:04X}: {e}");
+                    holes.push((addr, e));
+                    break;
+                }
+            }
+        }
+        (image, read, holes)
+    }));
+
+    // ⚠ Always. See `d710_program_mode_dump`.
+    let _ = p.write_all(b"E");
+    let _ = p.flush();
+    std::thread::sleep(Duration::from_millis(300));
+    let mut ack = [0u8; 3];
+    let _ = read_exact_timeout(&mut *p, &mut ack);
+    println!("E -> {ack:02X?}");
+
+    let (image, read, holes) =
+        result.expect("the dump panicked; the radio was still taken out of program mode");
+    let bytes: usize = read.iter().map(|(_, n)| n).sum();
+    println!("=== {} of {} requests answered, {bytes} bytes", read.len(), read.len() + holes.len());
+    for (addr, e) in &holes {
+        println!("    hole 0x{addr:04X}: {e}");
+    }
+    assert!(bytes > 0x8000, "only {bytes} bytes came back — this is not the full image");
+
+    let out = format!("../scratchpad/kenwood_tmd710/progfull-{}.bin", std::process::id());
+    std::fs::write(&out, &image).expect("write");
+    println!("--- saved {out} (0x10000 bytes, FF where nothing was read)\n");
+}
+
+/// Get the radio out of `PROG MCP` when a dump left it there.
+///
+/// A probe that fails mid-block never reaches its own `E`, and the radio then
+/// answers nothing at all — `ID` comes back empty, which looks exactly like a
+/// dead cable. It is not: the radio is in program mode and only speaks the
+/// binary protocol. Sending `E` on its own is the whole fix, and it is worth a
+/// named instrument because the failure mode is indistinguishable from
+/// hardware trouble at the point where someone would start unplugging things.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_leave_program_mode() {
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = p.clear(serialport::ClearBuffer::All);
+    p.write_all(b"E").expect("write E");
+    p.flush().expect("flush");
+    std::thread::sleep(Duration::from_millis(400));
+    let mut ack = [0u8; 3];
+    let _ = read_exact_timeout(&mut *p, &mut ack);
+    println!("E -> {ack:02X?}");
+    let _ = p.clear(serialport::ClearBuffer::All);
+
+    let _ = ask(&mut *p, "ID");
+    let id = ask(&mut *p, "ID").expect("ID after E").0;
+    println!("ID -> {id:?}");
+    assert!(id.contains("TM-D710"), "the radio is still not answering: {id:?}");
+}
