@@ -31,6 +31,11 @@ substantial work under `src-tauri/src/radios/`.
   three OSes before it lands, which is the point: a branch that has never been
   verified anywhere but the author's Mac should not reach `main`. This reverses
   the old rule, which existed only because a PR cost metered minutes.
+- **⚠ A radio model is finished work only when the whole model is done.** Keep
+  pushing the branch — that is what runs CI — but do not open a PR per phase or
+  per hardware step, and do not treat an open one as something to keep
+  merge-ready commit by commit. One PR, opened when the radio is essentially
+  complete: channels and settings both working, the hardware ladder climbed.
 - **`main` is still verified on its own.** CI runs on push to `main` as well, so
   a merge of two green branches gets checked as the combination — this project
   has shipped bugs that existed nowhere else. Landing by local merge is still
