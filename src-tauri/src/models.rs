@@ -443,6 +443,14 @@ pub struct ExportPreview {
     /// the rows.
     pub receive_only_count: usize,
     pub rows: Vec<ExportPreviewRow>,
+    /// Whether this radio lays its memories out as fixed zone blocks at all.
+    ///
+    /// ⚠ Declared rather than inferred from `zones` being non-empty. Those are
+    /// two different things: a fixed-zone radio whose every channel list was
+    /// refused ALSO has no zones, and treating that as "not a zone radio" made
+    /// the dialog fall back to a channel count for a write that would have
+    /// placed nothing and blanked the radio.
+    pub fixed_zones: bool,
     /// The zone map, for radios that lay their memories out as fixed zone
     /// blocks. Empty for everything else — including zone radios whose zones
     /// are named records the driver writes (the AnyTone), because there the

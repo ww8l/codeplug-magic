@@ -601,9 +601,9 @@ pub(crate) async fn resolve_codeplug_slots(
 /// One zone as it will exist on a radio whose zones are FIXED BLOCKS of
 /// memories rather than named lists of them.
 ///
-/// The BT-9000 is the shape this exists for: 15 zones of 64, and a memory's
-/// zone is `index / 64` with no zone record and no zone name stored anywhere on
-/// the radio. So "put this channel list in its own zone" is not a table to
+/// The BT-9000 is the shape this exists for: 10 zones of 99 (the last one 69
+/// long), and a memory's zone is `index / 99` with no zone record and no zone
+/// name stored anywhere on the radio. So "put this channel list in its own zone" is not a table to
 /// write — it is a decision about which memory slots the channels land in, and
 /// it belongs here in the resolver rather than in a driver, which sees slots.
 ///
@@ -631,6 +631,11 @@ pub(crate) struct ZonedCodeplug {
     /// zone, a list with nothing programmable in it, lists past the radio's
     /// last zone.
     pub warnings: Vec<String>,
+    /// Channels that this layout could NOT place: they are in a list that got
+    /// no zone, and in no list that did. The preview marks them excluded, so
+    /// its channel table cannot say "will be programmed" about a channel the
+    /// write is going to leave behind.
+    pub refused: Vec<i64>,
 }
 
 /// Resolve a codeplug into a fixed-zone radio's memory: one channel list per
@@ -697,6 +702,7 @@ pub(crate) async fn resolve_codeplug_zone_slots(
     let mut warnings: Vec<String> = Vec::new();
     let mut next_zone = 0usize; // 0-based
     let mut unplaced: Vec<String> = Vec::new();
+    let mut refused: Vec<i64> = Vec::new();
 
     // ⚠ Capacity is asked for, never multiplied. The last zone on these radios
     // can be SHORT — the BT-9000's tenth holds 69 where the others hold 99,
@@ -724,6 +730,7 @@ pub(crate) async fn resolve_codeplug_zone_slots(
         }
         if room < ecs.len() {
             unplaced.push(format!("'{list_name}' ({} channels)", ecs.len()));
+            refused.extend(ecs.iter().map(|ec| ec.channel.id));
             continue;
         }
         let first_zone = next_zone;
@@ -773,7 +780,14 @@ pub(crate) async fn resolve_codeplug_zone_slots(
         ));
     }
 
-    Ok((model, ZonedCodeplug { slots, zones, warnings }))
+    // A channel refused in one list but placed in another IS programmed, so it
+    // is not refused at all.
+    let placed: HashSet<i64> = slots.iter().map(|s| s.channel.id).collect();
+    refused.retain(|id| !placed.contains(id));
+    refused.sort_unstable();
+    refused.dedup();
+
+    Ok((model, ZonedCodeplug { slots, zones, warnings, refused }))
 }
 
 /// A fixed-zone radio's memory geometry.
@@ -889,11 +903,11 @@ pub async fn export_preview(
     // here rather than derived in the UI: which list lands in which zone is
     // decided by `resolve_codeplug_zone_slots`, and a preview that works it out
     // a second way is a preview that can disagree with the write.
-    let (zones, zone_notes) = match fixed_zone_layout(&model) {
+    let (fixed_zones, zones, zone_notes, refused) = match fixed_zone_layout(&model) {
         Some(layout) => {
             let (_model, zoned) =
                 resolve_codeplug_zone_slots(&state.pool, codeplug_id, layout).await?;
-            let zones = zoned
+            let zones: Vec<PreviewZone> = zoned
                 .zones
                 .into_iter()
                 .map(|z| PreviewZone {
@@ -902,10 +916,30 @@ pub async fn export_preview(
                     channels: z.channels,
                 })
                 .collect();
-            (zones, zoned.warnings)
+            (true, zones, zoned.warnings, zoned.refused)
         }
-        None => (Vec::new(), Vec::new()),
+        None => (false, Vec::new(), Vec::new(), Vec::new()),
     };
+
+    // ⚠ A channel the zone layout could not place is NOT going to be
+    // programmed, and the rows above were built by the flat expansion, which
+    // knows nothing about zones — so it had them marked `included` with no
+    // reason. The prose note named the list; the table contradicted it.
+    if !refused.is_empty() {
+        let refused: HashSet<i64> = refused.into_iter().collect();
+        for row in rows.iter_mut().filter(|r| r.included) {
+            if refused.contains(&row.channel_id) {
+                row.included = false;
+                row.receive_only = false;
+                row.reason = Some(
+                    "its channel list did not fit in the radio's zones — see the note above"
+                        .to_string(),
+                );
+                included -= 1;
+                excluded += 1;
+            }
+        }
+    }
 
     Ok(ExportPreview {
         codeplug_id,
@@ -915,6 +949,7 @@ pub async fn export_preview(
         excluded_count: excluded,
         receive_only_count: receive_only,
         rows,
+        fixed_zones,
         zones,
         zone_notes,
     })
@@ -1648,8 +1683,19 @@ mod tests {
             .await
             .unwrap();
 
-        let (model, slots) = resolve_codeplug_slots(&pool, 1).await.expect("resolve slots");
+        // ⚠ Through the layout `program_radio` ACTUALLY uses. This called
+        // `resolve_codeplug_slots` and asserted "slots are dense from 0", which
+        // stopped being the app's behaviour the day this radio's zones were
+        // honoured — dense-from-0 is precisely the bug that put a second
+        // channel list inside zone 1. A test named for the app's own pipeline
+        // has to walk the app's own pipeline.
+        let model = codeplug_model(&pool, 1).await.unwrap();
         assert_eq!(model.driver_key.as_deref(), Some("binteradio_bt9000"));
+        let layout = fixed_zone_layout(&model).expect("the BT-9000 is a fixed-zone radio");
+        let (_model, zoned) = resolve_codeplug_zone_slots(&pool, 1, layout)
+            .await
+            .expect("resolve slots");
+        let slots = zoned.slots;
 
         // 6 in, 5 out. Each of the three verdicts is represented, and all three
         // come from frequencies keyed on the real radio in s128:
@@ -1677,10 +1723,11 @@ mod tests {
             "108.000 receives AM and refuses the PTT, so it is receive-only"
         );
 
-        // Dense and sequential, which is what makes zone = slot / 64 + 1 mean
-        // anything on a radio with no zone names.
+        // One list, so one zone: dense from 0 HERE because zone 1's base is 0,
+        // not because packing is dense. A second list would start at 99.
+        assert_eq!(zoned.zones.len(), 1);
         for (i, s) in slots.iter().enumerate() {
-            assert_eq!(s.slot, i, "slots must be dense from 0");
+            assert_eq!(s.slot, i, "the first zone starts at memory 0");
             assert!(
                 s.name.chars().count() <= 12,
                 "{:?} is longer than the radio's 12-character field",
@@ -1865,7 +1912,7 @@ mod tests {
         assert_eq!(shared[0].name, shared[1].name, "same channel, same name");
 
         // 4. A list too big for one zone spills into the next rather than
-        //    losing channels. 70 into zones of 64 is 64 + 6.
+        //    losing channels. 150 into zones of 99 is 99 + 51.
         sqlx::query("INSERT INTO channel_lists (id, name) VALUES (13, 'BIG')")
             .execute(&pool)
             .await
@@ -1923,6 +1970,114 @@ mod tests {
         // constraint the radio does not have. The columns cannot tell these two
         // radios apart, which is why this function asks the driver.
         assert!(fixed_zone_layout(&model_named("AT-D890UV").await.unwrap()).is_none());
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// ★★★ A codeplug that cannot be laid out places NOTHING, and nothing is
+    /// not a codeplug — it is a wipe.
+    ///
+    /// Before the zone layout existed, an over-capacity codeplug was refused by
+    /// the driver: `program_codeplug` compares `req.channels.len()` against the
+    /// radio's memory count. After it, the same codeplug arrives as an EMPTY
+    /// slot list rather than an over-long one, so that guard cannot fire —
+    /// `patch_image` would fill all 960 records with 0xFF and the radio would
+    /// come back blank, having been told it now "matches" the codeplug.
+    ///
+    /// This pins the two halves of the fix: the resolver reports the channels
+    /// it refused, and it is possible to tell "nothing to place" apart from
+    /// "nothing was asked for".
+    #[tokio::test]
+    async fn a_codeplug_that_fits_nowhere_is_refused_rather_than_written_as_empty() {
+        let dir = std::env::temp_dir().join(format!("cpm_nofit_{}", std::process::id()));
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        for i in 1..=5i64 {
+            sqlx::query(
+                "INSERT INTO channels (id, name_long, name_short, rx_freq, mode, source)
+                 VALUES (?1, ?2, ?3, ?4, 'FM', 'manual')",
+            )
+            .bind(i)
+            .bind(format!("Chan {i}"))
+            .bind(format!("C{i}"))
+            .bind(145.0 + (i as f64) * 0.01)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        sqlx::query("INSERT INTO channel_lists (id, name) VALUES (10, 'TOO BIG')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO channel_list_entries (channel_list_id, channel_id, position)
+             SELECT 10, id, id FROM channels",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let model_id: (i64,) =
+            sqlx::query_as("SELECT id FROM radio_models WHERE model = 'BT-9000'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        sqlx::query(
+            "INSERT INTO radio_profiles (id, display_name, radio_model_id) VALUES (1, 'p', ?1)",
+        )
+        .bind(model_id.0)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO codeplugs (id, name, radio_profile_id) VALUES (1, 'T', 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO codeplug_channel_lists (codeplug_id, channel_list_id, position)
+             VALUES (1, 10, 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // A radio with four memories, and one list of five: it fits nowhere.
+        let tiny = ZoneLayout { per_zone: 2, zones: 2, memories: 4 };
+        let (_m, z) = resolve_codeplug_zone_slots(&pool, 1, tiny).await.unwrap();
+        assert!(z.slots.is_empty(), "nothing could be placed");
+        assert!(z.zones.is_empty());
+        assert_eq!(z.refused, vec![1, 2, 3, 4, 5], "every channel is reported refused");
+        assert!(z.warnings.iter().any(|w| w.contains("TOO BIG")));
+
+        // ⚠ And the caller can tell that from "the codeplug is empty", which is
+        // the distinction the guard in `program_radio` turns on: here the flat
+        // resolution still has five channels wanting to go somewhere.
+        let (_m, wanted) = resolve_codeplug_slots(&pool, 1).await.unwrap();
+        assert_eq!(wanted.len(), 5);
+
+        // A channel refused in one list but PLACED in another is not refused.
+        sqlx::query("INSERT INTO channel_lists (id, name) VALUES (11, 'FITS')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO channel_list_entries (channel_list_id, channel_id, position)
+             VALUES (11, 3, 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO codeplug_channel_lists (codeplug_id, channel_list_id, position)
+             VALUES (1, 11, 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let (_m, z) = resolve_codeplug_zone_slots(&pool, 1, tiny).await.unwrap();
+        assert_eq!(z.slots.len(), 1, "FITS still gets its zone");
+        assert_eq!(z.refused, vec![1, 2, 4, 5], "channel 3 is programmed, so not refused");
 
         let _ = std::fs::remove_file(&db_path);
     }

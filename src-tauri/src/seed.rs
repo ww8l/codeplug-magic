@@ -337,14 +337,14 @@ fn models() -> Vec<ModelSeed> {
         //
         //    ⚠ `zones_supported` was false for that reason, on the argument
         //    that this app would be offering a name the radio cannot store.
-        //    That confused the LABEL with the ZONE. The radio has fifteen of
-        //    them and the operator switches between them; declaring otherwise
-        //    did not withhold a name, it dumped every channel list into one
-        //    undifferentiated run of memories. The flag now says what is true —
-        //    fifteen zones of sixty-four — and `commands/export.rs`
-        //    (`fixed_zone_layout`) reads those two numbers to lay one channel
-        //    list into each zone. The names stay ours: the Program dialog shows
-        //    the zone map, because the radio cannot.
+        //    That confused the LABEL with the ZONE. The radio has ten of them
+        //    and the operator switches between them; declaring otherwise did
+        //    not withhold a name, it dumped every channel list into one
+        //    undifferentiated run of memories. The flag now says what is true,
+        //    and `commands/export.rs` (`fixed_zone_layout`) reads these three
+        //    columns to lay one channel list into each zone. The names stay
+        //    ours: the Program dialog shows the zone map, because the radio
+        //    cannot.
         // --------------------------------------------------------
         ModelSeed {
             manufacturer: "Binteradio",

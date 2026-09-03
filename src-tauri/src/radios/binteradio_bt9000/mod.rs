@@ -539,7 +539,9 @@ pub(crate) fn validate_image(image: &[u8]) -> Result<(), String> {
 #[derive(Serialize, PartialEq, Debug, Clone)]
 pub struct Bt9000DecodedChannel {
     pub index: usize,
-    /// 1-based zone, `index / 64 + 1`. The radio stores no zone names.
+    /// 1-based zone, `index / 99 + 1` — see [`CHANNELS_PER_ZONE`], which is 99
+    /// because the radio says so and not 64 because the manual does. The radio
+    /// stores no zone names.
     pub zone: usize,
     pub name: String,
     pub rx_mhz: f64,

@@ -234,10 +234,16 @@ export function ProgramRadioDialog({
   // so the memories written is the zone map's total, not the deduped
   // `included_count`. Empty for every other model, which keeps `writeCount`
   // exactly what it was.
+  // ⚠ `fixed_zones`, not `zones.length > 0`. A fixed-zone radio whose channel
+  // lists were ALL refused has no zones either, and falling back to
+  // `included_count` there quoted a channel count for a write that would have
+  // placed nothing and blanked the radio. The backend refuses that write; this
+  // stops the dialog describing it in the first place.
+  const zoned = preview?.fixed_zones ?? false;
   const zones = preview?.zones ?? [];
   const zoneNotes = preview?.zone_notes ?? [];
   const zoneTotal = zones.reduce((n, z) => n + z.channels, 0);
-  const writeCount = zones.length > 0 ? zoneTotal : (preview?.included_count ?? 0);
+  const writeCount = zoned ? zoneTotal : (preview?.included_count ?? 0);
   // ⚠ From the MODEL, not a constant. This was hard-coded to 128 for the UV-5R
   // and TD-H3, and this is the GENERIC dialog — the TH-D72 holds 1000, so the
   // confirm for a destructive write quoted a number that was simply wrong for
@@ -274,10 +280,18 @@ export function ProgramRadioDialog({
                   </div>
                   <p className="text-amber-800 dark:text-amber-200">
                     This will write <strong>{writeCount}</strong> channel
-                    {writeCount === 1 ? "" : "s"} to slots 1–{writeCount} and{" "}
-                    <strong>clear the remaining {clearCount}</strong> slot
-                    {clearCount === 1 ? "" : "s"} so the radio matches “{codeplugName}”.
-                    A full backup is saved first.
+                    {writeCount === 1 ? "" : "s"}{" "}
+                    {/* Not "slots 1–N" on a fixed-zone radio: each list starts
+                        at its own zone, so 5 channels in two lists land in
+                        memories 1–3 and 100–101. The deliberate gaps are the
+                        whole point of the layout, and this is the sentence
+                        somebody reads before a destructive write. */}
+                    {zones.length > 0
+                      ? `into ${zones.length} zone${zones.length === 1 ? "" : "s"}`
+                      : `to slots 1–${writeCount}`}{" "}
+                    and <strong>clear the remaining {clearCount}</strong> memor
+                    {clearCount === 1 ? "y" : "ies"} so the radio matches “
+                    {codeplugName}”. A full backup is saved first.
                   </p>
 
                   {(skipped.length > 0 || receiveOnly.length > 0) && (
@@ -659,6 +673,13 @@ export function ProgramRadioDialog({
                       : `Wrote ${program.channels_written} channel${program.channels_written === 1 ? "" : "s"} — verification warning`) +
                     (program.settings_written != null
                       ? ` · ${program.settings_written} setting${program.settings_written === 1 ? "" : "s"}`
+                      : "") +
+                    // The zone map is shown BEFORE the write; without this the
+                    // result never confirmed that the zones it promised are the
+                    // zones that went out. `zones_written` was set by the
+                    // command layer and read by nothing on this screen.
+                    (program.zones_written > 0
+                      ? ` · ${program.zones_written} zone${program.zones_written === 1 ? "" : "s"}`
                       : "")
                   }
                   note={program.note ?? undefined}
