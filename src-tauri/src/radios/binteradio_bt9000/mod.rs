@@ -689,6 +689,12 @@ fn encode_tones(c: &Channel) -> ([u8; 2], [u8; 2]) {
     }
 }
 
+/// Byte 15 bit 2: include this memory in the radio's scan.
+///
+/// Every channel this app programs gets it — see the note in
+/// [`encode_channel`] for why, and for what is and is not measured about it.
+const SCAN_ADD: u8 = 0x04;
+
 /// Build one 32-byte channel record.
 ///
 /// The TX shift is carried entirely by the stored TX frequency — there is no
@@ -715,8 +721,23 @@ fn encode_channel(c: &Channel, name: &str, tx_hz: u64, tx_enable: bool) -> [u8; 
     // channel property this app models, and the radio's own default is 0.
     m[14] = power_index(c) & 0x0F; // high nibble is the scrambler, left off
 
-    // bit 1 = TX enable, bit 6 = narrow. Everything else (FHSS, encryption,
-    // busy lockout, scan-add, AM) stays off — measured defaults, not guesses.
+    // bit 1 = TX enable, bit 2 = scan-add, bit 6 = narrow. Everything else
+    // (FHSS, encryption, busy lockout, AM) stays off.
+    //
+    // ⚠ Scan-add is set on EVERY programmed channel, and that is a choice, not
+    // a copy of what the radio had. The channel library has nowhere to store a
+    // per-channel skip, so the alternative is what this driver shipped with:
+    // every channel written with the bit clear, and an operator who scans and
+    // hears nothing on any memory they programmed. The TD-H3 made the same call
+    // for the same reason (`SCANADD_BASE`, set true beside `USEDFLAGS_BASE`),
+    // and a channel excluded from scan is the surprising default of the two.
+    //
+    // ⚠ The BIT is inherited, not measured here: `scratchpad/binteradio_bt9000/
+    // chirp_rt950/rt950pro/channel.py` decodes `flags & 0x04` as `scan_add` and
+    // round-trips it against the vendor CPS's own `.dat` files. Its neighbour at
+    // bit 1 was a source claim of exactly this kind until the radio was made to
+    // refuse a PTT, so treat this one as unproven until a scan on the radio
+    // stops on a programmed memory.
     //
     // ⚠ Narrow ONLY on an explicit narrow mode. `mode` is nullable in the
     // schema and reachable from a CSV import with no mode column, and
@@ -730,7 +751,7 @@ fn encode_channel(c: &Channel, name: &str, tx_hz: u64, tx_enable: bool) -> [u8; 
     // `scratchpad/binteradio_bt9000/SCREEN-CHECK.md` carries the measurement;
     // guessing the bit is how radios get damaged on this platform.
     let narrow = matches!(c.mode.as_deref(), Some(m) if m.eq_ignore_ascii_case("NFM"));
-    m[15] = if tx_enable { 0x02 } else { 0x00 } | if narrow { 0x40 } else { 0x00 };
+    m[15] = SCAN_ADD | if tx_enable { 0x02 } else { 0x00 } | if narrow { 0x40 } else { 0x00 };
 
     // 16-19 = FHSS code, left zero.
     m[20..32].copy_from_slice(&name_bytes(name));
@@ -1289,9 +1310,35 @@ mod tests {
         let c = Channel { rx_freq: 146.52, mode: Some("FM".into()), ..Default::default() };
         assert_eq!(encode_channel(&c, "TX", 146_520_000, true)[15] & 0x02, 0x02);
         assert_eq!(encode_channel(&c, "RX", 146_520_000, false)[15] & 0x02, 0x00);
-        // The bandwidth bit is independent of it.
+        // The bandwidth bit is independent of it. Scan-add is present either
+        // way: a receive-only memory is exactly the kind a scan should stop on.
         let n = Channel { mode: Some("NFM".into()), ..c.clone() };
-        assert_eq!(encode_channel(&n, "RX", 146_520_000, false)[15], 0x40);
+        assert_eq!(encode_channel(&n, "RX", 146_520_000, false)[15], 0x40 | SCAN_ADD);
+    }
+
+    /// Every programmed channel is in the scan; every empty slot is not.
+    ///
+    /// The driver shipped writing this bit clear on all 960 memories, which is
+    /// how a radio ends up scanning nothing the operator programmed.
+    ///
+    /// ⚠ The bit itself is inherited from the RT-950 Pro reference driver, not
+    /// measured on a BT-9000. This test pins the DECISION — scan by default —
+    /// so that if the bit turns out to be something else, what changes is one
+    /// constant and not the policy.
+    #[test]
+    fn every_programmed_channel_is_in_the_scan() {
+        let c = Channel { rx_freq: 146.52, mode: Some("FM".into()), ..Default::default() };
+        assert_eq!(encode_channel(&c, "SCAN", 146_520_000, true)[15] & SCAN_ADD, SCAN_ADD);
+
+        // An empty slot is the radio's own all-0xFF form, which the radio reads
+        // as "no memory here" — the flag byte inside it means nothing, and both
+        // images the radio authored agree (channel records 0xFF, byte 15
+        // included). Nothing to clear.
+        let mut image = vec![0xFFu8; IMAGE_LEN];
+        let rec = encode_channel(&c, "SCAN", 146_520_000, true);
+        image[..ENTRY_LEN].copy_from_slice(&rec);
+        assert_eq!(image[15] & SCAN_ADD, SCAN_ADD);
+        assert_eq!(image[ENTRY_LEN..ENTRY_LEN * 2], [0xFF; ENTRY_LEN]);
     }
 
     #[test]
