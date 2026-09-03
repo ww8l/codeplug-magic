@@ -941,10 +941,12 @@ pub async fn program_radio(
         // digital-mode) channels drop out and the rest close up behind them.
         let (_model, slots) = export::resolve_codeplug_slots(&state.pool, codeplug_id).await?;
 
-        // The radio profile's settings + the model's schema. Present on the
-        // UV-5R (which makes the profile authoritative over every editable
-        // setting during a program); the TD-H3 ignores them and pushes settings
-        // through its separate, explicitly-acknowledged settings write.
+        // The radio profile's settings + the model's schema. Used by the
+        // UV-5R and the BT-9000, whose settings live inside the image the
+        // program uploads; the TD-H3 ignores them and pushes settings through
+        // its separate, explicitly-acknowledged settings write. Which drivers
+        // use them is not guesswork — `carries_profile_settings` declares it,
+        // and the Program dialog's banner is written from that flag.
         let profile_settings: Option<String> = sqlx::query_scalar(
             "SELECT rp.non_channel_settings FROM codeplugs cp \
              JOIN radio_profiles rp ON rp.id = cp.radio_profile_id WHERE cp.id = ?1",

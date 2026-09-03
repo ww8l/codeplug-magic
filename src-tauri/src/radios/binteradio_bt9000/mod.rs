@@ -888,6 +888,27 @@ impl ImageRestorer for BinteradioBt9000 {
 }
 
 impl ImageProgrammer for BinteradioBt9000 {
+    /// Yes. A codeplug program writes the profile's settings alongside the
+    /// channels.
+    ///
+    /// This read `false` until it was measured what the whole-image [`upload`]
+    /// already does: it addresses [`WRITE_SEGMENTS`], and the function block is
+    /// one of them — so a channel program was ALREADY rewriting the settings
+    /// segment, just with the bytes it had read a moment earlier. Nothing about
+    /// the write got wider here; what changed is that the profile's values go
+    /// into that segment before it goes out, instead of the radio's own.
+    ///
+    /// The old note said settings were held back because this radio validates
+    /// nothing and an unintended value would be stored rather than rejected.
+    /// That risk is bounded by [`settings::apply_profile_settings`] being a
+    /// PATCH: a key the profile does not carry is left exactly as the radio had
+    /// it, and the command layer only fills `req.settings` from a profile the
+    /// operator saved. The standalone `write_settings` path already accepted
+    /// the same values on the same encoder.
+    fn carries_profile_settings(&self) -> bool {
+        true
+    }
+
     fn download_image(&self, port: &str) -> Result<(RadioIdentity, Vec<u8>), String> {
         let mut p = open_port(port)?;
         let hs = handshake(&mut *p)?;
@@ -934,10 +955,10 @@ impl ImageProgrammer for BinteradioBt9000 {
     /// Download + back up, patch channels into that image, write it back, read
     /// back and verify.
     ///
-    /// `req.settings` is ignored on purpose: a channel program leaves every
-    /// setting exactly as the radio had it. That matters more here than on most
-    /// radios — this one does not validate a settings write, so an unintended
-    /// value would be stored rather than rejected.
+    /// `req.settings` is patched into the function block on the way out, so a
+    /// program leaves the radio holding the profile in full — channels AND
+    /// settings. Only the keys the profile carries move; every other byte of
+    /// that block goes back exactly as it was read.
     fn program_codeplug(
         &self,
         port: &str,
@@ -969,6 +990,29 @@ impl ImageProgrammer for BinteradioBt9000 {
         //    not own goes back exactly as it came.
         let channels_written = req.channels.len();
         patch_image(&mut image, req.channels, req.model);
+
+        // 2b. Patch the profile's settings into the function block, if the
+        //     profile carries any. Before the write, so a value this driver's
+        //     encoder refuses aborts with nothing on the wire. The range strip
+        //     runs first for the same reason it does in `write_settings`: a
+        //     stale profile value is dropped with a note rather than failing
+        //     the whole program. (The command layer strips too; this covers the
+        //     hardware-ladder callers, which reach the trait directly.)
+        let mut warnings: Vec<String> = Vec::new();
+        let settings_written = match req.settings {
+            Some((settings, schema)) => {
+                let mut settings = settings.clone();
+                warnings.extend(crate::radios::settings_bounds::strip_out_of_range(
+                    schema,
+                    &mut settings,
+                ));
+                let (written, skipped) =
+                    settings::apply_profile_settings(&mut image, &settings)?;
+                warnings.extend(skipped);
+                Some(written)
+            }
+            None => None,
+        };
 
         let restore_hint = |e: String| {
             crate::radios::driver::with_restore_hint(
@@ -1004,7 +1048,7 @@ impl ImageProgrammer for BinteradioBt9000 {
         Ok(CodeplugProgramReport {
             channels_written,
             slots_cleared: CHANNEL_COUNT - channels_written,
-            settings_written: None,
+            settings_written,
             verified: Some(verified),
             note,
             backup_path: backup_path.to_string_lossy().to_string(),
@@ -1018,7 +1062,7 @@ impl ImageProgrammer for BinteradioBt9000 {
             expected_path: None,
             windows_written: Vec::new(),
             skipped: Vec::new(),
-            warnings: Vec::new(),
+            warnings,
         })
     }
 }
@@ -1269,6 +1313,49 @@ mod tests {
         assert!(forbidden(0x80FF));
         assert!(!forbidden(0x8000));
         assert!(!forbidden(0x807F));
+    }
+
+    /// A codeplug program leaves the radio holding the PROFILE's settings.
+    ///
+    /// It did not, and the reason is worth pinning: the whole-image upload has
+    /// always addressed the function block, so declaring
+    /// `carries_profile_settings = false` protected nothing — it just wrote the
+    /// radio's own settings straight back over the profile's, every program.
+    /// The three facts the fix stands on are all here.
+    #[test]
+    fn a_program_carries_the_profile_settings() {
+        let caps = crate::radios::driver::DriverCapabilities::of(&DRIVER);
+        assert!(
+            caps.programs_settings,
+            "the program writes the function block either way; saying otherwise \
+             sends the radio's old settings back over the profile's"
+        );
+        assert!(
+            caps.write_settings,
+            "the narrow standalone write stays — a third of a second against the \
+             four minutes a full program takes"
+        );
+
+        // The block the settings encoder writes into is one the upload sends.
+        let seg = WRITE_SEGMENTS
+            .iter()
+            .find(|s| s.file_offset == FUNCTION_OFFSET)
+            .expect("the function block is part of a full program's write");
+        assert!(FUNCTION_LIVE_LEN <= seg.length);
+
+        // And a channel patch cannot reach it: the records stop first.
+        const { assert!(CHANNEL_COUNT * ENTRY_LEN <= FUNCTION_OFFSET) };
+
+        // The encoder lands inside that segment, so what it writes goes out.
+        const SQUELCH_ADDR: usize = 0x00;
+        let mut image = vec![0xFFu8; IMAGE_LEN];
+        let (written, notes) = settings::apply_profile_settings(
+            &mut image,
+            &serde_json::json!({ "squelch": 5 }),
+        )
+        .unwrap();
+        assert_eq!((written, notes.len()), (1, 0));
+        assert_eq!(image[FUNCTION_OFFSET + SQUELCH_ADDR], 5);
     }
 
     /// The read layout defines the image; the write layout must be a strict
