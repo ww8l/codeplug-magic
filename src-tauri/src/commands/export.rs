@@ -655,9 +655,9 @@ pub(crate) struct ZonedCodeplug {
 pub(crate) async fn resolve_codeplug_zone_slots(
     pool: &sqlx::SqlitePool,
     codeplug_id: i64,
-    per_zone: usize,
-    max_zones: usize,
+    layout: ZoneLayout,
 ) -> Result<(RadioModel, ZonedCodeplug), String> {
+    let ZoneLayout { per_zone, zones: max_zones, memories } = layout;
     let model = codeplug_model(pool, codeplug_id).await?;
     let groups = resolve_codeplug_groups(pool, codeplug_id).await?;
 
@@ -698,6 +698,16 @@ pub(crate) async fn resolve_codeplug_zone_slots(
     let mut next_zone = 0usize; // 0-based
     let mut unplaced: Vec<String> = Vec::new();
 
+    // ⚠ Capacity is asked for, never multiplied. The last zone on these radios
+    // can be SHORT — the BT-9000's tenth holds 69 where the others hold 99,
+    // because 99 does not divide 960 — and `zone * per_zone + i` would place
+    // channels past the end of the memory, where the driver drops them without
+    // a word.
+    let capacity = |zone: usize| -> usize {
+        let base = zone * per_zone;
+        memories.saturating_sub(base).min(per_zone)
+    };
+
     for (list_name, ecs) in &lists {
         if ecs.is_empty() {
             warnings.push(format!(
@@ -706,36 +716,42 @@ pub(crate) async fn resolve_codeplug_zone_slots(
             ));
             continue;
         }
-        let needed = ecs.len().div_ceil(per_zone);
-        if next_zone + needed > max_zones {
-            unplaced.push(format!("'{list_name}'"));
+        // How many zones this list needs, walking real capacities.
+        let (mut needed, mut room) = (0usize, 0usize);
+        while room < ecs.len() && next_zone + needed < max_zones {
+            room += capacity(next_zone + needed);
+            needed += 1;
+        }
+        if room < ecs.len() {
+            unplaced.push(format!("'{list_name}' ({} channels)", ecs.len()));
             continue;
         }
         let first_zone = next_zone;
-        for (i, ec) in ecs.iter().enumerate() {
-            let key = (ec.channel.id, ec.tg_number, ec.timeslot);
-            slots.push(SlotChannel {
-                slot: first_zone * per_zone + i,
-                name: names[name_of[&key]].clone(),
-                channel: ec.channel.clone(),
-            });
-        }
+        let mut placed = 0usize;
         for z in 0..needed {
-            let taken = if z + 1 == needed {
-                ecs.len() - z * per_zone
-            } else {
-                per_zone
-            };
+            let zone = first_zone + z;
+            let take = capacity(zone).min(ecs.len() - placed);
+            for i in 0..take {
+                let ec = &ecs[placed + i];
+                let key = (ec.channel.id, ec.tg_number, ec.timeslot);
+                slots.push(SlotChannel {
+                    slot: zone * per_zone + i,
+                    name: names[name_of[&key]].clone(),
+                    channel: ec.channel.clone(),
+                });
+            }
             zones.push(ProgrammedZone {
-                number: first_zone + z + 1,
+                number: zone + 1,
                 list_name: if needed == 1 {
                     list_name.clone()
                 } else {
                     format!("{list_name} ({} of {needed})", z + 1)
                 },
-                channels: taken,
+                channels: take,
             });
+            placed += take;
         }
+        debug_assert_eq!(placed, ecs.len());
         if needed > 1 {
             warnings.push(format!(
                 "'{list_name}' has {} channels and a zone holds {per_zone}, so it fills \
@@ -760,6 +776,19 @@ pub(crate) async fn resolve_codeplug_zone_slots(
     Ok((model, ZonedCodeplug { slots, zones, warnings }))
 }
 
+/// A fixed-zone radio's memory geometry.
+///
+/// `memories` is here because the last zone can be SHORT: the BT-9000 holds 960
+/// memories in zones of 99, so its tenth zone has 69. Carrying the total is what
+/// lets the layout ask each zone's real capacity instead of assuming
+/// `zones * per_zone` memories exist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ZoneLayout {
+    pub per_zone: usize,
+    pub zones: usize,
+    pub memories: usize,
+}
+
 /// Whether `model` lays its memories out as fixed zone blocks, and how big
 /// they are. `Some((per_zone, max_zones))` selects
 /// [`resolve_codeplug_zone_slots`] over the flat [`resolve_codeplug_slots`].
@@ -775,20 +804,23 @@ pub(crate) async fn resolve_codeplug_zone_slots(
 /// nothing but slots and has no zone table anywhere to write, so where a
 /// channel lands IS its zone; a radio with a [`CodeplugProgrammer`] writes real
 /// zone records and owns the mapping itself.
-pub(crate) fn fixed_zone_layout(model: &RadioModel) -> Option<(usize, usize)> {
+pub(crate) fn fixed_zone_layout(model: &RadioModel) -> Option<ZoneLayout> {
     if !model.zones_supported {
         return None;
     }
-    let (per, max) = match (model.channels_per_zone, model.max_zones) {
-        (Some(per), Some(max)) if per > 0 && max > 0 => (per as usize, max as usize),
-        _ => return None,
-    };
+    let (per_zone, zones, memories) =
+        match (model.channels_per_zone, model.max_zones, model.memory_channels) {
+            (Some(per), Some(max), Some(mem)) if per > 0 && max > 0 && mem > 0 => {
+                (per as usize, max as usize, mem as usize)
+            }
+            _ => return None,
+        };
     let driver = crate::radios::registry::driver_for_model(model)?;
     if driver.as_codeplug_programmer().is_some() {
         return None;
     }
     driver.as_image_programmer()?;
-    Some((per, max))
+    Some(ZoneLayout { per_zone, zones, memories })
 }
 
 #[tauri::command]
@@ -858,9 +890,9 @@ pub async fn export_preview(
     // decided by `resolve_codeplug_zone_slots`, and a preview that works it out
     // a second way is a preview that can disagree with the write.
     let (zones, zone_notes) = match fixed_zone_layout(&model) {
-        Some((per_zone, max_zones)) => {
+        Some(layout) => {
             let (_model, zoned) =
-                resolve_codeplug_zone_slots(&state.pool, codeplug_id, per_zone, max_zones).await?;
+                resolve_codeplug_zone_slots(&state.pool, codeplug_id, layout).await?;
             let zones = zoned
                 .zones
                 .into_iter()
@@ -1715,9 +1747,9 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
         let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
 
-        // 70 programmable 2 m channels, so one list can be made to outgrow a
-        // 64-memory zone, plus one the radio cannot use at all.
-        for i in 1..=70i64 {
+        // 150 programmable 2 m channels, so one list can be made to outgrow a
+        // 99-memory zone, plus one the radio cannot use at all.
+        for i in 1..=150i64 {
             sqlx::query(
                 "INSERT INTO channels (id, name_long, name_short, rx_freq, mode, source)
                  VALUES (?1, ?2, ?3, ?4, 'FM', 'manual')",
@@ -1732,7 +1764,7 @@ mod tests {
         }
         sqlx::query(
             "INSERT INTO channels (id, name_long, name_short, rx_freq, mode, source)
-             VALUES (99, 'Way Out', 'OUT', 1200.0, 'FM', 'manual')",
+             VALUES (999, 'Way Out', 'OUT', 1200.0, 'FM', 'manual')",
         )
         .execute(&pool)
         .await
@@ -1750,7 +1782,7 @@ mod tests {
             "INSERT INTO channel_list_entries (channel_list_id, channel_id, position)
              VALUES (10, 1, 0), (10, 2, 1), (10, 3, 2),
                     (11, 3, 0), (11, 4, 1),
-                    (12, 99, 0)",
+                    (12, 999, 0)",
         )
         .execute(&pool)
         .await
@@ -1784,11 +1816,17 @@ mod tests {
         // The model declares the layout; the resolver is chosen from it, not
         // from the driver key.
         let model = codeplug_model(&pool, 1).await.unwrap();
-        let (per_zone, max_zones) =
-            fixed_zone_layout(&model).expect("the BT-9000 declares 15 zones of 64");
-        assert_eq!((per_zone, max_zones), (64, 15));
+        // ★★★ 99 and 10, MEASURED on the radio in s130 — not the manual's 64
+        // and 15, which is what this test asserted when it was written and what
+        // put a channel list inside zone 1 on Tim's radio.
+        let layout = fixed_zone_layout(&model).expect("the BT-9000 declares its zones");
+        assert_eq!(
+            (layout.per_zone, layout.zones, layout.memories),
+            (99, 10, 960),
+            "zones of 99, ten of them, over 960 memories"
+        );
 
-        let (_model, zoned) = resolve_codeplug_zone_slots(&pool, 1, per_zone, max_zones)
+        let (_model, zoned) = resolve_codeplug_zone_slots(&pool, 1, layout)
             .await
             .expect("zone resolve");
 
@@ -1807,10 +1845,12 @@ mod tests {
             zoned.warnings
         );
 
-        // 2. The slots are NOT dense: zone 2 starts at memory 64. That gap is
-        //    the feature — it is the only thing that makes zone 2 the GMRS list.
+        // 2. The slots are NOT dense: zone 2 starts at memory 99. That gap is
+        //    the feature — it is the only thing that makes zone 2 the GMRS
+        //    list. ⚠ 99, not 64: memory 64 is zone 1 CHANNEL 65 on this radio,
+        //    which is exactly how the first attempt at this produced one zone.
         let slots: Vec<usize> = zoned.slots.iter().map(|s| s.slot).collect();
-        assert_eq!(slots, vec![0, 1, 2, 64, 65]);
+        assert_eq!(slots, vec![0, 1, 2, 99, 100]);
 
         // 3. A channel in two lists is programmed TWICE, once in each zone,
         //    because membership here is position and nothing else. And it keeps
@@ -1821,7 +1861,7 @@ mod tests {
             zoned.slots.iter().filter(|s| s.channel.id == 3).collect();
         assert_eq!(shared.len(), 2, "a shared channel needs a memory in each zone");
         assert_eq!(shared[0].slot, 2);
-        assert_eq!(shared[1].slot, 64);
+        assert_eq!(shared[1].slot, 99);
         assert_eq!(shared[0].name, shared[1].name, "same channel, same name");
 
         // 4. A list too big for one zone spills into the next rather than
@@ -1832,7 +1872,7 @@ mod tests {
             .unwrap();
         sqlx::query(
             "INSERT INTO channel_list_entries (channel_list_id, channel_id, position)
-             SELECT 13, id, id FROM channels WHERE id <= 70",
+             SELECT 13, id, id FROM channels WHERE id <= 150",
         )
         .execute(&pool)
         .await
@@ -1849,20 +1889,20 @@ mod tests {
         .await
         .unwrap();
 
-        let (_model, big) = resolve_codeplug_zone_slots(&pool, 1, per_zone, max_zones)
+        let (_model, big) = resolve_codeplug_zone_slots(&pool, 1, layout)
             .await
             .expect("zone resolve");
-        assert_eq!(big.slots.len(), 72, "70 in BIG + 2 in GMRS, none dropped");
+        assert_eq!(big.slots.len(), 152, "150 in BIG + 2 in GMRS, none dropped");
         assert_eq!(
             big.zones
                 .iter()
                 .map(|z| (z.number, z.channels))
                 .collect::<Vec<_>>(),
-            vec![(1, 64), (2, 6), (3, 2)],
-            "BIG fills zone 1 and spills 6 into zone 2; GMRS follows in zone 3"
+            vec![(1, 99), (2, 51), (3, 2)],
+            "BIG fills zone 1 and spills 51 into zone 2; GMRS follows in zone 3"
         );
-        assert_eq!(big.slots[64].slot, 64, "the 65th channel is the first of zone 2");
-        assert_eq!(big.slots[70].slot, 128, "GMRS still starts on a zone boundary");
+        assert_eq!(big.slots[99].slot, 99, "the 100th channel is the first of zone 2");
+        assert_eq!(big.slots[150].slot, 198, "GMRS still starts on a zone boundary");
         assert!(
             big.warnings.iter().any(|w| w.contains("zones 1-2")),
             "a list that needed two zones has to say so: {:?}",
@@ -1883,6 +1923,110 @@ mod tests {
         // constraint the radio does not have. The columns cannot tell these two
         // radios apart, which is why this function asks the driver.
         assert!(fixed_zone_layout(&model_named("AT-D890UV").await.unwrap()).is_none());
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// ★★ The LAST zone can be short, and the layout must ask rather than
+    /// multiply.
+    ///
+    /// The BT-9000 holds 960 memories in zones of 99, so its tenth zone has 69.
+    /// `zone * per_zone + i` would place a channel at memory 990 — past the end
+    /// of the image, where `patch_image` skips it without a word. That is the
+    /// one failure mode of this layout that produces no error, no warning and
+    /// no channel.
+    ///
+    /// Run against a tiny hand-made geometry rather than the real one so the
+    /// ragged edge arrives in four channels instead of nine hundred.
+    #[tokio::test]
+    async fn the_last_zone_can_be_short() {
+        let dir = std::env::temp_dir().join(format!("cpm_ragged_{}", std::process::id()));
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        for i in 1..=6i64 {
+            sqlx::query(
+                "INSERT INTO channels (id, name_long, name_short, rx_freq, mode, source)
+                 VALUES (?1, ?2, ?3, ?4, 'FM', 'manual')",
+            )
+            .bind(i)
+            .bind(format!("Chan {i}"))
+            .bind(format!("C{i}"))
+            .bind(145.0 + (i as f64) * 0.01)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        sqlx::query("INSERT INTO channel_lists (id, name) VALUES (10, 'ONE'), (11, 'TWO')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO channel_list_entries (channel_list_id, channel_id, position)
+             VALUES (10, 1, 0), (10, 2, 1), (11, 3, 0), (11, 4, 1), (11, 5, 2)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let model_id: (i64,) =
+            sqlx::query_as("SELECT id FROM radio_models WHERE model = 'BT-9000'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        sqlx::query(
+            "INSERT INTO radio_profiles (id, display_name, radio_model_id) VALUES (1, 'p', ?1)",
+        )
+        .bind(model_id.0)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO codeplugs (id, name, radio_profile_id) VALUES (1, 'T', 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO codeplug_channel_lists (codeplug_id, channel_list_id, position)
+             VALUES (1, 10, 0), (1, 11, 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Two zones of 4, but only 6 memories: zone 2 holds 2, not 4.
+        let ragged = ZoneLayout { per_zone: 4, zones: 2, memories: 6 };
+        let (_m, z) = resolve_codeplug_zone_slots(&pool, 1, ragged).await.unwrap();
+
+        // ONE takes zone 1. TWO has three channels and zone 2 holds two, so it
+        // does not fit at all — and it is REFUSED with a warning naming it,
+        // rather than half-written into memories 4 and 5 with the third
+        // vanishing past the end.
+        assert_eq!(
+            z.zones.iter().map(|x| (x.number, x.channels)).collect::<Vec<_>>(),
+            vec![(1, 2)]
+        );
+        assert_eq!(z.slots.iter().map(|s| s.slot).collect::<Vec<_>>(), vec![0, 1]);
+        assert!(
+            z.warnings.iter().any(|w| w.contains("TWO")),
+            "a list that did not fit must be named: {:?}",
+            z.warnings
+        );
+        assert!(
+            z.slots.iter().all(|s| s.slot < ragged.memories),
+            "nothing may be placed past the end of memory"
+        );
+
+        // Drop one channel from TWO and it fits the short zone exactly.
+        sqlx::query("DELETE FROM channel_list_entries WHERE channel_list_id = 11 AND channel_id = 5")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (_m, z) = resolve_codeplug_zone_slots(&pool, 1, ragged).await.unwrap();
+        assert_eq!(
+            z.zones.iter().map(|x| (x.number, x.channels)).collect::<Vec<_>>(),
+            vec![(1, 2), (2, 2)]
+        );
+        assert_eq!(z.slots.iter().map(|s| s.slot).collect::<Vec<_>>(), vec![0, 1, 4, 5]);
 
         let _ = std::fs::remove_file(&db_path);
     }

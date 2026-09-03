@@ -948,14 +948,10 @@ pub async fn program_radio(
         //   digital-mode) channels drop out and the rest close up behind them.
         let (slots, zones, mut layout_warnings) =
             match export::fixed_zone_layout(&model) {
-                Some((per_zone, max_zones)) => {
-                    let (_model, zoned) = export::resolve_codeplug_zone_slots(
-                        &state.pool,
-                        codeplug_id,
-                        per_zone,
-                        max_zones,
-                    )
-                    .await?;
+                Some(layout) => {
+                    let (_model, zoned) =
+                        export::resolve_codeplug_zone_slots(&state.pool, codeplug_id, layout)
+                            .await?;
                     (zoned.slots, zoned.zones.len(), zoned.warnings)
                 }
                 None => {

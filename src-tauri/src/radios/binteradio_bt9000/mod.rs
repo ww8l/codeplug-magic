@@ -8,9 +8,15 @@
 //! reports its model as `RT-950`, so [`MODEL_TOKEN`] is what the handshake
 //! checks — never the badge on the case.
 //!
-//! 960 channels in 15 fixed zones of 64. Zones have **no names in the radio**:
-//! membership is `index / 64`, and the vendor CPS keeps zone labels only in its
-//! own `.dat` file. There is nowhere in the clone image to put them.
+//! 960 channels in **10 zones of 99** — nine full ones and a tenth holding 69.
+//! Zones have **no names in the radio**: membership is `index / 99`, and the
+//! vendor CPS keeps zone labels only in its own `.dat` file. There is nowhere
+//! in the clone image to put them.
+//!
+//! ⚠ The manual says fifteen zones of sixty-four, and so does the RT-950 Pro
+//! reference driver. Both are wrong; see [`CHANNELS_PER_ZONE`] for the eleven
+//! memories the radio was asked about. This is the fourth published claim about
+//! this radio that its own screen has refuted.
 //!
 //! ## Protocol
 //!
@@ -92,13 +98,54 @@ pub(crate) const IMAGE_LEN: usize = 33_152;
 const CHANNEL_COUNT: usize = 960;
 const ENTRY_LEN: usize = 32;
 const NAME_LEN: usize = 12;
-pub(crate) const CHANNELS_PER_ZONE: usize = 64;
-pub(crate) const ZONE_COUNT: usize = CHANNEL_COUNT / CHANNELS_PER_ZONE; // 15
+/// ★★★ MEASURED ON THE RADIO (s130). **Not 64**, which is what the manual says
+/// ("up to 15 zones can be set, with 64 channels per zone") and what the
+/// RT-950 Pro reference driver computes (`zone = index // 64 + 1`). Both are
+/// wrong for this radio, and believing them is what shipped a codeplug whose
+/// second channel list landed inside zone 1.
+///
+/// How it was settled: markers were written at known memories and the radio was
+/// asked what it called each. Eleven points, one model, no exceptions —
+/// including three written as PREDICTIONS before the radio was asked.
+///
+/// | memory | radio says | |
+/// |---|---|---|
+/// | 0 | zone 1 ch 1 | factory |
+/// | 63 | zone 1 ch 64 | factory |
+/// | 64 | zone 1 ch **65** | ⚠ kills the 64-wide model on its own |
+/// | 99 | zone 2 ch 1 | stored on the radio by hand |
+/// | 100, 128, 192 | zone 2 ch 2, 30, 94 | |
+/// | 198 | zone 3 ch 1 | stored on the radio by hand |
+/// | 296 | zone 3 ch 99 | predicted, then confirmed |
+/// | 297 | zone 4 ch 1 | predicted, then confirmed |
+/// | 959 | zone 10 ch 69 | predicted, then confirmed |
+///
+/// So `channel = memory - zone_base + 1`, `zone_base = (zone - 1) * 99`. 99 is
+/// almost certainly the two-digit channel display.
+pub(crate) const CHANNELS_PER_ZONE: usize = 99;
 
-/// The 960 memories are 15 fixed zones of 64, with no zone names anywhere in
-/// the image. Held as an invariant so a future edit to any one of these three
-/// cannot quietly disagree with the other two.
-const _: () = assert!(ZONE_COUNT * CHANNELS_PER_ZONE == CHANNEL_COUNT);
+/// ⚠ 99 does NOT divide 960: there are nine full zones and a **tenth holding
+/// 69**, which the radio confirmed at memory 959. Anything laying channels out
+/// by zone has to ask each zone's real capacity rather than multiply, or it
+/// places channels past the end of memory, where `patch_image` skips them
+/// without a word.
+///
+/// `#[cfg(test)]` on both: the shipping path here does not need them, because
+/// this driver writes by SLOT and never thinks in zones, and the layout that
+/// does — `commands/export.rs` — takes its geometry from the model's own
+/// columns so it can serve any fixed-zone radio. These carry the measurement
+/// and hold the seed to it, which is exactly the disagreement that caused all
+/// this.
+#[cfg(test)]
+pub(crate) const ZONE_COUNT: usize = CHANNEL_COUNT.div_ceil(CHANNELS_PER_ZONE); // 10
+
+/// How many memories zone `number` (1-based) actually holds. Every zone but the
+/// last holds [`CHANNELS_PER_ZONE`]; the last is short.
+#[cfg(test)]
+pub(crate) fn zone_capacity(number: usize) -> usize {
+    let base = (number - 1) * CHANNELS_PER_ZONE;
+    CHANNEL_COUNT.saturating_sub(base).min(CHANNELS_PER_ZONE)
+}
 
 // ============================================================
 // Segment tables
@@ -1453,17 +1500,48 @@ mod tests {
         assert!(validate_image(&vec![0u8; 0x10000]).is_err());
     }
 
+    /// ★★★ The zone geometry, against the memories the RADIO was asked about.
+    ///
+    /// Every row here is a memory that was put on Tim's BT-9000 and read back
+    /// off its own screen in s130 — not a re-derivation of the constant. The
+    /// previous version of this test asserted memory 64 was zone 2, which is
+    /// what the manual and the reference driver both say and what the radio
+    /// flatly denies: it calls that memory zone 1, channel 65.
     #[test]
-    fn zones_are_positional_only() {
-        let mut records = Vec::new();
-        for slot in [0usize, 63, 64, 959] {
-            records.push((slot, RADIO_CH1));
+    fn the_zone_geometry_is_the_radios_own() {
+        // (memory, zone, channel-within-zone) — all measured, none derived.
+        const MEASURED: [(usize, usize, usize); 11] = [
+            (0, 1, 1),
+            (63, 1, 64),
+            (64, 1, 65),
+            (98, 1, 99),
+            (99, 2, 1),
+            (100, 2, 2),
+            (128, 2, 30),
+            (192, 2, 94),
+            (198, 3, 1),
+            (297, 4, 1),
+            (959, 10, 69),
+        ];
+        let image = image_with(&MEASURED.map(|(slot, _, _)| (slot, RADIO_CH1)));
+        let decoded = decode_channels(&image);
+        assert_eq!(decoded.len(), MEASURED.len());
+        for (d, (mem, zone, channel)) in decoded.iter().zip(MEASURED) {
+            assert_eq!(d.index, mem);
+            assert_eq!(d.zone, zone, "memory {mem}");
+            assert_eq!(mem - (zone - 1) * CHANNELS_PER_ZONE + 1, channel, "memory {mem}");
         }
-        let image = image_with(&records);
-        let ch = decode_channels(&image);
-        assert_eq!(ch[0].zone, 1);
-        assert_eq!(ch[1].zone, 1);
-        assert_eq!(ch[2].zone, 2);
-        assert_eq!(ch[3].zone, ZONE_COUNT);
+
+        // 99 does not divide 960, so the last zone is short — and the radio
+        // said so itself: memory 959 is zone 10 channel 69, not zone 10
+        // channel 99 and not zone 15 anything.
+        assert_eq!(ZONE_COUNT, 10);
+        assert_eq!(zone_capacity(1), 99);
+        assert_eq!(zone_capacity(ZONE_COUNT), 69);
+        assert_eq!(
+            (1..=ZONE_COUNT).map(zone_capacity).sum::<usize>(),
+            CHANNEL_COUNT,
+            "every memory belongs to exactly one zone"
+        );
     }
 }
