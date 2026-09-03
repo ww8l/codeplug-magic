@@ -1328,73 +1328,29 @@ fn d710_restore() {
 #[test]
 #[ignore = "requires a TM-D710 on the cable"]
 fn d710_program_mode_dump_full() {
+    use super::kenwood_tmd710::image::{ProgramMode, HOLE};
+
     let path = port_path();
     let mut p = open(&path, 57600).expect("open");
     let _ = ask(&mut *p, "ID");
     let id = ask(&mut *p, "ID").expect("ID").0;
     assert!(id.contains("TM-D710"), "not a TM-D710: {id:?}");
 
-    let entered = ask(&mut *p, "0M PROGRAM").expect("enter program mode").0;
-    println!("\n0M PROGRAM -> {entered:?}");
-    assert!(entered.starts_with("0M"), "the radio refused program mode: {entered:?}");
+    // `ProgramMode` sends `E` from Drop, so a panic in here still leaves the
+    // radio usable — which is the whole reason the transport owns the session
+    // rather than the harness.
+    let image = {
+        let mut prog = ProgramMode::enter(&mut *p).expect("enter program mode");
+        let image = prog.read_image().expect("read the image");
+        prog.leave().expect("leave program mode");
+        image
+    };
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut image = vec![0xFFu8; 0x1_0000];
-        let mut read: Vec<(u16, usize)> = Vec::new();
-        let mut holes: Vec<(u16, String)> = Vec::new();
-
-        // Every request CHIRP makes, in its order. `len` 0 means 256.
-        //
-        // ⚠ 0x7F00 is left out, and that IS measured rather than inherited: the
-        // first run of this probe asked for it and the radio answered with
-        // nothing at all — `timed out after 0 of 4 bytes`. CHIRP's `!!??` is a
-        // real hole in the address space. Asking costs the rest of the dump,
-        // because the recovery from a dead request desynchronises the stream.
-        let mut plan: Vec<(u16, u8)> =
-            (0u16..0x9C).filter(|b| *b != 0x7F).map(|b| (b << 8, 0u8)).collect();
-        plan.push((0xFEF0, 0x10));
-        plan.push((0xFF00, 0x90));
-
-        for (addr, len) in plan {
-            match read_block(&mut *p, addr, len) {
-                Ok(data) => {
-                    let end = addr as usize + data.len();
-                    assert!(end <= image.len(), "block at 0x{addr:04X} overruns 64 KiB");
-                    image[addr as usize..end].copy_from_slice(&data);
-                    read.push((addr, data.len()));
-                }
-                Err(e) => {
-                    // A failed read leaves the stream mid-block, and every
-                    // address after it would then be measuring the desync
-                    // rather than the radio. Stop and report where.
-                    println!("  0x{addr:04X}: {e}");
-                    holes.push((addr, e));
-                    break;
-                }
-            }
-        }
-        (image, read, holes)
-    }));
-
-    // ⚠ Always. See `d710_program_mode_dump`.
-    let _ = p.write_all(b"E");
-    let _ = p.flush();
-    std::thread::sleep(Duration::from_millis(300));
-    let mut ack = [0u8; 3];
-    let _ = read_exact_timeout(&mut *p, &mut ack);
-    println!("E -> {ack:02X?}");
-
-    let (image, read, holes) =
-        result.expect("the dump panicked; the radio was still taken out of program mode");
-    let bytes: usize = read.iter().map(|(_, n)| n).sum();
-    println!("=== {} of {} requests answered, {bytes} bytes", read.len(), read.len() + holes.len());
-    for (addr, e) in &holes {
-        println!("    hole 0x{addr:04X}: {e}");
-    }
-    assert!(bytes > 0x8000, "only {bytes} bytes came back — this is not the full image");
+    println!("=== {} bytes read, hole at 0x{HOLE:04X} skipped", image.bytes_read());
+    assert_eq!(image.bytes_read(), 39_840, "the ritual did not return the whole image");
 
     let out = format!("../scratchpad/kenwood_tmd710/progfull-{}.bin", std::process::id());
-    std::fs::write(&out, &image).expect("write");
+    std::fs::write(&out, image.as_addressed_bytes()).expect("write");
     println!("--- saved {out} (0x10000 bytes, FF where nothing was read)\n");
 }
 
@@ -1426,75 +1382,45 @@ fn d710_leave_program_mode() {
     assert!(id.contains("TM-D710"), "the radio is still not answering: {id:?}");
 }
 
-/// One block written, and the acknowledgement the radio sends back.
-///
-/// `W <addr:2 BE> <len:1> <data…>` -> one status byte. Note the asymmetry with
-/// [`read_block`]: a read is acknowledged by the **host** and the radio answers
-/// that acknowledgement, while a write is acknowledged by the **radio** and
-/// there is nothing to send back. Getting that the wrong way round leaves the
-/// stream one byte out of step for every request that follows.
-fn write_block(p: &mut dyn SerialPort, addr: u16, data: &[u8]) -> Result<(), String> {
-    assert!(!data.is_empty() && data.len() <= 256, "a block is 1..=256 bytes");
-    let len = if data.len() == 256 { 0u8 } else { data.len() as u8 };
-    let mut req = vec![b'W', (addr >> 8) as u8, (addr & 0xFF) as u8, len];
-    req.extend_from_slice(data);
-    p.write_all(&req).map_err(|e| e.to_string())?;
-    p.flush().map_err(|e| e.to_string())?;
-
-    let mut status = [0u8; 1];
-    read_exact_timeout(p, &mut status)?;
-    match status[0] {
-        0x06 => Ok(()),
-        // Published: 0x0F is "the radio is in an error state", which it enters
-        // when the host leaves it idle in program mode for too long. It is not
-        // a refusal of this particular write, and treating it as one sends you
-        // looking for a validation rule that does not exist.
-        0x0F => Err("0x0F — the radio is in the program-mode error state (PROG ERR)".into()),
-        other => Err(format!("the radio answered a write with {other:02X}")),
-    }
-}
-
 /// ★★★ The image WRITE path, climbed one rung at a time on the narrowest,
 /// least destructive field this radio has.
 ///
 /// Nothing had ever been written to this radio's image before this test. The
-/// two questions it answers, in order, are the ladder from the `new-radio`
-/// skill adapted to a transport rather than a container:
+/// rungs are the `new-radio` ladder adapted from a container to a transport:
 ///
 /// 1. **Identity write** — write a field back byte-for-byte and read it back.
 ///    Proves the verb, the framing and the acknowledgement with **nothing at
 ///    risk**: if every byte is the one already there, a total success and a
 ///    total no-op are the same outcome.
 /// 2. **One field** — change it, read it back, leave the mode, come back and
-///    read it again. The second read is the one that matters: this protocol has
+///    read it again. The second read is the one that matters. This protocol has
 ///    no checksum and no commit step, so a value that survives a re-entry is
-///    the only evidence that anything was *stored* rather than echoed.
+///    the only evidence anything was *stored* rather than echoed.
+/// 3. **The screen** — and that one is not in here. ✅ Done on 2026-09-02: Tim
+///    read `CPMAGIC TEST 129` off menu 608. A read-back proves the bytes are in
+///    the image; only the radio's own display proves the image is what the
+///    radio's settings are.
 ///
 /// ## Why status text 3
 ///
 /// It is **empty on Tim's radio** (`FF` x 42), so there is no operator data to
-/// lose, and it is directly visible on the radio's own screen under the status
-/// text menu — which is the half a read-back cannot supply. See
-/// [[an-ack-is-not-a-commit]]: on the BT-9000 an APRS block answered `0x06`
-/// four times and never changed a byte.
+/// lose, and it is directly visible on the radio's own screen.
 ///
 /// ## ⚠ This is a NARROW write and that is the thing being tested
 ///
-/// CHIRP writes the whole 156-block image and wraps it in an invalidate /
-/// revalidate dance — `FF` over the first byte of the headers at `0x0000` and
-/// `0x8000`, all blocks, then the saved headers back. This writes **42 bytes**
-/// and touches no header at all. That may simply not commit: the BT-9000 has a
-/// segment that acknowledges a partial write and silently keeps the old
-/// contents. If the re-entry read shows the old value, the narrow write is the
-/// thing that failed, not the transport.
+/// CHIRP writes the whole 156-block image wrapped in an invalidate/revalidate
+/// dance. This writes **42 bytes** and touches no header at all. That could
+/// simply not commit: the BT-9000 has a segment that acknowledges a partial
+/// write and silently keeps the old contents. It does commit — measured — and
+/// that is the difference between "to change a status text, rewrite the
+/// operator's entire radio" and not.
 #[test]
 #[ignore = "requires a TM-D710 on the cable — WRITES to the radio"]
 fn d710_status_text_write_ladder() {
-    // Status text 3 of 5. The block base is the live APRS config; the entry
-    // stride is 44 bytes and the text starts one byte into each entry.
-    const APRS_LIVE: u16 = 0x8100;
+    use super::kenwood_tmd710::image::{ProgramMode, APRS_LIVE};
+
     const TEXT_LEN: usize = 42;
-    let addr = APRS_LIVE + 0x089 + 2 * 44 + 1;
+    let addr = APRS_LIVE + STATUS_TEXT_3;
     let probe: Vec<u8> = {
         let mut v = b"CPMAGIC TEST 129".to_vec();
         v.resize(TEXT_LEN, 0x00);
@@ -1504,48 +1430,34 @@ fn d710_status_text_write_ladder() {
     let path = port_path();
     let mut p = open(&path, 57600).expect("open");
     let _ = ask(&mut *p, "ID");
-    let id = ask(&mut *p, "ID").expect("ID").0;
-    assert!(id.contains("TM-D710"), "not a TM-D710: {id:?}");
+    assert!(ask(&mut *p, "ID").expect("ID").0.contains("TM-D710"));
 
-    let enter = |p: &mut dyn SerialPort| -> bool {
-        ask(p, "0M PROGRAM").map(|r| r.0.starts_with("0M")).unwrap_or(false)
-    };
-    let leave = |p: &mut dyn SerialPort| {
-        let _ = p.write_all(b"E");
-        let _ = p.flush();
-        std::thread::sleep(Duration::from_millis(300));
-        let mut ack = [0u8; 3];
-        let _ = read_exact_timeout(p, &mut ack);
-        println!("  E -> {ack:02X?}");
-    };
-
-    assert!(enter(&mut *p), "the radio refused program mode");
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let before = read_block(&mut *p, addr, TEXT_LEN as u8).expect("read status text 3");
+    let before = {
+        let mut prog = ProgramMode::enter(&mut *p).expect("enter");
+        let before = prog.read(addr, TEXT_LEN as u8).expect("read status text 3");
         println!("\nbefore      {}", show(&before));
 
-        // Rung 1 — identity.
-        write_block(&mut *p, addr, &before).expect("identity write");
-        let same = read_block(&mut *p, addr, TEXT_LEN as u8).expect("read back after identity");
+        prog.write(addr, &before).expect("identity write");
+        let same = prog.read(addr, TEXT_LEN as u8).expect("read back after identity");
         assert_eq!(same, before, "an identity write changed the field");
         println!("identity ok, unchanged");
 
-        // Rung 2 — one field.
-        write_block(&mut *p, addr, &probe).expect("write the probe text");
-        let after = read_block(&mut *p, addr, TEXT_LEN as u8).expect("read back after write");
+        prog.write(addr, &probe).expect("write the probe text");
+        let after = prog.read(addr, TEXT_LEN as u8).expect("read back after write");
         println!("after write {}", show(&after));
         assert_eq!(after, probe, "the read-back does not match what was written");
+        prog.leave().expect("leave");
         before
-    }));
-    leave(&mut *p);
-    let before = result.expect("the ladder panicked; the radio was taken out of program mode");
+    };
 
     // Rung 2b — the one that separates a stored value from an echoed one.
     std::thread::sleep(Duration::from_millis(500));
-    assert!(enter(&mut *p), "could not re-enter program mode");
-    let persisted = read_block(&mut *p, addr, TEXT_LEN as u8);
-    leave(&mut *p);
-    let persisted = persisted.expect("read after re-entering");
+    let persisted = {
+        let mut prog = ProgramMode::enter(&mut *p).expect("re-enter");
+        let got = prog.read(addr, TEXT_LEN as u8).expect("read after re-entering");
+        prog.leave().expect("leave");
+        got
+    };
     println!("after re-entry {}", show(&persisted));
 
     assert_ne!(
@@ -1553,76 +1465,57 @@ fn d710_status_text_write_ladder() {
         "the field is back to what it was: the narrow write was acknowledged and NOT committed"
     );
     assert_eq!(persisted, probe, "the field changed, but not to what was written");
-    println!(
-        "\n★ narrow image write PROVEN over a re-entry.\n  \
-         Status text 3 now reads {:?} — check it on the radio's own screen,\n  \
-         then run d710_restore_status_text_3 to put it back.",
-        String::from_utf8_lossy(&probe[..16])
-    );
+    println!("\n★ narrow image write PROVEN over a re-entry. Check menu 608 on the radio.");
 }
+
+/// Status text 3 of 5, as an offset into the APRS block: `[1 flag][42 text]`
+/// entries from `+0x089`.
+const STATUS_TEXT_3: u16 = 0x089 + 2 * 44 + 1;
 
 /// Put status text 3 back to the `FF`-filled empty it was before the ladder.
 #[test]
 #[ignore = "requires a TM-D710 on the cable — WRITES to the radio"]
 fn d710_restore_status_text_3() {
-    const APRS_LIVE: u16 = 0x8100;
+    use super::kenwood_tmd710::image::{ProgramMode, APRS_LIVE};
+
     const TEXT_LEN: usize = 42;
-    let addr = APRS_LIVE + 0x089 + 2 * 44 + 1;
+    let addr = APRS_LIVE + STATUS_TEXT_3;
     let empty = vec![0xFFu8; TEXT_LEN];
 
     let path = port_path();
     let mut p = open(&path, 57600).expect("open");
     let _ = ask(&mut *p, "ID");
     assert!(ask(&mut *p, "ID").expect("ID").0.contains("TM-D710"));
-    assert!(ask(&mut *p, "0M PROGRAM").expect("enter").0.starts_with("0M"));
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        write_block(&mut *p, addr, &empty).expect("restore");
-        read_block(&mut *p, addr, TEXT_LEN as u8).expect("read back")
-    }));
-    let _ = p.write_all(b"E");
-    let _ = p.flush();
-    std::thread::sleep(Duration::from_millis(300));
-    let mut ack = [0u8; 3];
-    let _ = read_exact_timeout(&mut *p, &mut ack);
+    let mut prog = ProgramMode::enter(&mut *p).expect("enter");
+    prog.write(addr, &empty).expect("restore");
+    let back = prog.read(addr, TEXT_LEN as u8).expect("read back");
+    prog.leave().expect("leave");
 
-    let back = result.expect("the restore panicked; the radio was taken out of program mode");
     println!("restored to {}", show(&back));
     assert_eq!(back, empty, "status text 3 is not back to empty");
-}
-
-/// Bytes as hex plus their printable reading, which is how every field in this
-/// block has to be looked at: half of them are text and half are not.
-fn show(b: &[u8]) -> String {
-    let t: String = b.iter().map(|c| if (0x20..0x7F).contains(c) { *c as char } else { '.' }).collect();
-    format!("{}  |{}|", b.iter().map(|c| format!("{c:02X}")).collect::<Vec<_>>().join(""), t)
 }
 
 /// Put the whole live APRS block back from a saved dump.
 ///
 /// This is what makes a front-panel measurement pass reversible, and it is why
 /// the write path was built before the campaign rather than after it: without
-/// it, every setting Tim changes to let a diff name an offset is a setting he
-/// has to re-enter by hand from memory.
+/// it, every setting changed to let a diff name an offset is a setting the
+/// operator has to re-enter by hand from memory.
 ///
 /// `D710_IMAGE=<path>` names a `d710_program_mode_dump_full` file — 64 KiB with
 /// `FF` for anything unread, so a file offset is a radio address. Only the
 /// 1152 bytes of the **live** block are written; PM1-5 are the operator's saved
 /// profiles and nothing here has any business touching them.
-///
-/// Writes in 256-byte blocks and reads each one back before moving on, because
-/// an acknowledged write that did not commit is a failure this protocol can
-/// produce and would otherwise report as success.
 #[test]
 #[ignore = "requires a TM-D710 on the cable — WRITES to the radio"]
 fn d710_restore_aprs_block() {
-    const APRS_LIVE: u16 = 0x8100;
-    const BLOCK_LEN: usize = 0x480;
+    use super::kenwood_tmd710::image::{ProgramMode, APRS_BLOCK_LEN, APRS_LIVE, IMAGE_SPAN};
 
     let src = std::env::var("D710_IMAGE").expect("set D710_IMAGE to a full-dump file");
     let image = std::fs::read(&src).expect("read the dump");
-    assert_eq!(image.len(), 0x1_0000, "{src} is not a 64 KiB full dump");
-    let want = &image[APRS_LIVE as usize..APRS_LIVE as usize + BLOCK_LEN];
+    assert_eq!(image.len(), IMAGE_SPAN, "{src} is not a 64 KiB full dump");
+    let want = &image[APRS_LIVE as usize..APRS_LIVE as usize + APRS_BLOCK_LEN];
     assert!(
         want.iter().any(|b| *b != 0xFF),
         "the APRS block in {src} is all FF — that dump never read this region"
@@ -1632,30 +1525,31 @@ fn d710_restore_aprs_block() {
     let mut p = open(&path, 57600).expect("open");
     let _ = ask(&mut *p, "ID");
     assert!(ask(&mut *p, "ID").expect("ID").0.contains("TM-D710"));
-    assert!(ask(&mut *p, "0M PROGRAM").expect("enter").0.starts_with("0M"));
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut written = 0usize;
-        for off in (0..BLOCK_LEN).step_by(256) {
-            let n = 256.min(BLOCK_LEN - off);
-            let addr = APRS_LIVE + off as u16;
-            let chunk = &want[off..off + n];
-            write_block(&mut *p, addr, chunk).unwrap_or_else(|e| panic!("write 0x{addr:04X}: {e}"));
-            let back = read_block(&mut *p, addr, if n == 256 { 0 } else { n as u8 })
-                .unwrap_or_else(|e| panic!("read back 0x{addr:04X}: {e}"));
-            assert_eq!(back, chunk, "0x{addr:04X} did not take the write");
-            written += n;
-        }
-        written
-    }));
-
-    let _ = p.write_all(b"E");
-    let _ = p.flush();
-    std::thread::sleep(Duration::from_millis(300));
-    let mut ack = [0u8; 3];
-    let _ = read_exact_timeout(&mut *p, &mut ack);
-    println!("E -> {ack:02X?}");
-
-    let written = result.expect("the restore panicked; the radio was taken out of program mode");
+    let mut prog = ProgramMode::enter(&mut *p).expect("enter");
+    let mut written = 0usize;
+    for off in (0..APRS_BLOCK_LEN).step_by(256) {
+        let n = 256.min(APRS_BLOCK_LEN - off);
+        let addr = APRS_LIVE + off as u16;
+        let chunk = &want[off..off + n];
+        prog.write(addr, chunk).unwrap_or_else(|e| panic!("write 0x{addr:04X}: {e}"));
+        // ⚠ Read back every block before moving on: an acknowledged write that did
+        // not commit is a failure this protocol can produce and would otherwise
+        // report as success.
+        let back = prog
+            .read(addr, if n == 256 { 0 } else { n as u8 })
+            .unwrap_or_else(|e| panic!("read back 0x{addr:04X}: {e}"));
+        assert_eq!(back, chunk, "0x{addr:04X} did not take the write");
+        written += n;
+    }
+    prog.leave().expect("leave");
     println!("restored {written} bytes of the live APRS block from {src}");
 }
+
+/// Bytes as hex plus their printable reading, which is how every field in this
+/// block has to be looked at: half of them are text and half are not.
+fn show(b: &[u8]) -> String {
+    let t: String = b.iter().map(|c| if (0x20..0x7F).contains(c) { *c as char } else { '.' }).collect();
+    format!("{}  |{}|", b.iter().map(|c| format!("{c:02X}")).collect::<Vec<_>>().join(""), t)
+}
+

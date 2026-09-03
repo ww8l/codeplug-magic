@@ -57,6 +57,13 @@ use std::time::{Duration, Instant};
 use super::driver::{RadioDriver, RadioIdentity};
 
 pub(crate) mod encode;
+// ⚠ Reachable only from the measurement harness until a capability trait calls
+// it — the same stance `memory.rs` and `write_memory` are under, and for the
+// same reason: the transport is proven by the campaign that uses it before it
+// is put in front of an operator. The APRS field table that will call it is
+// still being measured (issue #113).
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) mod image;
 pub(crate) mod memory;
 pub(crate) mod program;
 pub(crate) mod settings;
