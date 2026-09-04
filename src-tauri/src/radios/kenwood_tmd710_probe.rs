@@ -44,6 +44,59 @@
 //! ```
 //!
 //! One radio operation per process, per the `hw-test-harness-pattern` note.
+//!
+//! ## The APRS/TNC settings block, as measured on the radio
+//!
+//! `scratchpad/` is gitignored, so the working sheet
+//! (`scratchpad/kenwood_tmd710/APRS-BLOCK.md`) does not survive this machine.
+//! This is the committed copy of what the radio itself has confirmed.
+//!
+//! The 600-series menus are **not** reachable by `MU` — they live in the image
+//! behind `0M PROGRAM`, in six `0x480`-byte blocks at `0x8100 + n * 0x480`
+//! (live, then PM1-5). Offsets below are relative to the **live** block base.
+//!
+//! | offset | field | menu | values measured |
+//! |---|---|---|---|
+//! | `+0x000` | My call sign, 10 bytes | 600 | |
+//! | `+0x00A` | Beacon type | 600 | `00` APRS, `01` NAVITRA |
+//! | `+0x00C` | Data band | 601 | `01` = `B Band` |
+//! | `+0x00D` | Packet transfer rate | 601 | `01` = `9600 bps` |
+//! | `+0x00E` | DCD sense | 601 | `02` = `IGNORE DCD` |
+//! | `+0x00F` | TX delay | 601 | `00` = `100ms`, `03` = `300ms` |
+//! | `+0x01C` | My position channels 1-5, 20 bytes each | 605 | |
+//! | `+0x083` | Speed information | 606 | `00` off, `01` on |
+//! | `+0x084` | Altitude information | 606 | `00` off, `01` on |
+//! | `+0x085` | Position ambiguity | 606 | `04` = `4-DIGIT` |
+//! | `+0x087` | Position comment | 607 | `09` = `CUSTOM 2` |
+//! | `+0x089` | Status text 1-5, 44 bytes each | 608 | |
+//! | `+0x0B5` | Status text TX rate | 608 | `01`=`1/1`, `02`=`1/2`, `05`=`1/5` |
+//! | `+0x169` | Station icon, 2 raw ASCII bytes | 610 | `/-` shows as a house |
+//! | `+0x16D` | Packet transmit method | 611 | `02` = `AUTO` |
+//! | `+0x16E` | Beacon TX interval | 611 | `05` = `5 min`, `09` = `60 min` |
+//! | `+0x16F` | Decay algorithm | 611 | `00` = off |
+//! | `+0x3D7` | SmartBeaconing, 7 bytes | 630/631 | matches the published defaults |
+//! | `+0x460` | SkyCommand commander / transporter call signs | | |
+//!
+//! ⚠ `+0x00C`, `+0x00E`, `+0x085`, `+0x087`, `+0x16D` and `+0x16F` are each
+//! pinned at **one** value and are owed a second before they go in a table:
+//! one index does not settle an enum.
+//!
+//! ★ **TX rate stores the denominator, not a list position** — `05` reads
+//! `1/5`, not the sixth entry. A table built on display order would write this
+//! field wrong for every value but one.
+//!
+//! ⚠ `+0x0B5` is `+0x089 + 44`, the lead byte of status text **record 2**. The
+//! obvious reading — that each record carries its own TX rate, and menu 608
+//! edited record 2 because record 2 is selected — is **one measurement on one
+//! record and is not established.**
+//!
+//! ⚠ `+0x165` is unidentified and has been misnamed twice: position comment in
+//! session 129, status text TX rate in session 131. Both times it was a value
+//! that merely fit.
+//!
+//! ⚠ The only manual on disk is the **TM-D710G**'s and this is a **D710A**.
+//! `APRS LOCK` is in that manual and is **not on this radio's screen**. Every
+//! unmeasured field taken from it is unverified for this model.
 
 use serialport::SerialPort;
 use std::time::{Duration, Instant};
@@ -1544,6 +1597,92 @@ fn d710_restore_aprs_block() {
     }
     prog.leave().expect("leave");
     println!("restored {written} bytes of the live APRS block from {src}");
+}
+
+/// Poke individual bytes of the **live** APRS block and read them back.
+///
+/// The inverse of a front-panel measurement pass. `PASS-A.md` asks the operator
+/// to move a menu so a diff can name the byte; that only works for fields whose
+/// byte actually moves, and the four this campaign still wants — `DATA SPEED`,
+/// `DCD SENSE`, `POSITION AMBIGUITY`, `POSITION COMMENT` — all sit on the first
+/// entry of their list, so they read `00` in the live block *and* `00` in the PM
+/// defaults and no differential can see them.
+///
+/// So run it the other way: write a distinct value into each candidate byte and
+/// let the operator read the menus. A menu that comes back showing entry `N`
+/// names its own offset, because exactly one byte was given the value `N`.
+///
+/// `D710_POKE="160=01,161=02"` — offsets are hex and **relative to the live
+/// block base**, matching `APRS-BLOCK.md`; values are hex. Only the 256-byte
+/// pages that actually contain a poke are written, and every one is read back
+/// before the next: this protocol acknowledges writes that did not commit.
+///
+/// Reverse it with `d710_restore_aprs_block`.
+#[test]
+#[ignore = "requires a TM-D710 on the cable — WRITES to the radio"]
+fn d710_poke_aprs() {
+    use super::kenwood_tmd710::image::{ProgramMode, APRS_BLOCK_LEN, APRS_LIVE};
+
+    let spec = std::env::var("D710_POKE")
+        .expect("set D710_POKE to off=val[,off=val...] — hex, offsets relative to the live APRS block");
+    let pokes: Vec<(usize, u8)> = spec
+        .split(',')
+        .filter(|s| !s.trim().is_empty())
+        .map(|kv| {
+            let (o, v) = kv.split_once('=').unwrap_or_else(|| panic!("{kv:?} is not off=val"));
+            let off = usize::from_str_radix(o.trim(), 16)
+                .unwrap_or_else(|_| panic!("offset {o:?} is not hex"));
+            let val = u8::from_str_radix(v.trim(), 16)
+                .unwrap_or_else(|_| panic!("value {v:?} is not hex"));
+            assert!(off < APRS_BLOCK_LEN, "+0x{off:03X} is outside the {APRS_BLOCK_LEN}-byte live block");
+            (off, val)
+        })
+        .collect();
+    assert!(!pokes.is_empty(), "D710_POKE named no bytes");
+    // Two pokes at one offset would make the read-back check pass while the
+    // second value silently won, and the whole method rests on one value per byte.
+    let mut seen: Vec<usize> = pokes.iter().map(|(o, _)| *o).collect();
+    seen.sort_unstable();
+    seen.dedup();
+    assert_eq!(seen.len(), pokes.len(), "D710_POKE names the same offset twice");
+
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+    assert!(ask(&mut *p, "ID").expect("ID").0.contains("TM-D710"));
+
+    let mut prog = ProgramMode::enter(&mut *p).expect("enter");
+
+    // Read every page that a poke touches, so the bytes around it go back untouched.
+    let mut pages: Vec<usize> = pokes.iter().map(|(o, _)| o / 256 * 256).collect();
+    pages.sort_unstable();
+    pages.dedup();
+
+    let mut before: Vec<(usize, u8, u8)> = vec![];
+    for base in pages {
+        let n = 256.min(APRS_BLOCK_LEN - base);
+        let addr = APRS_LIVE + base as u16;
+        let mut page = prog
+            .read(addr, if n == 256 { 0 } else { n as u8 })
+            .unwrap_or_else(|e| panic!("read 0x{addr:04X}: {e}"));
+        for (off, val) in pokes.iter().filter(|(o, _)| o / 256 * 256 == base) {
+            before.push((*off, page[off - base], *val));
+            page[off - base] = *val;
+        }
+        prog.write(addr, &page).unwrap_or_else(|e| panic!("write 0x{addr:04X}: {e}"));
+        let back = prog
+            .read(addr, if n == 256 { 0 } else { n as u8 })
+            .unwrap_or_else(|e| panic!("read back 0x{addr:04X}: {e}"));
+        assert_eq!(back, page, "0x{addr:04X} did not take the write");
+    }
+    prog.leave().expect("leave");
+
+    before.sort_unstable_by_key(|(o, _, _)| *o);
+    println!("\n  offset   was -> now   (decimal value the radio should show as its list index)");
+    for (off, was, now) in &before {
+        println!("  +0x{off:03X}    {was:02X} -> {now:02X}     {now}");
+    }
+    println!("\n{} bytes poked; read back clean. Restore with d710_restore_aprs_block.", before.len());
 }
 
 /// Bytes as hex plus their printable reading, which is how every field in this
