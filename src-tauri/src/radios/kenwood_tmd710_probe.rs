@@ -72,10 +72,38 @@
 //! | `+0x0B5` | Status text TX rate | 608 | `01`=`1/1`, `02`=`1/2`, `05`=`1/5` |
 //! | `+0x169` | Station icon, 2 raw ASCII bytes | 610 | `/-` shows as a house |
 //! | `+0x16D` | Packet transmit method | 611 | `02` = `AUTO` |
-//! | `+0x16E` | Beacon TX interval | 611 | `05` = `5 min`, `09` = `60 min` |
+//! | `+0x16E` | Beacon TX interval | 611 | `04`=`3 min`, `05`=`5 min`, `09`=`60 min` |
 //! | `+0x16F` | Decay algorithm | 611 | `00` = off |
-//! | `+0x3D7` | SmartBeaconing, 7 bytes | 630/631 | matches the published defaults |
-//! | `+0x460` | SkyCommand commander / transporter call signs | | |
+//! | `+0x460` | SkyCommand commander / transporter call signs | 700/701 | |
+//! | `+0x474` | SkyCommand tone | 702 | `08` = `88.5 Hz`, the manual's default |
+//!
+//! ⚠⚠ **The D710A has no SmartBeaconing.** The 7 bytes at `+0x3D7` do match the
+//! published SmartBeaconing defaults, but "SmartBeaconing" appears **zero**
+//! times in the TM-D710**A** manual and there is no menu 630/631/632 on this
+//! radio. They were graded against the **G**'s manual — a grade that was never
+//! valid here. No menu reaches them; they must not ship as settings.
+//!
+//! ## The menu census (`new-radio` step 1, for this transport)
+//!
+//! `MU` reaches 42 of the radio's ~115 menus and **none** of the 6xx group,
+//! which is the feature the radio is named for. The 6xx/7xx range is
+//! **34 menu numbers and 66 individual settings**; ~25 are located and 15 are
+//! confirmed on the radio.
+//!
+//! ★★★ **The factory-default cross-check.** The PM blocks are untouched
+//! defaults and the A manual states the default of every menu, so a candidate
+//! offset whose PM byte contradicts the manual is refuted with no radio time —
+//! and since most defaults are `0`, a **non-zero** default is a rare anchor. It
+//! is 5-for-5 on already-measured fields (`+0x00F`=`02`=`200 ms`, `+0x083` and
+//! `+0x084`=`01`=`ON`, `+0x169`=`\K`=the KENWOOD icon, `+0x474`=`08`=`88.5 Hz`).
+//!
+//! ⚠⚠ **`0x9C00`-`0xFEEF` has never been requested.** [`read_plan`] is MCP-2A's
+//! ritual, inherited from CHIRP and never probed past — 25 328 addresses. Menu
+//! 612's path and menu 613's `APK102` default appear **nowhere** in the 39 840
+//! bytes we read, and both menus are real (612 reads `WIDE1-1, WIDE2-1` on the
+//! screen). This is the `0x7F00` mistake one level out: s126 read "the radio
+//! stopped answering" as "the image ends" and lost the 7 KB holding this whole
+//! block. Probe `0x9C00` before trusting the plan's upper bound.
 //!
 //! ⚠ `+0x00C`, `+0x00E`, `+0x085`, `+0x087`, `+0x16D` and `+0x16F` are each
 //! pinned at **one** value and are owed a second before they go in a table:
@@ -94,9 +122,16 @@
 //! session 129, status text TX rate in session 131. Both times it was a value
 //! that merely fit.
 //!
-//! ⚠ The only manual on disk is the **TM-D710G**'s and this is a **D710A**.
-//! `APRS LOCK` is in that manual and is **not on this radio's screen**. Every
-//! unmeasured field taken from it is unverified for this model.
+//! ⚠ Use `TM-D710A_manual.pdf` (the A's own, with the full menu table, option
+//! lists and factory defaults), **not** the G's. `APRS LOCK` is in the G manual
+//! and is **not on this radio's screen**; the radio says `ID TM-D710`,
+//! `TY K,0,3,1,0`.
+//!
+//! ★ And the A manual is not sufficient either: it prints menu 611's interval
+//! list with **8** entries and the radio has at least **10**. Three readings
+//! (`04`=`3 min`, `05`=`5 min`, `09`=`60 min`) fit only
+//! `0.2/0.5/1/2/3/5/10/20/30/60`. Take **defaults** from the manual — those
+//! cross-check perfectly — and **lists** from the radio.
 
 use serialport::SerialPort;
 use std::time::{Duration, Instant};
