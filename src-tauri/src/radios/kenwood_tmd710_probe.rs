@@ -97,13 +97,37 @@
 //! is 5-for-5 on already-measured fields (`+0x00F`=`02`=`200 ms`, `+0x083` and
 //! `+0x084`=`01`=`ON`, `+0x169`=`\K`=the KENWOOD icon, `+0x474`=`08`=`88.5 Hz`).
 //!
-//! ⚠⚠ **`0x9C00`-`0xFEEF` has never been requested.** [`read_plan`] is MCP-2A's
-//! ritual, inherited from CHIRP and never probed past — 25 328 addresses. Menu
-//! 612's path and menu 613's `APK102` default appear **nowhere** in the 39 840
-//! bytes we read, and both menus are real (612 reads `WIDE1-1, WIDE2-1` on the
-//! screen). This is the `0x7F00` mistake one level out: s126 read "the radio
-//! stopped answering" as "the image ends" and lost the 7 KB holding this whole
-//! block. Probe `0x9C00` before trusting the plan's upper bound.
+//! ## The image map, closed at the desk (s131)
+//!
+//! CHIRP's **non-G** class (`TM-D710_CloneMode`) declares a structural map that
+//! this project had written off wholesale. Its APRS claims are indeed useless,
+//! but its **structure** is right and was never tested:
+//!
+//! | region | what | check |
+//! |---|---|---|
+//! | `0x0200`+`0x0400`..`0x0C00` | config block 0 and PM1-5, 394 bytes each | |
+//! | `0x0E00`-`0x160B` | channel map | |
+//! | `0x1700`-`0x575F` | memory channels, 16 bytes each | ch 39 is all `FF`; the radio holds 39 |
+//! | `0x5800`-`0x77DF` | channel names, 8 bytes each | `W0UPS`/`W0LRA`/`W0TX`, matching `MN` |
+//! | `0x77E0`-`0x782F` | weather channel names | **`WX   1 … WX   8`** ✓ |
+//! | `0x7DA0` / `0x7DF0` | PM names / MCP comment | zeros here, untouched |
+//! | `0x8100`-`0x9BFF` | the six APRS blocks | |
+//!
+//! ★★ `0x5800 + 1020*8 = 0x77E0` exactly, and `0x8100 + 6*0x480 = 0x9C00`
+//! exactly — the last structure ends on the last address [`read_plan`] asks
+//! for. Four regions previously logged as "unidentified" were simply **unused
+//! memory and name slots**: the array extents had been read off the *populated*
+//! part instead of the structure.
+//!
+//! ★ CHIRP's offsets **above** the hole are `true + 0x100` (`skycmd` declared at
+//! `0x8660`/`0x8674`, measured here at `0x8560`/`0x8574`). Use the rule.
+//!
+//! ⚠ Do not re-search for menu 612's path or menu 613's `APK102`: neither
+//! appears anywhere in the 39 840 bytes, in plain **or** AX.25 bit-shifted form.
+//! That is not evidence they are absent — 612's TYPE is an enum whose default
+//! *renders* as `WIDE1-1, WIDE2-1`, and 613's `APK102` is almost certainly enum
+//! index 0. Both are small enums at their default, which is the same blind spot
+//! that hid the first four fields. Find them with a front-panel change.
 //!
 //! ⚠ `+0x00C`, `+0x00E`, `+0x085`, `+0x087`, `+0x16D` and `+0x16F` are each
 //! pinned at **one** value and are owed a second before they go in a table:
