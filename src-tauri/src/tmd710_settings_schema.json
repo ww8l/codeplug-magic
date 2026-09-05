@@ -1,0 +1,298 @@
+[
+  {
+    "key": "key-beep",
+    "label": "Key beep (Menu 000)",
+    "type": "boolean"
+  },
+  {
+    "key": "beep-volume",
+    "label": "Beep volume (Menu 001)",
+    "type": "enum",
+    "options": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7"
+    ]
+  },
+  {
+    "key": "external-speaker-mode",
+    "label": "External speaker mode (Menu 002)",
+    "type": "enum",
+    "options": [
+      "Mode 1",
+      "Mode 2"
+    ]
+  },
+  {
+    "key": "announce",
+    "label": "Announce (Menu 003)",
+    "type": "enum",
+    "options": [
+      "Off",
+      "Auto",
+      "Manual"
+    ]
+  },
+  {
+    "key": "language",
+    "label": "Language (Menu 004)",
+    "type": "enum",
+    "options": [
+      "English",
+      "Japanese"
+    ]
+  },
+  {
+    "key": "voice-volume",
+    "label": "Voice volume (Menu 005)",
+    "type": "enum",
+    "options": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7"
+    ]
+  },
+  {
+    "key": "announce-speed",
+    "label": "Announce speed (Menu 006)",
+    "type": "integer",
+    "min": 0,
+    "max": 4
+  },
+  {
+    "key": "playback-repeat",
+    "label": "Playback repeat (Menu 007)",
+    "type": "boolean"
+  },
+  {
+    "key": "playback-repeat-interval",
+    "label": "Playback repeat interval (Menu 008)",
+    "type": "integer",
+    "min": 0,
+    "max": 60
+  },
+  {
+    "key": "continuous-recording",
+    "label": "Continuous recording (Menu 009)",
+    "type": "boolean"
+  },
+  {
+    "key": "vhf-aip",
+    "label": "VHF AIP (Menu 100)",
+    "type": "boolean"
+  },
+  {
+    "key": "uhf-aip",
+    "label": "UHF AIP (Menu 101)",
+    "type": "boolean"
+  },
+  {
+    "key": "squelch-hang-up-time",
+    "label": "Squelch hang-up time (Menu 106)",
+    "type": "enum",
+    "options": [
+      "Off",
+      "125 ms",
+      "250 ms",
+      "500 ms"
+    ]
+  },
+  {
+    "key": "mute-hang-up-time",
+    "label": "Mute hang-up time (Menu 107)",
+    "type": "enum",
+    "options": [
+      "Off",
+      "125 ms",
+      "250 ms",
+      "500 ms",
+      "750 ms",
+      "1000 ms"
+    ]
+  },
+  {
+    "key": "beat-shift",
+    "label": "Beat shift (Menu 108)",
+    "type": "boolean"
+  },
+  {
+    "key": "time-out-timer",
+    "label": "Time-out timer (Menu 109)",
+    "type": "enum",
+    "options": [
+      "3 min",
+      "5 min",
+      "10 min"
+    ]
+  },
+  {
+    "key": "memory-recall-method",
+    "label": "Memory recall method (Menu 201)",
+    "type": "enum",
+    "options": [
+      "All bands",
+      "Current band"
+    ]
+  },
+  {
+    "key": "echolink-speed",
+    "label": "EchoLink speed (Menu 205)",
+    "type": "enum",
+    "options": [
+      "Fast",
+      "Slow"
+    ]
+  },
+  {
+    "key": "dtmf-hold",
+    "label": "DTMF hold (Menu 300)",
+    "type": "boolean"
+  },
+  {
+    "key": "dtmf-speed",
+    "label": "DTMF speed (Menu 302)",
+    "type": "enum",
+    "options": [
+      "Fast",
+      "Slow"
+    ]
+  },
+  {
+    "key": "dtmf-pause",
+    "label": "DTMF pause (Menu 303)",
+    "type": "enum",
+    "options": [
+      "100 ms",
+      "250 ms",
+      "500 ms",
+      "750 ms",
+      "1000 ms",
+      "1500 ms",
+      "2000 ms"
+    ]
+  },
+  {
+    "key": "dtmf-key-lock",
+    "label": "DTMF key lock (Menu 304)",
+    "type": "boolean"
+  },
+  {
+    "key": "automatic-repeater-offset",
+    "label": "Automatic repeater offset (Menu 401)",
+    "type": "boolean"
+  },
+  {
+    "key": "1750-hz-tx-hold",
+    "label": "1750 Hz TX hold (Menu 402)",
+    "type": "boolean"
+  },
+  {
+    "key": "display-brightness",
+    "label": "Display brightness (Menu 501)",
+    "type": "enum",
+    "options": [
+      "Off",
+      "Level 1",
+      "Level 2",
+      "Level 3",
+      "Level 4",
+      "Level 5",
+      "Level 6",
+      "Level 7",
+      "Level 8"
+    ]
+  },
+  {
+    "key": "automatic-brightness",
+    "label": "Automatic brightness (Menu 502)",
+    "type": "boolean"
+  },
+  {
+    "key": "backlight-colour",
+    "label": "Backlight colour (Menu 503)",
+    "type": "enum",
+    "options": [
+      "Amber",
+      "Green"
+    ]
+  },
+  {
+    "key": "microphone-key-lock",
+    "label": "Microphone key lock (Menu 513)",
+    "type": "boolean"
+  },
+  {
+    "key": "scan-resume-method",
+    "label": "Scan resume method (Menu 907)",
+    "type": "enum",
+    "options": [
+      "Time-operated",
+      "Carrier-operated",
+      "Seek"
+    ]
+  },
+  {
+    "key": "auto-power-off",
+    "label": "Auto power off (Menu 917)",
+    "type": "enum",
+    "options": [
+      "Off",
+      "30 min",
+      "60 min",
+      "90 min",
+      "120 min",
+      "180 min"
+    ]
+  },
+  {
+    "key": "external-data-band",
+    "label": "External data band (Menu 918)",
+    "type": "enum",
+    "options": [
+      "Band A",
+      "Band B",
+      "TX A-RX B",
+      "TX B-RX A"
+    ]
+  },
+  {
+    "key": "external-data-speed",
+    "label": "External data speed (Menu 919)",
+    "type": "enum",
+    "options": [
+      "1200 bps",
+      "9600 bps"
+    ]
+  },
+  {
+    "key": "sqc-output-source",
+    "label": "SQC output source (Menu 921)",
+    "type": "enum",
+    "options": [
+      "Off",
+      "Busy",
+      "SQL",
+      "TX",
+      "Busy or TX",
+      "SQL or TX"
+    ]
+  },
+  {
+    "key": "auto-pm-store",
+    "label": "Auto PM store (Menu 922)",
+    "type": "boolean"
+  },
+  {
+    "key": "display-partition-bar",
+    "label": "Display partition bar (Menu 928)",
+    "type": "boolean"
+  }
+]
