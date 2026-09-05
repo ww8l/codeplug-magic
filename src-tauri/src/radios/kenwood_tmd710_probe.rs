@@ -191,6 +191,66 @@
 //!
 //! ⚠ The refutation rests on the contiguity rule, which stands on **two**
 //! menus. Best rule available; not a law.
+//!
+//! ## ★★★ The same instrument, run forwards: ten menus located (s132)
+//!
+//! A menu's factory defaults form a byte **string**. Run it against the six
+//! blocks: a string that occurs **exactly once per 1152-byte block, at the same
+//! offset in all six**, is an anchor no single byte can match. Offsets below
+//! are relative to a block base; factory values read from a PM copy.
+//!
+//! | menu | setting | offset | factory | anchor |
+//! |---|---|---|---|---|
+//! | 603 WAYPOINT | FORMAT | `+0x015` | `00` = `NMEA` | `00 06 00`, block-unique |
+//! | | NAME | `+0x016` | `06` = `6-CHAR` | ″ |
+//! | | OUTPUT | `+0x017` | `00` = `ALL` | ″ |
+//! | 609 PACKET FILTER | POSITION LIMIT | `+0x166` ⚠ | `00` = `OFF` | `00 3F`, block-unique |
+//! | | TYPE | `+0x167` | `3F` = checked all | ″ |
+//! | 611 BEACON TX | METHOD | `+0x16D` | `00` = `MANUAL` | `00 04 01 01`, block-unique |
+//! | | INITIAL INTERVAL | `+0x16E` | `04` = `3 min` | ″ |
+//! | | DECAY | `+0x16F` | `01` = `ON` | ″ |
+//! | | PROPORTIONAL PATHING | `+0x170` | `01` = `ON` | ″ |
+//! | 614 VOICE ALERT | VOICE ALERT | `+0x1DF` | `00` = `OFF` | `00 0C`, block-unique |
+//! | | CTCSS FREQUENCY | `+0x1E0` | `0C` = `100.0 Hz` | ″ |
+//! | 623 GROUP FILTERING | MESSAGE | `+0x2F6` | `ALL,QST,CQ,KWD` | literal, unique |
+//! | 628 NAVITRA GROUP | GROUP CODE | `+0x367` | `000` | literal, unique |
+//!
+//! ★ The manual prints `ALL, QST, CQ, KWD` **with spaces** and the radio stores
+//! it without. A printed default is a value, not a byte layout.
+//!
+//! ★ `+0x016` = `06` for `6-CHAR` is the **literal**, not an index — the same
+//! shape as status text TX rate storing its denominator.
+//!
+//! Weaker, and marked so: `+0x1E9` = `1C` = 617 UI CHECK TIME (`1C` occurs
+//! twice per block, the other at `+0x3DB`; `+0x1E9` chosen by contiguity with
+//! 614), `+0x011` = `01` = 602 GPS BAUD `4800` (the only non-zero byte in
+//! `+0x008`-`+0x01B`, but `01` is not a rare value), and `+0x012`/`+0x013`
+//! (602 INPUT/OUTPUT) and `+0x366` (628 GROUP MODE) by contiguity alone.
+//!
+//! ⚠ **All of this is desk evidence.** A block-unique default vector is a much
+//! better prediction than a lone byte; it is not a measurement. Its value is a
+//! *shared* failure mode: if one poke misses, the instrument is wrong rather
+//! than just that offset.
+//!
+//! ## ★★★ `+0x165`: a hypothesis with an anchor behind it, for once
+//!
+//! `+0x165` is `00` factory and **`03` live** — the operator moved it — and it
+//! sits immediately below the block-unique `00 3F`. Menu 609 has exactly two
+//! settings and prints POSITION LIMIT **above** TYPE, so POSITION LIMIT is
+//! `+0x166` (`00` in both copies) or `+0x165` (the one that moved).
+//!
+//! ⚠ `+0x165` has been misnamed twice, both times because a value fit. This
+//! claim comes from the `3F` next door instead — and it costs **one screen
+//! read** to settle: menu 609, POSITION LIMIT. `OFF` leaves the byte open; a
+//! distance names it. No writes.
+//!
+//! ★ Free and the same shape: `+0x1DF` is `00` factory, `01` live, so menu
+//! **614 VOICE ALERT should read `ON`** on this radio. One glance tests the
+//! `00 0C` anchor against real data.
+//!
+//! ⚠ An unexplained recurring `0x11` sits at `+0x07F`, `+0x168`, `+0x1E1`,
+//! `+0x1EA`, `+0x435`, `+0x477` — three of them immediately after a field
+//! located above. Looks like a per-record tag. Logged, not named.
 
 use serialport::SerialPort;
 use std::time::{Duration, Instant};
