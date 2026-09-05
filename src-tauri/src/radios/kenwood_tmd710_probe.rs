@@ -156,6 +156,41 @@
 //! (`04`=`3 min`, `05`=`5 min`, `09`=`60 min`) fit only
 //! `0.2/0.5/1/2/3/5/10/20/30/60`. Take **defaults** from the manual — those
 //! cross-check perfectly — and **lists** from the radio.
+//!
+//! ## ★★★ Menu 625 is not in the image (s132, desk work, no radio time)
+//!
+//! Search a menu's whole **default vector**, not one byte. Every menu measured
+//! so far lays its settings out contiguously in the manual's printed order —
+//! menu 601's four at `+0x00C`..`+0x00F`, menu 606's three at `+0x083`..`+0x085`
+//! — so a menu's defaults are a byte *string*, and a string is far rarer than
+//! any byte in it.
+//!
+//! Menu **625 INTERRUPT DISPLAY** defaults to `DISPLAY AREA` = `ENTIRE` (index
+//! `02` of `OFF/HALF/ENTIRE`), `AUTO BRIGHTNESS` = `ON` (`01`), `CHANGE COLOR`
+//! = `ON` (`01`). The pattern `02 01 01` occurs **zero times in the entire
+//! 39 840 bytes** — live copy, all five factory PM copies, APRS block, config
+//! blocks, everywhere. So do `04 01 02 01 01` (624's tail plus 625) and the
+//! full ten-byte 624-627 default vector.
+//!
+//! The APRS block is independently ruled out by counting anchors in a factory
+//! copy: it holds exactly **one** byte equal to `02` (`+0x00F`, TX delay) and
+//! exactly **one** equal to `04` (`+0x16E`, beacon interval), both already
+//! spoken for. `DISPLAY AREA` = `02` and `RX BEEP` = `04` have nowhere to live.
+//!
+//! ⚠ This names **no** offset and must not be read as one. `0x0377` = `04`
+//! followed by `01 01` is the only unclaimed `04` in a config block outside the
+//! VFO table — and `0x0355` has the identical shape with CHIRP naming its
+//! neighbour `beepvol`. A byte that merely fits is not evidence.
+//!
+//! ★ What it changes: the "invisible enum at its default" argument that rescued
+//! menus 612 and 613 **cannot** rescue 624/625, whose defaults are non-zero and
+//! would therefore show. Either those settings are non-contiguous, or they live
+//! in `0x9C00`-`0xFEEF` — the 25 328 addresses [`read_plan`] has never
+//! requested. That puts the two-minute probe of `0x9C00` back near the top of
+//! the list, ahead of hunting 624-627 from the front panel.
+//!
+//! ⚠ The refutation rests on the contiguity rule, which stands on **two**
+//! menus. Best rule available; not a law.
 
 use serialport::SerialPort;
 use std::time::{Duration, Instant};
