@@ -1846,3 +1846,105 @@ fn show(b: &[u8]) -> String {
     format!("{}  |{}|", b.iter().map(|c| format!("{c:02X}")).collect::<Vec<_>>().join(""), t)
 }
 
+
+/// Read blocks at addresses [`read_plan`] has never requested, to find out
+/// whether the read plan's ceiling is the radio's.
+///
+/// `read_plan` is MCP-2A's ritual, inherited from CHIRP: blocks `0x00`-`0x9B`
+/// except the hole, plus two tails at `0xFEF0` and `0xFF00`. **`0x9C00`-`0xFEEF`
+/// — 25 328 addresses — has never been asked for once.** Session 129 learned
+/// what an untested stopping rule costs when `0x7F00` turned out to be a hole
+/// rather than the end of the image, and 7 KB holding the entire APRS block was
+/// sitting above it.
+///
+/// Session 132 made this worth doing rather than merely tidy. Menu 625's factory
+/// defaults are the byte string `02 01 01`, and that pattern occurs **zero times
+/// in all 39 840 bytes we have ever read**. Unlike menus 612 and 613 it cannot
+/// be an enum hiding at a zero default — 625 defaults to `ENTIRE` (`02`) and 624
+/// to `ALL` (`04`). So there is a setting this radio certainly has and this
+/// image demonstrably does not, and one of the places it can be is up here.
+///
+/// ★★★ **Every probe is paired with a control read of a known-good address.**
+/// A refusal only means "the radio will not serve this address" if the session
+/// is still alive afterwards; a desynced or wedged stream refuses *everything*
+/// and would otherwise be reported as a discovery. The control runs after each
+/// probe, and a control failure aborts rather than being written down as data.
+///
+/// `D710_PROBE="9C00,A000,C000,E000,FE00"` — hex addresses, defaulting to a
+/// spread across the unrequested span. Read-only; nothing is written.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_probe_addr() {
+    use super::kenwood_tmd710::image::{ProgramMode, APRS_LIVE};
+
+    /// Inside the APRS block, which every dump has answered — so a failure here
+    /// is the session, never the address.
+    const CONTROL: u16 = APRS_LIVE;
+
+    let spec = std::env::var("D710_PROBE").unwrap_or_else(|_| "9C00,A000,C000,E000,FE00".into());
+    let addrs: Vec<u16> = spec
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|a| u16::from_str_radix(a, 16).unwrap_or_else(|_| panic!("address {a:?} is not hex")))
+        .collect();
+    assert!(!addrs.is_empty(), "D710_PROBE named no addresses");
+
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+    assert!(ask(&mut *p, "ID").expect("ID").0.contains("TM-D710"));
+
+    let mut prog = ProgramMode::enter(&mut *p).expect("enter");
+
+    // The control has to work before any probe, or the whole run means nothing.
+    let baseline = prog
+        .read(CONTROL, 16)
+        .unwrap_or_else(|e| panic!("the control read at 0x{CONTROL:04X} failed before any probe: {e}"));
+    println!("\ncontrol 0x{CONTROL:04X} answers: {}", show(&baseline));
+
+    let mut answered: Vec<(u16, Vec<u8>)> = vec![];
+    let mut refused: Vec<(u16, String)> = vec![];
+    for addr in addrs {
+        match prog.read(addr, 16) {
+            Ok(data) => {
+                println!("  0x{addr:04X}  ANSWERED  {}", show(&data));
+                answered.push((addr, data));
+            }
+            Err(e) => {
+                println!("  0x{addr:04X}  refused   {e}");
+                refused.push((addr, e));
+            }
+        }
+        // ⚠ A refusal is only a measurement if the session survived it.
+        match prog.read(CONTROL, 16) {
+            Ok(c) if c == baseline => {}
+            Ok(c) => panic!(
+                "the control at 0x{CONTROL:04X} changed after probing 0x{addr:04X} \
+                 ({} -> {}) — the stream is out of step and nothing after this is data",
+                show(&baseline),
+                show(&c)
+            ),
+            Err(e) => panic!(
+                "the control at 0x{CONTROL:04X} failed after probing 0x{addr:04X}: {e}. \
+                 The session is wedged, so that probe's result is NOT a refusal by the radio. \
+                 Power-cycle the radio and re-run with fewer addresses."
+            ),
+        }
+    }
+    prog.leave().expect("leave");
+
+    println!("\n{} answered, {} refused, control held throughout.", answered.len(), refused.len());
+    if answered.is_empty() {
+        println!(
+            "★ Every probe refused with a live session between each one. \
+             read_plan's ceiling is the radio's, and menus 624-627 are somewhere \
+             inside 0x0000-0x9BFF after all — non-contiguous, not missing."
+        );
+    } else {
+        println!(
+            "★★★ The read plan is NOT the radio's ceiling. Re-run d710_program_mode_dump_full \
+             with the span extended and diff against progfull-71022.bin."
+        );
+    }
+}
