@@ -200,6 +200,14 @@ pub const BT9000_SETTINGS_SCHEMA: &str =
 pub const TMD710_SETTINGS_SCHEMA: &str = include_str!("tmd710_settings_schema.json");
 
 
+#[cfg(test)]
+pub(crate) fn model_capability_rows() -> Vec<(&'static str, bool, &'static str)> {
+    models()
+        .into_iter()
+        .map(|m| (m.display_name, m.aprs_capable, m.non_channel_settings_schema))
+        .collect()
+}
+
 fn models() -> Vec<ModelSeed> {
     vec![
         // --------------------------------------------------------

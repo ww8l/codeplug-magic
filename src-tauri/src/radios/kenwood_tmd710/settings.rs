@@ -1,8 +1,18 @@
-//! The TM-D710's menu settings, read and written as the `MU` command (#113).
+//! The TM-D710's menu settings — **two transports, one form** (#113).
 //!
-//! One ASCII line carries all **42** menu parameters, and setting any of them
-//! means sending all 42 back. There is no image and no card file on this radio,
-//! so this is the only place its settings live.
+//! One `MU` line carries all **42** menu parameters, and setting any of them
+//! means sending all 42 back. That is this module.
+//!
+//! ⚠⚠ It is not the radio's settings. `MU` reaches 42 of the radio's ~115
+//! menus and **none of the 600-series**, which is the APRS/TNC feature the
+//! radio is named for. Those live in the image behind `0M PROGRAM` and are
+//! [`super::aprs`]'s half. A settings read here is both exchanges and a
+//! settings write is both again, because an operator's profile is one thing.
+//!
+//! ★ This radio shipped a correct, fully measured 35-field schema with **no
+//! APRS on an APRS radio** for a whole session, because one command's coverage
+//! was taken for the radio's settings. The join below is the fix, and the
+//! `carries_every_group_the_radio_advertises` test is what stops it recurring.
 //!
 //! ## Every range here was measured on the radio
 //!
@@ -43,6 +53,8 @@
 use serde_json::{json, Map, Value};
 use std::path::Path;
 
+use super::aprs;
+use super::image::ProgramMode;
 use super::memory::Menu;
 use super::{ask_settling, open_port, write_menu};
 use crate::radios::driver::{SettingsCapture, SettingsReader, SettingsWriteReport, SettingsWriter};
@@ -173,31 +185,66 @@ fn patch(base: &Menu, settings: &Value) -> Result<(Menu, usize), String> {
 }
 
 impl SettingsReader for super::KenwoodTmD710 {
+    /// `MU`, then the APRS block out of program mode — one port session.
+    ///
+    /// ⚠ The image half is **not** best-effort. A read that quietly came back
+    /// with 35 of 57 fields would look like a success and be exactly the failure
+    /// this driver already shipped once, so a radio that will not enter program
+    /// mode is an error naming what to do about it.
     fn read_settings(&self, port: &str, _schema_json: &str) -> Result<SettingsCapture, String> {
         let mut p = open_port(port)?;
         let line = ask_settling(&mut *p, "MU")?;
         let menu = Menu::parse(&line)?;
+
+        let mut pm = ProgramMode::enter(&mut *p)?;
+        let block = aprs::read_block(&mut pm)?;
+        pm.leave()?;
+
+        let Value::Object(mut settings) = decode(&menu) else {
+            unreachable!("decode returns an object")
+        };
+        aprs::decode(&block, &mut settings);
+
         Ok(SettingsCapture {
-            settings: decode(&menu),
-            // The backup for a live-mode radio is a TRANSCRIPT. This one is the
-            // menu line itself, which is exactly what a settings write can
-            // clobber — `d710_restore` puts it back.
-            backup: line.into_bytes(),
+            settings: Value::Object(settings),
+            // The backup for a live-mode radio is a TRANSCRIPT — and this radio
+            // has two transports, so the file carries both halves: the menu line
+            // and the APRS block as hex. Between them they are everything a
+            // settings write on this radio can clobber.
+            backup: backup_text(&line, &block).into_bytes(),
             backup_ext: "txt",
         })
     }
 }
 
+/// The pre-write backup: one file holding both transports' state.
+///
+/// Written so `xxd -r` is not needed to read it and a person can see at a glance
+/// which half is which — a backup nobody can interpret is not a backup.
+fn backup_text(line: &str, block: &[u8]) -> String {
+    let mut out = format!("{line}\n");
+    out.push_str("# APRS/TNC block, live copy, 0x8100..0x8580, 16 bytes a line\n");
+    for (i, chunk) in block.chunks(16).enumerate() {
+        let addr = 0x8100 + i * 16;
+        let hex: Vec<String> = chunk.iter().map(|b| format!("{b:02X}")).collect();
+        out.push_str(&format!("{addr:04X}  {}\n", hex.join(" ")));
+    }
+    out
+}
+
 impl SettingsWriter for super::KenwoodTmD710 {
-    /// Read the current line, back it up, patch the profile's fields over it,
-    /// write, and read back to verify — one session, no clone mode.
+    /// Read both halves, back them up, patch the profile's fields over each,
+    /// write, and read back to verify — one port session, two transports.
     ///
-    /// ⚠ **Not yet run on a real radio.** Reading `MU` is proven; writing one
-    /// field at a time is proven by `d710_set_menu` and by the 42-parameter
-    /// sweep, which wrote and restored every parameter. This path — a profile's
-    /// worth of fields patched in one go — has not been. In this repo a working
-    /// read path has twice hidden a dead write path, so it is stated rather
-    /// than assumed.
+    /// ⚠ **Not yet run on a real radio, and now in two ways.** Reading `MU` is
+    /// proven and writing one parameter at a time is proven by the 42-parameter
+    /// sweep; reading the APRS block and writing differing runs into it are both
+    /// proven by `d710_restore_diff`, which restored this radio to pristine.
+    /// What is **not** proven is (a) a profile's worth of fields patched in one
+    /// go and (b) **entering program mode after an `MU` exchange on the same
+    /// open port**. Neither has been in front of the radio. In this repo a
+    /// working read path has twice hidden a dead write path, so it is stated
+    /// rather than assumed — this is a hardware-ladder step 5 item.
     fn write_settings(
         &self,
         port: &str,
@@ -209,34 +256,70 @@ impl SettingsWriter for super::KenwoodTmD710 {
         let before = ask_settling(&mut *p, "MU")?;
         let base = Menu::parse(&before)?;
 
+        let mut pm = ProgramMode::enter(&mut *p)?;
+        let aprs_before = aprs::read_block(&mut pm)?;
+        pm.leave()?;
+
+        // ⚠ The backup is written before a single byte is sent, and it holds
+        // BOTH transports — a settings write on this radio can move the menu
+        // line and the APRS block, so a backup of one half is not a backup.
         std::fs::create_dir_all(backup_dir).map_err(|e| e.to_string())?;
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
         let backup_path = backup_dir.join(format!("kenwood_tmd710-menu-{stamp}.txt"));
-        std::fs::write(&backup_path, &before).map_err(|e| e.to_string())?;
+        std::fs::write(&backup_path, backup_text(&before, &aprs_before)).map_err(|e| e.to_string())?;
 
-        let (wanted, fields_written) = patch(&base, settings)?;
+        let (wanted, mut fields_written) = patch(&base, settings)?;
+
+        // ⚠ Both halves are encoded BEFORE either is written. A profile whose
+        // APRS half is unencodable must not leave the radio with its menus
+        // already changed — this is the cheap half of atomicity, and the only
+        // half a two-transport radio can have.
+        let (aprs_wanted, aprs_changed) = aprs::patch(&aprs_before, settings)?;
+
         let failed = write_menu(&mut *p, &wanted)?;
+        fields_written += aprs_changed;
+
+        let (windows_written, aprs_verified) = if aprs_changed == 0 {
+            (Vec::new(), true)
+        } else {
+            let mut pm = ProgramMode::enter(&mut *p)?;
+            let r = aprs::write_block_narrow(&mut pm, &aprs_before, &aprs_wanted);
+            pm.leave()?;
+            r?
+        };
+
+        let mut notes: Vec<String> = Vec::new();
+        if !failed.is_empty() {
+            let names: Vec<String> = failed
+                .iter()
+                .map(|(p, mine, theirs)| format!("p{p}: sent {mine}, radio kept {theirs}"))
+                .collect();
+            notes.push(format!(
+                "{} menu parameter(s) did not take: {}",
+                failed.len(),
+                names.join("; ")
+            ));
+        }
+        if !aprs_verified {
+            notes.push(
+                "the APRS block read back different from what was written. On this protocol \
+                 the radio answers 0x06 whether or not it kept a write, so the read-back is \
+                 the only evidence — treat the 600-series settings as NOT written."
+                    .to_string(),
+            );
+        }
 
         Ok(SettingsWriteReport {
             fields_written,
-            // `write_menu` re-reads the line and diffs it, so this is a real
-            // read-back and not the same buffer compared with itself — the
-            // mistake found in the TH-D72's review.
-            verified: Some(failed.is_empty()),
-            note: (!failed.is_empty()).then(|| {
-                let names: Vec<String> = failed
-                    .iter()
-                    .map(|(p, mine, theirs)| format!("p{p}: sent {mine}, radio kept {theirs}"))
-                    .collect();
-                format!(
-                    "{} menu parameter(s) did not take: {}",
-                    failed.len(),
-                    names.join("; ")
-                )
-            }),
+            // `write_menu` re-reads the line and diffs it, and
+            // `write_block_narrow` re-reads the block — both are real
+            // read-backs and not a buffer compared with itself, the mistake
+            // found in the TH-D72's review.
+            verified: Some(failed.is_empty() && aprs_verified),
+            note: (!notes.is_empty()).then(|| notes.join(" ")),
             backup_path: backup_path.to_string_lossy().into_owned(),
             expected_path: None,
-            windows_written: Vec::new(),
+            windows_written,
         })
     }
 }
@@ -296,7 +379,13 @@ mod tests {
     fn the_table_and_the_profile_schema_describe_the_same_fields() {
         let schema: Vec<serde_json::Value> =
             serde_json::from_str(crate::seed::TMD710_SETTINGS_SCHEMA).expect("schema parses");
-        assert_eq!(schema.len(), TMD710_SETTINGS_FIELDS.len());
+        // The form is both transports; `super::aprs` owns the `aprs-` half and
+        // asserts the same pairing over it.
+        let mine: Vec<&serde_json::Value> = schema
+            .iter()
+            .filter(|e| !e["key"].as_str().is_some_and(|k| k.starts_with("aprs-")))
+            .collect();
+        assert_eq!(mine.len(), TMD710_SETTINGS_FIELDS.len());
 
         for f in TMD710_SETTINGS_FIELDS {
             let entry = schema
@@ -327,7 +416,7 @@ mod tests {
             }
         }
 
-        for e in &schema {
+        for e in &mine {
             let key = e["key"].as_str().expect("key");
             assert!(
                 TMD710_SETTINGS_FIELDS.iter().any(|f| f.key == key),

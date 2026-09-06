@@ -408,6 +408,41 @@
 //! writes — and it is still a failure. Leave `+0x165` alone until a front-panel
 //! change moves it.
 //!
+//! ## ★★★ s133: the measurements are WIRED, and what is still held back
+//!
+//! Everything above was a doc comment until now — the shipped schema was still
+//! the 35-field, zero-APRS one this radio is the cautionary tale for.
+//! `scratchpad/kenwood_tmd710/APRS-MEASURED.md` is the sheet,
+//! `gen_tmd710_aprs.py` emits [`super::kenwood_tmd710::aprs`]'s table and the
+//! profile schema from that one parse, and the form is now **57 fields: 35 over
+//! `MU` and 22 in the image**.
+//!
+//! ★ The emit rule that decided which of the ~45 located settings ship: a row
+//! goes in only when **every index of its list is anchored** — measured on the
+//! radio, the factory default confirmed against the A manual, or the single
+//! remaining printed entry. That bar is set by this radio's own manual, which
+//! has printed a **short** list twice (611's intervals, 625's display area), so
+//! "the rest of the manual's list, in order" is not evidence here. It holds back
+//! eleven located fields, each with a named check: menu 601 TX DELAY (indices
+//! 4-7), 609 POSITION LIMIT, 611 INITIAL INTERVAL, 612 PACKET PATH, 624 RX BEEP
+//! (the order of `Off`/`Message only`), 625 DISPLAY AREA, and the text fields
+//! whose padding is unmeasured.
+//!
+//! ★ **19 of 19 checkable offsets cross-check clean** against the manual's
+//! factory defaults in the five PM copies, including the five identifying
+//! non-zero ones. That validated the whole emit set at the desk, for free.
+//!
+//! ⚠ Two things about the driver are **not** hardware-proven and are ladder
+//! step 5: a profile's worth of fields patched in one go, and **entering program
+//! mode after an `MU` exchange on the same open port** — the settings read now
+//! does both in one session and nobody has watched the radio do it.
+//!
+//! ★ The mechanical version of the census gate is now in `radios/wiring.rs`:
+//! a model seeded `aprs_capable: true` whose settings schema has no APRS field
+//! fails the build. On its first run it found a **second** instance — the Icom
+//! ID-52, 173 fields, a GPS section and no APRS/D-PRS settings at all. Listed as
+//! a known gap so it stays greppable and a new radio still cannot slip through.
+//!
 //! ## The radio was returned to pristine
 //!
 //! `d710_restore_aprs_block` from `progfull-71022.bin`, then a full re-dump:

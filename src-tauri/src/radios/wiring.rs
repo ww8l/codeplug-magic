@@ -494,3 +494,69 @@ fn every_path_that_sends_settings_to_a_radio_checks_their_range_first() {
          leaving it passing vacuously"
     );
 }
+
+/// ★★★ A radio whose seed row says it does APRS must have APRS settings in its
+/// settings schema.
+///
+/// The seed row is the app's own claim about what the radio can do, so it is
+/// free evidence about whether the settings schema covers the radio or only
+/// covers one transport. The TM-D710 shipped `aprs_capable: true` beside a
+/// **correct, fully measured, 35-field schema with no APRS in it** — every field
+/// right, and the radio's headline feature missing — because `MU` stops at menu
+/// 500 and nobody counted the menus. Nothing looked wrong from the inside; this
+/// is the check that would have.
+///
+/// Deliberately shallow. It cannot tell whether a schema covers APRS *well*, and
+/// a driver could satisfy it with one field. What it catches is the case that
+/// actually happened: a whole feature absent while the row advertises it.
+#[test]
+fn an_aprs_radio_offers_at_least_one_aprs_setting() {
+    /// ⚠ A **known gap, not an exemption.** The first time this test ran it
+    /// found a second radio with the same defect: the ID-52 is seeded
+    /// `aprs_capable: true` and its 173-field schema carries a GPS section —
+    /// `gps-tx-mode`, the NMEA sentence toggles, `gps-auto-tx-timer` — and no
+    /// APRS/D-PRS settings at all. No call sign, no SSID, no symbol, no
+    /// comment, no beacon method. GPS is not APRS, and the schema stops right
+    /// where the radio's headline data feature starts.
+    ///
+    /// It is listed rather than deleted so the gap stays greppable and so a
+    /// **new** radio still cannot slip through. Remove this entry when the
+    /// ID-52's APRS menus are measured, not before.
+    const KNOWN_GAPS: &[&str] = &["Icom ID-52"];
+
+    let mut checked = 0;
+    for (name, aprs_capable, schema_json) in crate::seed::model_capability_rows() {
+        if KNOWN_GAPS.contains(&name) {
+            continue;
+        }
+        if !aprs_capable || schema_json.trim() == "[]" {
+            // An empty schema is a radio whose settings were never measured at
+            // all, which is a different and visible state — this test is about
+            // a schema that looks finished and is not.
+            continue;
+        }
+        checked += 1;
+        let schema: Vec<serde_json::Value> =
+            serde_json::from_str(schema_json).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let aprs = schema.iter().filter(|f| {
+            let hay = format!(
+                "{} {}",
+                f["key"].as_str().unwrap_or_default(),
+                f["label"].as_str().unwrap_or_default()
+            )
+            .to_ascii_lowercase();
+            hay.contains("aprs")
+                || hay.contains("beacon")
+                || hay.contains("packet")
+                || hay.contains("tnc")
+        });
+        assert!(
+            aprs.count() > 0,
+            "{name} is seeded aprs_capable: true and its {}-field settings schema has no \
+             APRS field. Either the schema stops at one transport's coverage — count the \
+             radio's menus against it — or the capability flag is wrong.",
+            schema.len()
+        );
+    }
+    assert!(checked > 0, "no APRS radio had a settings schema — this would pass vacuously");
+}

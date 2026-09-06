@@ -294,5 +294,220 @@
     "key": "display-partition-bar",
     "label": "Display partition bar (Menu 928)",
     "type": "boolean"
+  },
+  {
+    "key": "aprs-data-band",
+    "label": "Data band (Menu 601)",
+    "type": "enum",
+    "options": [
+      "A band",
+      "B band",
+      "TX A / RX B",
+      "RX A / TX B"
+    ]
+  },
+  {
+    "key": "aprs-data-speed",
+    "label": "Packet data speed (Menu 601)",
+    "type": "enum",
+    "options": [
+      "1200 bps",
+      "9600 bps"
+    ]
+  },
+  {
+    "key": "aprs-dcd-sense",
+    "label": "DCD sense (Menu 601)",
+    "type": "enum",
+    "options": [
+      "D or RxD band",
+      "Both band",
+      "Ignore DCD"
+    ]
+  },
+  {
+    "key": "aprs-gps-baud",
+    "label": "GPS port baud rate (Menu 602)",
+    "type": "enum",
+    "options": [
+      "2400 bps",
+      "4800 bps",
+      "9600 bps"
+    ]
+  },
+  {
+    "key": "aprs-waypoint-name",
+    "label": "Waypoint name length (Menu 603)",
+    "type": "enum",
+    "options": [
+      "6-char",
+      "7-char",
+      "8-char",
+      "9-char"
+    ]
+  },
+  {
+    "key": "aprs-speed-info",
+    "label": "Speed information (Menu 606)",
+    "type": "boolean"
+  },
+  {
+    "key": "aprs-altitude-info",
+    "label": "Altitude information (Menu 606)",
+    "type": "boolean"
+  },
+  {
+    "key": "aprs-position-ambiguity",
+    "label": "Position ambiguity (Menu 606)",
+    "type": "enum",
+    "options": [
+      "Off",
+      "1 digit",
+      "2 digits",
+      "3 digits",
+      "4 digits"
+    ]
+  },
+  {
+    "key": "aprs-position-comment",
+    "label": "Position comment (Menu 607)",
+    "type": "enum",
+    "options": [
+      "Off duty",
+      "Enroute",
+      "In service",
+      "Returning",
+      "Committed",
+      "Special",
+      "Priority",
+      "Custom 0",
+      "Custom 1",
+      "Custom 2",
+      "Custom 3",
+      "Custom 4",
+      "Custom 5",
+      "Custom 6",
+      "Emergency!"
+    ]
+  },
+  {
+    "key": "aprs-filter-weather",
+    "label": "Packet filter: Weather (Menu 609)",
+    "type": "boolean"
+  },
+  {
+    "key": "aprs-filter-mobile",
+    "label": "Packet filter: Mobile (Menu 609)",
+    "type": "boolean"
+  },
+  {
+    "key": "aprs-filter-navitra",
+    "label": "Packet filter: Navitra (Menu 609)",
+    "type": "boolean"
+  },
+  {
+    "key": "aprs-filter-digi",
+    "label": "Packet filter: Digipeater (Menu 609)",
+    "type": "boolean"
+  },
+  {
+    "key": "aprs-filter-object",
+    "label": "Packet filter: Object (Menu 609)",
+    "type": "boolean"
+  },
+  {
+    "key": "aprs-filter-others",
+    "label": "Packet filter: Others (Menu 609)",
+    "type": "boolean"
+  },
+  {
+    "key": "aprs-beacon-method",
+    "label": "Beacon TX method (Menu 611)",
+    "type": "enum",
+    "options": [
+      "Manual",
+      "PTT",
+      "Auto"
+    ]
+  },
+  {
+    "key": "aprs-decay-algorithm",
+    "label": "Decay algorithm (Menu 611)",
+    "type": "boolean"
+  },
+  {
+    "key": "aprs-proportional-pathing",
+    "label": "Proportional pathing (Menu 611)",
+    "type": "boolean"
+  },
+  {
+    "key": "aprs-voice-alert",
+    "label": "Voice alert (Menu 614)",
+    "type": "boolean"
+  },
+  {
+    "key": "aprs-voice-alert-ctcss",
+    "label": "Voice alert CTCSS frequency (Menu 614)",
+    "type": "enum",
+    "options": [
+      "67.0 Hz",
+      "69.3 Hz",
+      "71.9 Hz",
+      "74.4 Hz",
+      "77.0 Hz",
+      "79.7 Hz",
+      "82.5 Hz",
+      "85.4 Hz",
+      "88.5 Hz",
+      "91.5 Hz",
+      "94.8 Hz",
+      "97.4 Hz",
+      "100.0 Hz",
+      "103.5 Hz",
+      "107.2 Hz",
+      "110.9 Hz",
+      "114.8 Hz",
+      "118.8 Hz",
+      "123.0 Hz",
+      "127.3 Hz",
+      "131.8 Hz",
+      "136.5 Hz",
+      "141.3 Hz",
+      "146.2 Hz",
+      "151.4 Hz",
+      "156.7 Hz",
+      "162.2 Hz",
+      "167.9 Hz",
+      "173.8 Hz",
+      "179.9 Hz",
+      "186.2 Hz",
+      "192.8 Hz",
+      "203.5 Hz",
+      "206.5 Hz",
+      "210.7 Hz",
+      "218.1 Hz",
+      "225.7 Hz",
+      "229.1 Hz",
+      "233.6 Hz",
+      "241.8 Hz",
+      "250.3 Hz",
+      "254.1 Hz"
+    ]
+  },
+  {
+    "key": "aprs-ui-check-time",
+    "label": "UI check time (seconds) (Menu 617)",
+    "type": "integer",
+    "min": 0,
+    "max": 250
+  },
+  {
+    "key": "aprs-temperature-unit",
+    "label": "Temperature unit (Menu 626)",
+    "type": "enum",
+    "options": [
+      "Fahrenheit",
+      "Celsius"
+    ]
   }
 ]
