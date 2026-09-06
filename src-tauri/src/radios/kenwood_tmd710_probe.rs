@@ -511,6 +511,37 @@
 //! cable has to be re-attached to a VM for every pass, which is slower than
 //! poking. Do not re-offer it.
 //!
+//! ## s133: hardware ladder step 4 PASSED — the ladder is complete
+//!
+//! [`d710_band_probe`] put a channel at **each edge of the seeded coverage**
+//! through the shipped encoder into a scratch slot, read it back, and cleared
+//! it. All seven inside landed — `118.000`, `144.000`, `148.000`, `224.840`
+//! (receive-only, the 220 gap), `430.000`, `450.000`, `523.995` — and both
+//! outside were **refused by the radio itself**: `117.995` and `524.000`.
+//!
+//! ★ The negative control had to be fixed to mean anything. The first run used
+//! `117.999`, which the *encoder* rejected for not sitting on a tuning step —
+//! a pass that tested the wrong rule. `117.995` is step-aligned, so its refusal
+//! comes from the band edge and nothing else.
+//!
+//! ★ Non-destructive by design: step 3 already proved the whole-codeplug
+//! bookkeeping, and what it could *not* prove is that the encoder's own output
+//! is accepted at the edges, because Tim's 39 memories sit nowhere near them.
+//! The probe writes one slot that was empty as-found and clears it each time.
+//!
+//! ⚠ This is also what pins `rx_bands` to the 1350-point refusal sweep that
+//! measured it. Edit the seed row and a frequency the radio was measured to
+//! accept starts becoming a **silently empty memory slot**.
+//!
+//! ## ⚠ There are no assignable zones on this radio, and that is not a gap
+//!
+//! Menu **203 GROUP LINK** takes "up to 10 digits (0~9)" — a scan *sequence*
+//! over ten fixed groups — and a memory's group is decided by its own slot
+//! number. MCP-2A can "view" and "name" groups, not populate them. So
+//! `zones_supported: false` is correct and there is nothing to implement.
+//! ★ Two group-*adjacent* things do exist and are **not** done: the ten group
+//! **names**, and menu 203 itself. Both are settings, neither is located.
+//!
 //! ## The radio was returned to pristine
 //!
 //! `d710_restore_aprs_block` from `progfull-71022.bin`, then a full re-dump:
@@ -2669,4 +2700,104 @@ fn d710_ask_readonly() {
     let _ = ask(&mut *p, "ID");
     let (text, raw) = ask(&mut *p, &cmd).expect("ask");
     println!("\n{cmd} -> {text:?}\n     raw = {raw:02X?}\n");
+}
+
+/// Hardware ladder step 4 — **a channel at each edge of the claimed coverage**,
+/// through the shipped encoder, into a slot that was empty when the radio was
+/// first read.
+///
+/// Non-destructive on purpose. The ladder's wording ("count what actually
+/// landed against what the app reported") does not require a full program:
+/// step 3 already proved the whole-codeplug bookkeeping on this radio. What is
+/// *not* proved by step 3 is that the **encoder's own output** is accepted at
+/// each edge, because Tim's 39 memories sit nowhere near them.
+///
+/// ⚠ It refuses to touch a slot that held a memory as-found — those are the
+/// operator's and `memories.txt` is the only copy of them — and it clears the
+/// slot again after each frequency, so the radio ends as it started.
+#[test]
+#[ignore = "requires a TM-D710 on the cable — writes one scratch memory slot"]
+fn d710_band_probe() {
+    use crate::radios::kenwood_tmd710::encode::encode_channel;
+    use crate::radios::kenwood_tmd710::{open_port, write_memory};
+    use crate::models::Channel;
+
+    let slot: u16 = std::env::var("D710_SLOT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(504);
+
+    let captured = std::fs::read_to_string("../scratchpad/kenwood_tmd710/memories.txt")
+        .expect("no captured memories — refusing to write without the as-found copy");
+    assert!(
+        !captured.contains(&format!("ME {slot:03},")),
+        "slot {slot:03} held a memory when the radio was first read; probe an empty one"
+    );
+
+    // The seed row's own numbers: both TX band edges, the receive-only extremes
+    // measured by `d710_rx_band_sweep`, and one in the 220 gap the radio only
+    // receives. Plus two that must be REFUSED, so a pass cannot be vacuous.
+    const INSIDE: [f64; 7] = [118.0, 144.0, 148.0, 224.84, 430.0, 450.0, 523.995];
+    const OUTSIDE: [f64; 2] = [117.995, 524.0];
+
+    let path = port_path();
+    let mut p = open_port(&path).expect("open");
+    let _ = ask(&mut *p, "ID");
+    assert!(ask(&mut *p, "ID").expect("ID").0.contains("TM-D710"));
+
+    let mut landed = Vec::new();
+    let mut refused = Vec::new();
+    for (mhz, expect_ok) in INSIDE
+        .iter()
+        .map(|f| (*f, true))
+        .chain(OUTSIDE.iter().map(|f| (*f, false)))
+    {
+        let c = Channel {
+            rx_freq: mhz,
+            name_short: Some("EDGE".into()),
+            mode: Some("FM".into()),
+            ..Default::default()
+        };
+        let mem = match encode_channel(slot, &c) {
+            Ok(m) => m,
+            Err(e) => {
+                println!("  {mhz:>10.3} MHz  encoder refused: {e}");
+                refused.push(mhz);
+                continue;
+            }
+        };
+        match write_memory(&mut *p, &mem) {
+            Ok(()) => {
+                println!("  {mhz:>10.3} MHz  landed and read back");
+                landed.push(mhz);
+            }
+            Err(e) => {
+                println!("  {mhz:>10.3} MHz  radio refused: {e}");
+                refused.push(mhz);
+            }
+        }
+        // Give the slot back whatever happened.
+        let _ = ask(&mut *p, &format!("ME {slot:03},C"));
+        assert_eq!(
+            ask(&mut *p, &format!("ME {slot:03}")).expect("read back").0,
+            "N",
+            "slot {slot:03} was not cleared after {mhz} MHz"
+        );
+        let _ = expect_ok;
+    }
+
+    println!("\n  landed:  {landed:?}\n  refused: {refused:?}\n");
+    assert_eq!(
+        landed.len(),
+        INSIDE.len(),
+        "a frequency inside the seeded coverage did not land — the seed claims \
+         coverage the radio does not have, and channels there become silently \
+         empty slots"
+    );
+    assert_eq!(
+        refused.len(),
+        OUTSIDE.len(),
+        "a frequency outside the seeded coverage was accepted — the seed is \
+         narrower than the radio, so real channels are being dropped"
+    );
 }

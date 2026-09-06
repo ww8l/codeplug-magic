@@ -358,6 +358,42 @@ mod tests {
         assert_eq!(plan.memories[0].0.rx_hz, 224_840_000);
     }
 
+    /// ★ Hardware ladder step 4, the desk half: **a channel at each edge of the
+    /// claimed coverage**, held against the seed's own numbers.
+    ///
+    /// The edges are not invented here. `d710_rx_band_sweep` measured them on
+    /// the radio by refusal — this model validates an `ME` write and rejects it
+    /// whole, so acceptance is a measurement — and a 1350-point sweep put the
+    /// receiver at **118.000-523.995 MHz**, which is what the seed row says.
+    /// This test is what stops the two drifting: if someone edits `rx_bands`,
+    /// a frequency the radio was measured to accept starts being dropped, and
+    /// an out-of-coverage frequency becomes a **silently empty memory slot**
+    /// while the app reports success. That has cost three repeaters before.
+    #[test]
+    fn every_edge_of_the_measured_coverage_still_gets_a_memory() {
+        let m = model();
+        // Inside: both TX bands' edges, and the receive-only extremes.
+        for mhz in [118.0, 144.0, 148.0, 224.84, 430.0, 450.0, 523.995] {
+            let chans = [ec(mhz, "EDGE", None)];
+            let plan = plan(&payload(&m, &chans)).unwrap();
+            assert_eq!(
+                plan.memories.len(),
+                1,
+                "{mhz} MHz is inside the measured coverage and was skipped: {:?}",
+                plan.skipped
+            );
+        }
+        // Outside, on both sides. A dropped channel must be REPORTED, which is
+        // the difference between a skipped row and an empty slot nobody notices.
+        for mhz in [117.995, 524.0] {
+            let chans = [ec(mhz, "PAST", None)];
+            let plan = plan(&payload(&m, &chans)).unwrap();
+            assert!(plan.memories.is_empty(), "{mhz} MHz is outside the measured coverage");
+            assert_eq!(plan.skipped.len(), 1, "{mhz} MHz was dropped without a reason");
+            assert_eq!(plan.skipped[0].name, "PAST");
+        }
+    }
+
     /// The non-atomic warning is not decoration: it is the one thing about this
     /// radio an operator cannot infer from any other radio's behaviour.
     #[test]
