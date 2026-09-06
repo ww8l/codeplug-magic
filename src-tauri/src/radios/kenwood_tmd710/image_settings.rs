@@ -58,6 +58,66 @@
 //! single value, six are text or record fields whose padding is unmeasured, and
 //! the rest are unlocated.
 //!
+//! ## ⚠⚠ WHERE THIS STOPS — read before adding anything (s133)
+//!
+//! **Tim's decision: no PR until APRS is genuinely usable.** That overrides
+//! CLAUDE.md's "one PR when the radio is essentially done" default for this
+//! radio. The hardware ladder is complete and the channel half is finished; the
+//! settings half is **about 33 of the radio's 66 6xx/7xx settings**, and the
+//! missing ones are the ones an operator actually needs.
+//!
+//! ### The gap that defines "usable", in priority order
+//!
+//! You can set your call sign and not your position, status text, symbol or
+//! path. That is the thing to fix, and it is four fields:
+//!
+//! | menu | setting | offset | what has to be measured |
+//! |---|---|---|---|
+//! | 608 | STATUS TEXT ×5 | `+0x089`, 44 B each | the padding byte, and whether the trailing bytes are NUL or space. Write a known string, dump, look |
+//! | 605 | MY POSITION ×5 | `+0x01C`, 20 B each | the lat/lon layout inside the record. Set a known position on the front panel and decode it |
+//! | 610 | STATION ICON | `+0x169`, 2 B | raw APRS symbol table + code. Factory `5C 4B` = `\K` = the Kenwood icon; Tim's reads `/-` = a house. Pick three icons, dump, and the pairs fall out |
+//! | 612 | PACKET PATH TYPE | `+0x421` | `00` = New N Paradigm, `01` = Relay measured. Poke `02`, `03` and read the screen. ⚠ `Others` does not persist without path strings, which is a fact about the menu, not noise |
+//!
+//! Then the second rank: 613 NETWORK (unlocated), 615/616, 618-621 UIDIGI /
+//! UIFLOOD / UITRACE / phrases, 622 auto-reply, 623 group filtering (`+0x2F6`
+//! literal located, padding unmeasured), 628/629 Navitra, 700-703 Sky Command.
+//!
+//! ### Two things are built and NOT verified on hardware
+//!
+//! The cable came off the Mac before these ran. Neither is hard; both are one
+//! command:
+//!
+//! 1. **The `W::Config` window has never been read by the driver.** Every other
+//!    window read is proven. Run `d710_settings_roundtrip` and check the two
+//!    text fields decode to `WW8L-1` and `WW8L`.
+//! 2. **The two text fields have never been written to the radio**, only to a
+//!    test buffer. The same run covers it.
+//!
+//! ### Open questions with the exact check that settles each
+//!
+//! - **624 RX BEEP `+0x350` is CONTRADICTORY** — `00` and `04` both read `ALL`.
+//!   All other readings fit the manual's list reversed, under which `04` is
+//!   `OFF`. Index 4 is the only reading taken without leaving and re-entering
+//!   the menu first. Re-poke `04`, leave menu 624, re-enter, read.
+//! - **`MU` p25 is menu 403 or 406** — both are three-option menus between p24
+//!   (402) and p26 (501), and `MU` follows menu order. Change menu **403** on
+//!   the front panel and read `MU`. ⚠ 403 is cross-band repeat; do not guess it.
+//! - **A second tranche sits in `W::Config`**, which this driver already reads.
+//!   CHIRP names contrast (504), PC port baud (519), visual scan (515), group
+//!   link (203), S-meter squelch (105), WX alert (110) and repeater mode (403)
+//!   inside the `0x0200` block. ⚠ **CHIRP's field claims for this radio have
+//!   never been checked** — its APRS claims were useless while its structure was
+//!   right — so each needs the factory-default cross-check before it ships.
+//! - Single-valued and unexplained, unchanged: `+0x35D`, `+0x35E`, `+0x360`,
+//!   `+0x361`, `+0x363`, the `+0x0B5` per-record question, `+0x165`, `+0x00B`.
+//!
+//! ### ★ How to work on this without wasting a radio session
+//!
+//! Batch **4-6 pokes across different menus in one pass**, then one walk of the
+//! front panel. Five rounds settled nine fields that way. Always: distinct
+//! values, a control read, leave-and-re-enter before believing a screen, and a
+//! step-aligned negative control when probing an edge.
+//!
 //! ## Writing
 //!
 //! A settings write is a **patch of differing runs**, never a whole-block write.
