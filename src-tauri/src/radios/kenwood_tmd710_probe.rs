@@ -251,6 +251,63 @@
 //! ⚠ An unexplained recurring `0x11` sits at `+0x07F`, `+0x168`, `+0x1E1`,
 //! `+0x1EA`, `+0x435`, `+0x477` — three of them immediately after a field
 //! located above. Looks like a per-record tag. Logged, not named.
+//!
+//! ## s132 at the radio — six fields measured, and the read plan was wrong
+//!
+//! ★★★ **`read_plan()` is NOT the radio's ceiling.** `0x9C00`, `0xA000`,
+//! `0xC000`, `0xE000` and `0xFE00` all answer, each probe followed by a passing
+//! control read. [`d710_dump_span`] then took all **25 328 bytes** of
+//! `0x9C00`-`0xFEEF` with zero refusals. This is the **third** inherited
+//! stopping rule to hide real data here, after `0x7F00`.
+//!
+//! | region | what | check |
+//! |---|---|---|
+//! | `0x9C00`-`0xCDFF` | **APRS station list**, 100 × 128 B | `0xCE00-0x9C00 = 100*128` exactly; all 100 slots hold a call sign |
+//! | `0xD200`-… | **APRS message list** | `KF0SFW-9`, `CQ`, message text |
+//! | `0xFE00`-`0xFE63` | station-list display order | 100 bytes, a **permutation of 0..99** |
+//!
+//! ⚠ None of it is settings — it is received traffic, and a driver must never
+//! write it. But "the whole image" was short by 25 328 bytes, so any claim
+//! resting on *absence* from a dump has to be re-checked against this span.
+//! Menu 625's `02 01 01` is **not** here either, so 624-627 are non-contiguous
+//! rather than out of reach.
+//!
+//! ### Measured on the radio, two distinct values each
+//!
+//! | offset | menu | field | values |
+//! |---|---|---|---|
+//! | `+0x00C` | 601 | DATA BAND | `01` = `B Band`, `03` = `A:RX B:TX` |
+//! | `+0x011` | 602 | GPS BAUD RATE | `01` = `4800`, `02` = `9600` |
+//! | `+0x016` | 603 | WAYPOINT NAME | `06` = `6-CHAR`, `09` = `9-CHAR` — the **literal** |
+//! | `+0x085` | 606 | POSITION AMBIGUITY | `04` = `4-DIGIT`, `02` = `2-DIGIT` |
+//! | `+0x087` | 607 | POSITION COMMENT | `09` = `CUSTOM 2`, `06` = `PRIORITY` |
+//! | `+0x170` | 611 | PROPORTIONAL PATHING | `01` = `ON`, `00` = `OFF` (DECAY held as control) |
+//! | `+0x1E0` | 614 | CTCSS FREQUENCY | `0C` = `100.0`, `08` = `88.5 Hz` |
+//! | `+0x1E9` | 617 | UI CHECK TIME | `1C` = `28`, `64` = `100` — **literal seconds** |
+//!
+//! Every one was predicted from a block-unique default vector before the write.
+//! Eight for eight: the instrument in the section above is sound.
+//!
+//! ## ★★★ A field can be GATED, and a gated field measures nothing
+//!
+//! Menu 609 `TYPE` read as **nothing selected** while its byte `+0x167` held
+//! `3F` — all six bits set — in both the live and factory copies, against a
+//! manual that prints the default as `Checked all`. The explanation is neither
+//! an inverted mask nor a wrong manual: *"you can't set TYPE if POSITION LIMIT
+//! is off"*. **`TYPE` is gated by `POSITION LIMIT`, which is `OFF`.**
+//!
+//! ⚠ Generalise it. [`poke-confirms-frontpanel-finds`] already says never to
+//! *move* a mode selector in the same pass as the fields it gates. This is the
+//! other half: **a field may be gated by a selector nobody moved**, and then a
+//! screen read of it measures the gate, not the field. Before believing a
+//! screen read, ask what upstream setting has to be on for that line to be
+//! live.
+//!
+//! ⚠ `+0x165` is **not** POSITION LIMIT — menu 609 read `OFF` while `+0x165`
+//! held `03`. That is the **third** hypothesis for this byte to die (position
+//! comment s129, status text TX rate s131, position limit s132). It is the
+//! cheapest kind of failure — a screen read, no writes — and it is still a
+//! failure. Leave `+0x165` alone until a front-panel change moves it.
 
 use serialport::SerialPort;
 use std::time::{Duration, Instant};
@@ -1947,4 +2004,82 @@ fn d710_probe_addr() {
              with the span extended and diff against progfull-71022.bin."
         );
     }
+}
+
+/// Dump an arbitrary address span to a file whose offsets are addresses.
+///
+/// Written for the span [`read_plan`] never asks for. Session 132's
+/// [`d710_probe_addr`] found that `0x9C00`, `0xA000`, `0xC000`, `0xE000` and
+/// `0xFE00` all answer — with APRS call signs in them — so MCP-2A's ritual
+/// stops well short of what this radio will serve. That is the **third** time
+/// an inherited stopping rule has hidden real data here: the first dump stopped
+/// at `0x7F00`, the second at `0x9C00`.
+///
+/// Same control discipline as [`d710_probe_addr`]: a known-good address is
+/// re-read after every block, so a stream that goes out of step aborts the run
+/// instead of filling the file with plausible garbage.
+///
+/// `D710_SPAN="9C00-FEEF"`, hex, inclusive. Read-only.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_dump_span() {
+    use super::kenwood_tmd710::image::{ProgramMode, APRS_LIVE};
+
+    const CONTROL: u16 = APRS_LIVE;
+
+    let spec = std::env::var("D710_SPAN").unwrap_or_else(|_| "9C00-FEEF".into());
+    let (lo, hi) = spec.split_once('-').expect("D710_SPAN is LO-HI in hex");
+    let lo = u32::from_str_radix(lo.trim(), 16).expect("LO is not hex");
+    let hi = u32::from_str_radix(hi.trim(), 16).expect("HI is not hex");
+    assert!(lo < hi && hi < 0x1_0000, "span 0x{lo:04X}-0x{hi:04X} is not inside the address space");
+
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+    assert!(ask(&mut *p, "ID").expect("ID").0.contains("TM-D710"));
+    let mut prog = ProgramMode::enter(&mut *p).expect("enter");
+
+    let baseline = prog.read(CONTROL, 16).expect("control read before the dump");
+
+    let mut buf = vec![0xFFu8; 0x1_0000];
+    let mut got: Vec<(u32, u32)> = vec![];
+    let mut addr = lo;
+    while addr <= hi {
+        let want = (hi - addr + 1).min(256) as usize;
+        let len = if want == 256 { 0u8 } else { want as u8 };
+        match prog.read(addr as u16, len) {
+            Ok(data) => {
+                buf[addr as usize..addr as usize + data.len()].copy_from_slice(&data);
+                got.push((addr, addr + data.len() as u32));
+                addr += data.len() as u32;
+            }
+            Err(e) => {
+                println!("0x{addr:04X} refused: {e}");
+                // A refusal is a hole, not necessarily the end — that is the whole
+                // lesson of 0x7F00. Step over it and keep going.
+                let alive = prog.read(CONTROL, 16);
+                match alive {
+                    Ok(c) if c == baseline => {}
+                    _ => panic!("the session died at 0x{addr:04X}; nothing after it would be data"),
+                }
+                addr += 256;
+                continue;
+            }
+        }
+        if (addr / 256) % 8 == 0 {
+            let c = prog.read(CONTROL, 16).expect("control read mid-dump");
+            assert_eq!(c, baseline, "the control moved mid-dump — the stream is out of step");
+        }
+    }
+    prog.leave().expect("leave");
+
+    let total: u32 = got.iter().map(|(a, b)| b - a).sum();
+    let out = format!(
+        "{}/scratchpad/kenwood_tmd710/span-{lo:04X}-{hi:04X}-{}.bin",
+        env!("CARGO_MANIFEST_DIR").trim_end_matches("/src-tauri"),
+        std::process::id()
+    );
+    std::fs::write(&out, &buf).expect("write the dump");
+    println!("\n{total} bytes from 0x{lo:04X}-0x{hi:04X} -> {out}");
+    println!("offsets in the file are addresses; FF means never answered.");
 }
