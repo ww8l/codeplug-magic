@@ -2293,3 +2293,92 @@ fn d710_restore_diff() {
     }
     println!("\nRestored {total} byte(s) from {src}; every run read back clean.");
 }
+
+/// **Hardware ladder step 3 — the full codeplug**, driven through the app's own
+/// pipeline rather than a synthetic payload.
+///
+/// [`crate::commands::export::resolve_codeplug_payload`] is the exact function
+/// `program_radio` calls, so what this hands the driver is what the button
+/// hands it. Only the React form is skipped.
+///
+/// ⚠ This is a **full replace**: `program` clears every occupied slot the
+/// codeplug does not fill, by design, so a program is never a merge. On this
+/// radio it therefore overwrites the operator's memories. Two backups must
+/// exist before it runs and both are cheap:
+///
+/// 1. `d710_program_mode_dump_full` — the whole image, restorable byte-wise by
+///    [`d710_restore_diff`].
+/// 2. `d710_dump_memories` — an `ME`/`MN` transcript over the *other* transport,
+///    so a failure in one does not take the backup with it.
+///
+/// `program` also writes its own transcript backup before the first byte goes
+/// out; this harness refuses to run unless the two above are on disk, because a
+/// backup taken by the thing that is about to overwrite you is not independent.
+///
+/// **Dry run by default** — resolves, plans and prints, touching no port. Set
+/// `D710_LADDER=1` to actually program.
+///
+/// ```text
+/// CPM_DEV_DB=~/Library/.../com.ww8l.codeplugmagic.dev/codeplug_manager.sqlite3 \
+/// CPM_CODEPLUG=5 D710_PORT=/dev/cu.usbserial-XXXX \
+/// cargo test --lib d710_full_codeplug_ladder -- --ignored --nocapture
+/// ```
+#[tokio::test]
+#[ignore = "requires a TM-D710 on the cable and the dev database — REPLACES every memory"]
+async fn d710_full_codeplug_ladder() {
+    use crate::commands::export::resolve_codeplug_payload;
+    use crate::radios::driver::CodeplugProgrammer;
+
+    let db = std::env::var("CPM_DEV_DB").expect("set CPM_DEV_DB to the dev sqlite3 path");
+    let codeplug_id: i64 = std::env::var("CPM_CODEPLUG")
+        .expect("set CPM_CODEPLUG to the codeplug id")
+        .parse()
+        .expect("CPM_CODEPLUG is not a number");
+    let commit = std::env::var("D710_LADDER").is_ok_and(|v| v == "1");
+
+    let pool = sqlx::SqlitePool::connect(&format!("sqlite:file:{db}?mode=ro"))
+        .await
+        .expect("open the dev db read-only");
+    let resolved = resolve_codeplug_payload(&pool, codeplug_id).await.expect("resolve");
+    let payload = resolved.payload();
+
+    let driver = super::kenwood_tmd710::KenwoodTmD710;
+    let preview = driver.preview(&payload).expect("preview");
+    println!(
+        "\ncodeplug {codeplug_id} -> {}: {} channels to program, {} skipped",
+        preview.radio,
+        preview.channels,
+        preview.skipped.len()
+    );
+    for s in &preview.skipped {
+        println!("  skipped {:<20} {}", s.name, s.reason);
+    }
+    for w in &preview.warnings {
+        println!("  ⚠ {w}");
+    }
+
+    if !commit {
+        println!("\nDry run — nothing sent to the radio. Set D710_LADDER=1 to program.");
+        return;
+    }
+
+    // ⚠ Independent backups, checked here rather than assumed. `program` takes
+    // its own, but a backup written by the process that is about to overwrite
+    // you is one failure away from being no backup at all.
+    let sheet = concat!(env!("CARGO_MANIFEST_DIR"), "/../scratchpad/kenwood_tmd710");
+    for f in ["memories.txt", "progfull-71022.bin"] {
+        let p = format!("{sheet}/{f}");
+        assert!(
+            std::path::Path::new(&p).exists(),
+            "refusing to program: the independent backup {p} is not on disk"
+        );
+    }
+
+    let port = port_path();
+    let backup_dir = std::path::PathBuf::from(format!("{sheet}/ladder-backups"));
+    let report = driver.program(&port, &payload, &backup_dir).expect("program");
+    println!(
+        "\n{} written, {} cleared\nbackup: {}\n{}",
+        report.channels_written, report.slots_cleared, report.backup_path, report.note
+    );
+}
