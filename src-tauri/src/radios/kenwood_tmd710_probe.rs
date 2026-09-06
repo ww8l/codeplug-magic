@@ -303,11 +303,61 @@
 //! screen read, ask what upstream setting has to be on for that line to be
 //! live.
 //!
+//!
+//! ### Five more, once the gate was opened
+//!
+//! Poking `+0x166` both named it and un-gated `TYPE`, which is the only way
+//! `TYPE` could be measured at all.
+//!
+//! | offset | menu | field | values |
+//! |---|---|---|---|
+//! | `+0x00D` | 601 | DATA SPEED | `00` = `1200`, `01` = `9600 bps` |
+//! | `+0x00E` | 601 | DCD SENSE | `02` = `IGNORE DCD`, `01` = `BOTH BAND` |
+//! | `+0x166` | 609 | POSITION LIMIT | `00` = `OFF`, `01` = `10` — an index, not the literal |
+//! | `+0x167` | 609 | PACKET FILTER TYPE | a **6-bit mask**, mapped below |
+//! | `+0x16F` | 611 | DECAY ALGORITHM | `01` = `ON`, `00` = `OFF` |
+//!
+//! ## ★★★ The packet-filter mask: a list order and a bit order, both hidden
+//!
+//! `+0x167` is a six-bit mask, and **neither half of its encoding is in the
+//! manual.** The manual prints the six types in a row — WEATHER, DIGI, MOBILE,
+//! OBJECT, NAVITRA, OTHERS — and the radio lays them out as a 2×3 grid that
+//! reads row-major in exactly that order, so the *printed order is right*. The
+//! packing is not what it implies:
+//!
+//! | bit | 5 | 4 | 3 | 2 | 1 | 0 |
+//! |---|---|---|---|---|---|---|
+//! | | Weather | Mobile | Navitra | Digi | Object | Others |
+//!
+//! ★ Read the grid **down the left column then down the right** — Weather,
+//! Mobile, Navitra, Digi, Object, Others — and pack that list **MSB-first**.
+//! So the list order is *column*-major while the display is row-major, and the
+//! bits run high-to-low.
+//!
+//! Measured, not fitted: `01` marked Others, `04` marked Digi (which killed the
+//! obvious "printed list reversed" reading — it predicts Object), and `2A` was
+//! then written as a three-bit discriminator whose three rival hypotheses gave
+//! three disjoint answers. It marked Weather, Navitra and Object, as this table
+//! predicts. Bit 4 = Mobile is the single assignment left once the other five
+//! are pinned.
+//!
+//! ⚠⚠ `3F` — the factory default, all six bits — is **invariant under every one
+//! of those orderings** and could not have caught any of it. A mask at
+//! all-set is the bitmask version of [`an-anchored-index-catches-a-bad-list`].
+//!
 //! ⚠ `+0x165` is **not** POSITION LIMIT — menu 609 read `OFF` while `+0x165`
-//! held `03`. That is the **third** hypothesis for this byte to die (position
-//! comment s129, status text TX rate s131, position limit s132). It is the
-//! cheapest kind of failure — a screen read, no writes — and it is still a
-//! failure. Leave `+0x165` alone until a front-panel change moves it.
+//! held `03`, and `+0x166` then took the role. That is the **third** hypothesis
+//! for this byte to die (position comment s129, status text TX rate s131,
+//! position limit s132). It is the cheapest kind of failure — a screen read, no
+//! writes — and it is still a failure. Leave `+0x165` alone until a front-panel
+//! change moves it.
+//!
+//! ## The radio was returned to pristine
+//!
+//! `d710_restore_aprs_block` from `progfull-71022.bin`, then a full re-dump:
+//! **5 bytes differ, all in the known volatile operating-state set at `0x0216`,
+//! `0x0222`, `0x0224`, `0x0228`, `0x022E`, and 0 differences inside the APRS
+//! block.**
 
 use serialport::SerialPort;
 use std::time::{Duration, Instant};
