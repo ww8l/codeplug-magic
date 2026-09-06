@@ -12,7 +12,7 @@
 //! ## What is here, and what deliberately is not
 //!
 //! `scratchpad/kenwood_tmd710/APRS-MEASURED.md` grades every located field and
-//! `gen_tmd710_aprs.py` emits this table and the profile schema from that one
+//! `gen_tmd710_image.py` emits this table and the profile schema from that one
 //! sheet. **22 of the 66 individual settings in the 6xx/7xx range ship.** A row
 //! ships only when its whole encoding is *anchored*: every index is measured on
 //! the radio, is the factory default confirmed against the A manual, or is the
@@ -72,13 +72,57 @@ use serde_json::{json, Map, Value};
 use super::image::{ProgramMode, APRS_BLOCK_LEN, APRS_LIVE};
 use super::tone::TONES_DHZ;
 
+/// The image regions this form reads and writes.
+///
+/// ⚠ Two, not one. The 600-series settings are in the APRS block, but menu 500's
+/// POWER ON MESSAGE is in the **PM0 config block** at `0x0200` — a different
+/// region entirely, and the reason this module is no longer called `aprs`.
+/// A window is read whole, patched, and written back only where it differs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum W {
+    /// PM0 config, `0x0200`. ⚠ Holds the five volatile operating-state bytes.
+    Config,
+    /// The live APRS/TNC block, `0x8100`.
+    Aprs,
+}
+
+/// `0x0200` block 0; PM1-5 follow at a `0x200` stride, and this form never
+/// touches those — they are the operator's saved profiles.
+const CONFIG_BASE: u16 = 0x0200;
+const CONFIG_LEN: usize = 0x200;
+
+impl W {
+    pub(crate) fn base(self) -> u16 {
+        match self {
+            W::Config => CONFIG_BASE,
+            W::Aprs => APRS_LIVE,
+        }
+    }
+    pub(crate) fn len(self) -> usize {
+        match self {
+            W::Config => CONFIG_LEN,
+            W::Aprs => APRS_BLOCK_LEN,
+        }
+    }
+    pub(crate) const ALL: [W; 2] = [W::Config, W::Aprs];
+}
+
+/// The windows as read off the radio, in [`W::ALL`] order.
+///
+/// Carried as a list of `(window, bytes)` rather than a struct with a named
+/// field per window so that adding a third region is a table entry, not a new
+/// type — the config window was itself a late addition.
+pub(crate) type Windows = Vec<(W, Vec<u8>)>;
+
 /// One image-backed setting, as the generated table states it.
 pub(crate) struct AF {
     pub key: &'static str,
     pub label: &'static str,
     /// The radio's own menu number, for the form's label.
     pub menu: &'static str,
-    /// Byte offset from the live block base.
+    /// Which image window the offset is in.
+    pub win: W,
+    /// Byte offset from that window's base.
     pub off: usize,
     pub kind: AK,
 }
@@ -101,13 +145,19 @@ pub(crate) enum AK {
     Bit { bit: u8 },
     Enum { labels: &'static [(u8, &'static str)] },
     Uint { min: u8, max: u8 },
+    /// A fixed-width text field. `bytes` is the space it occupies, `chars` the
+    /// most the radio will show, and `pad` the byte the RADIO ITSELF writes
+    /// after the text — measured, and ⚠ **not the same for both text fields on
+    /// this radio**: the APRS call sign pads with `00` and the power-on message
+    /// with `FF`. Assuming one from the other would have been wrong.
+    Text { bytes: usize, chars: usize, pad: u8 },
     /// A 0-based index into the driver's own 42-tone CTCSS table — the same one
     /// the channel encoder uses, read rather than re-typed so the two cannot
     /// drift. Measured at `08` = 88.5 Hz and `0C` = 100.0 Hz.
     Ctcss,
 }
 
-include!("tmd710_aprs_table.rs");
+include!("tmd710_image_table.rs");
 
 /// `88.5 Hz` and friends, in table order.
 pub(crate) fn ctcss_labels() -> Vec<String> {
@@ -117,11 +167,28 @@ pub(crate) fn ctcss_labels() -> Vec<String> {
         .collect()
 }
 
-/// Decode the live block into the profile form's shape.
-pub(crate) fn decode(block: &[u8], out: &mut Map<String, Value>) {
-    for f in TMD710_APRS_FIELDS {
-        let Some(&b) = block.get(f.off) else { continue };
+/// Read one field's bytes out of the window it lives in.
+fn bytes_of<'a>(wins: &'a [(W, Vec<u8>)], f: &AF, n: usize) -> Option<&'a [u8]> {
+    let (_, buf) = wins.iter().find(|(w, _)| *w == f.win)?;
+    buf.get(f.off..f.off + n)
+}
+
+/// Decode the windows into the profile form's shape.
+pub(crate) fn decode(wins: &[(W, Vec<u8>)], out: &mut Map<String, Value>) {
+    for f in TMD710_IMAGE_FIELDS {
+        if let AK::Text { bytes, pad, .. } = f.kind {
+            let Some(raw) = bytes_of(wins, f, bytes) else { continue };
+            // Everything up to the first pad byte. The radio writes the pad
+            // itself, so trimming it is reading, not cleaning up.
+            let end = raw.iter().position(|b| *b == pad).unwrap_or(raw.len());
+            let text: String = raw[..end].iter().map(|b| *b as char).collect();
+            out.insert(f.key.to_string(), json!(text));
+            continue;
+        }
+        let Some(&b) = bytes_of(wins, f, 1).map(|s| &s[0]) else { continue };
         let value = match &f.kind {
+            // Handled above; the `continue` there is what makes this arm dead.
+            AK::Text { .. } => unreachable!("text decodes before this match"),
             AK::Bool => json!(b != 0),
             AK::Bit { bit } => json!(b & (1 << bit) != 0),
             AK::Uint { .. } => json!(b),
@@ -142,9 +209,37 @@ pub(crate) fn decode(block: &[u8], out: &mut Map<String, Value>) {
     }
 }
 
+/// One text value as the bytes the radio stores, padded as the radio pads.
+fn encode_text(f: &AF, v: &Value) -> Result<Vec<u8>, String> {
+    let AK::Text { bytes, chars, pad } = f.kind else {
+        unreachable!("encode_text on a non-text field")
+    };
+    let s = v
+        .as_str()
+        .ok_or_else(|| format!("{} expects text, got {v}", f.display()))?;
+    if s.chars().count() > chars {
+        return Err(format!(
+            "{} is {} characters; the radio holds {chars}",
+            f.display(),
+            s.chars().count()
+        ));
+    }
+    // ⚠ Refused rather than silently dropped. A call sign quietly stripped of a
+    // character is worse than a rejected write: it goes on the air.
+    if let Some(bad) = s.chars().find(|c| !(' '..='~').contains(c)) {
+        return Err(format!("{} cannot store {bad:?}", f.display()));
+    }
+    let mut out = vec![pad; bytes];
+    for (i, c) in s.chars().enumerate() {
+        out[i] = c as u8;
+    }
+    Ok(out)
+}
+
 /// One form value as the byte the radio stores.
 fn encode_one(f: &AF, v: &Value) -> Result<u8, String> {
     Ok(match &f.kind {
+        AK::Text { .. } => unreachable!("text goes through encode_text"),
         AK::Bool | AK::Bit { .. } => match v.as_bool() {
             Some(b) => u8::from(b),
             None => return Err(format!("{} expects true or false, got {v}", f.display())),
@@ -192,39 +287,50 @@ fn encode_one(f: &AF, v: &Value) -> Result<u8, String> {
     })
 }
 
-/// Patch the profile's fields over the block the radio currently holds.
+/// Patch the profile's fields over the windows the radio currently holds.
 ///
 /// ⚠ A **patch of the radio's own bytes**, exactly like the `MU` half. Every
-/// byte this form does not expose — the call sign, five position records, five
-/// 44-byte status texts, the whole Sky Command tail — goes back as it came,
-/// because it is copied rather than re-encoded.
+/// byte this form does not expose — five position records, five 44-byte status
+/// texts, the whole Sky Command tail, and in the config window the operator's
+/// VFO settings and the five volatile operating-state bytes — goes back as it
+/// came, because it is copied rather than re-encoded.
 ///
-/// Returns the new block and the number of form fields whose value moved. A
-/// masked byte counts once per field, which is what an operator changed.
-pub(crate) fn patch(base: &[u8], settings: &Value) -> Result<(Vec<u8>, usize), String> {
-    if base.len() != APRS_BLOCK_LEN {
-        return Err(format!(
-            "the APRS block is {APRS_BLOCK_LEN} bytes, got {}",
-            base.len()
-        ));
+/// Returns the patched windows and the number of form fields whose value moved.
+/// A masked byte counts once per field, which is what an operator changed.
+pub(crate) fn patch(base: &[(W, Vec<u8>)], settings: &Value) -> Result<(Windows, usize), String> {
+    for (w, buf) in base {
+        if buf.len() != w.len() {
+            return Err(format!("{w:?} is {} bytes, got {}", w.len(), buf.len()));
+        }
     }
-    let mut out = base.to_vec();
+    let mut out: Vec<(W, Vec<u8>)> = base.to_vec();
     let mut changed = 0usize;
-    for f in TMD710_APRS_FIELDS {
+    for f in TMD710_IMAGE_FIELDS {
         let Some(v) = settings.get(f.key) else { continue };
         if v.is_null() {
             continue;
         }
+        let Some((_, buf)) = out.iter_mut().find(|(w, _)| *w == f.win) else { continue };
+
+        if let AK::Text { bytes, .. } = f.kind {
+            let encoded = encode_text(f, v)?;
+            if buf[f.off..f.off + bytes] != encoded[..] {
+                buf[f.off..f.off + bytes].copy_from_slice(&encoded);
+                changed += 1;
+            }
+            continue;
+        }
+
         let encoded = encode_one(f, v)?;
-        let before = out[f.off];
-        out[f.off] = match &f.kind {
+        let before = buf[f.off];
+        buf[f.off] = match &f.kind {
             AK::Bit { bit } => {
                 let m = 1u8 << bit;
                 if encoded != 0 { before | m } else { before & !m }
             }
             _ => encoded,
         };
-        if out[f.off] != before {
+        if buf[f.off] != before {
             changed += 1;
         }
     }
@@ -252,16 +358,16 @@ pub(crate) fn differing_runs(a: &[u8], b: &[u8]) -> Vec<(usize, usize)> {
     runs
 }
 
-/// Read the live APRS block.
-pub(crate) fn read_block(pm: &mut ProgramMode<'_>) -> Result<Vec<u8>, String> {
-    let mut out = Vec::with_capacity(APRS_BLOCK_LEN);
-    while out.len() < APRS_BLOCK_LEN {
-        let want = (APRS_BLOCK_LEN - out.len()).min(256);
-        let addr = APRS_LIVE + out.len() as u16;
+/// Read one window.
+pub(crate) fn read_window(pm: &mut ProgramMode<'_>, w: W) -> Result<Vec<u8>, String> {
+    let mut out = Vec::with_capacity(w.len());
+    while out.len() < w.len() {
+        let want = (w.len() - out.len()).min(256);
+        let addr = w.base() + out.len() as u16;
         let got = pm.read(addr, if want == 256 { 0 } else { want as u8 })?;
         if got.len() != want {
             return Err(format!(
-                "reading the APRS block at 0x{addr:04X}: asked for {want} bytes, got {}",
+                "reading {w:?} at 0x{addr:04X}: asked for {want} bytes, got {}",
                 got.len()
             ));
         }
@@ -270,56 +376,82 @@ pub(crate) fn read_block(pm: &mut ProgramMode<'_>) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-/// Write only what changed, then **read the block back**.
+/// Every window this form covers.
+pub(crate) fn read_all(pm: &mut ProgramMode<'_>) -> Result<Windows, String> {
+    W::ALL.iter().map(|w| Ok((*w, read_window(pm, *w)?))).collect()
+}
+
+/// Write only what changed, then **read the written spans back**.
 ///
 /// ⚠ The read-back is not belt and braces. This protocol answers a write with
 /// `0x06` whether or not the radio kept it — an APRS block once answered `06`
-/// four times running and never changed a byte. Returns the addresses written.
-pub(crate) fn write_block_narrow(
+/// four times running and never changed a byte.
+///
+/// ⚠⚠ Only the spans that were **written** are compared, not the whole window.
+/// The config window holds five operating-state bytes that drift as the operator
+/// walks menus, so a whole-window compare would report a perfectly good write as
+/// unverified whenever someone touched the front panel mid-write.
+pub(crate) fn write_narrow(
     pm: &mut ProgramMode<'_>,
-    base: &[u8],
-    wanted: &[u8],
+    base: &[(W, Vec<u8>)],
+    wanted: &[(W, Vec<u8>)],
 ) -> Result<(Vec<String>, bool), String> {
-    let runs = differing_runs(base, wanted);
     let mut written = Vec::new();
-    for (start, end) in &runs {
-        let addr = APRS_LIVE + *start as u16;
-        pm.write(addr, &wanted[*start..*end])?;
-        written.push(format!("0x{addr:04X}+{}", end - start));
+    let mut verified = true;
+    for (w, want) in wanted {
+        let Some((_, have)) = base.iter().find(|(bw, _)| bw == w) else { continue };
+        for (start, end) in differing_runs(have, want) {
+            let addr = w.base() + start as u16;
+            pm.write(addr, &want[start..end])?;
+            written.push(format!("0x{addr:04X}+{}", end - start));
+
+            let back = pm.read(addr, if end - start == 256 { 0 } else { (end - start) as u8 })?;
+            if back != want[start..end] {
+                verified = false;
+            }
+        }
     }
-    let after = read_block(pm)?;
-    Ok((written, after == wanted))
+    Ok((written, verified))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The live block out of `progfull-71022.bin`, as the radio served it.
-    fn sample() -> Vec<u8> {
-        let mut b = vec![0u8; APRS_BLOCK_LEN];
-        // Only the bytes the table reads matter here; the rest stays zero.
+    /// The two windows as the radio served them, from `progfull-71022.bin`.
+    fn sample() -> Vec<(W, Vec<u8>)> {
+        let mut cfg = vec![0u8; CONFIG_LEN];
+        cfg[0x0E0..0x0E8].copy_from_slice(b"WW8L\xff\xff\xff\xff");
+
+        let mut aprs = vec![0u8; APRS_BLOCK_LEN];
+        aprs[0x000..0x00A].copy_from_slice(b"WW8L-1\0\0\0\0");
         for (off, v) in [
             (0x00C, 0x00), (0x00D, 0x00), (0x00E, 0x00), (0x011, 0x01), (0x016, 0x06),
             (0x083, 0x01), (0x084, 0x01), (0x085, 0x00), (0x087, 0x00), (0x167, 0x3F),
             (0x16D, 0x02), (0x16F, 0x01), (0x170, 0x01), (0x1DF, 0x01), (0x1E0, 0x0C),
             (0x1E9, 0x1C), (0x362, 0x00),
         ] {
-            b[off] = v;
+            aprs[off] = v;
         }
-        b
+        vec![(W::Config, cfg), (W::Aprs, aprs)]
     }
 
-    /// ★ The pairing the `new-radio` skill requires, for the second transport:
+    fn decoded() -> Map<String, Value> {
+        let mut m = Map::new();
+        decode(&sample(), &mut m);
+        m
+    }
+
+    /// ★ The pairing the `new-radio` skill requires, for the image transport:
     /// **one sheet, both halves.** A table entry with no form field is a setting
     /// nobody can reach; a form field with no table entry silently does nothing
     /// when saved. Both come out of `APRS-MEASURED.md` by one script, and this
     /// is what stops them drifting afterwards.
     #[test]
-    fn the_aprs_table_and_the_profile_schema_describe_the_same_fields() {
+    fn the_image_table_and_the_profile_schema_describe_the_same_fields() {
         let schema: Vec<Value> =
             serde_json::from_str(crate::seed::TMD710_SETTINGS_SCHEMA).expect("schema parses");
-        for f in TMD710_APRS_FIELDS {
+        for f in TMD710_IMAGE_FIELDS {
             let e = schema
                 .iter()
                 .find(|e| e["key"] == f.key)
@@ -327,12 +459,17 @@ mod tests {
             assert_eq!(e["label"], json!(f.display()), "{}", f.key);
             match &f.kind {
                 AK::Bool | AK::Bit { .. } => assert_eq!(e["type"], "boolean", "{}", f.key),
+                AK::Text { chars, .. } => {
+                    assert_eq!(e["type"], "text", "{}", f.key);
+                    assert_eq!(e["max_length"], json!(chars), "{}", f.key);
+                }
                 AK::Uint { min, max } => {
                     assert_eq!(e["type"], "integer", "{}", f.key);
                     assert_eq!(e["min"], json!(min), "{}", f.key);
                     assert_eq!(e["max"], json!(max), "{}", f.key);
                 }
                 AK::Ctcss => {
+                    assert_eq!(e["type"], "select", "{}", f.key);
                     let opts: Vec<String> = e["options"]
                         .as_array()
                         .expect("options")
@@ -342,6 +479,7 @@ mod tests {
                     assert_eq!(opts, ctcss_labels(), "{} options disagree", f.key);
                 }
                 AK::Enum { labels } => {
+                    assert_eq!(e["type"], "select", "{}", f.key);
                     let opts: Vec<&str> = e["options"]
                         .as_array()
                         .expect("options")
@@ -353,109 +491,158 @@ mod tests {
                 }
             }
         }
-        // And the other direction: every `aprs-` field in the form is written by
-        // a table entry.
+        let mine: Vec<&str> = TMD710_IMAGE_FIELDS.iter().map(|f| f.key).collect();
         for e in &schema {
-            let key = e["key"].as_str().expect("key");
-            if !key.starts_with("aprs-") {
+            if e["type"] == "section" {
                 continue;
             }
-            assert!(
-                TMD710_APRS_FIELDS.iter().any(|f| f.key == key),
-                "the form offers {key:?}, which no table entry writes"
-            );
+            let key = e["key"].as_str().expect("key");
+            if key.starts_with("aprs-") || key == "power-on-message" {
+                assert!(
+                    mine.contains(&key),
+                    "the form offers {key:?}, which no table entry writes"
+                );
+            }
         }
+    }
+
+    /// ★ The census, as an assertion rather than a sentence in a doc comment.
+    #[test]
+    fn the_census_is_stated_rather_than_implied() {
+        assert_eq!(
+            TMD710_IMAGE_FIELDS.len(),
+            33,
+            "32 of the 66 individual settings in the radio's 6xx/7xx menus, plus menu \
+             500's power-on message from the config window. If this moved, update the \
+             census in the module doc and the ## Owed rows in APRS-MEASURED.md."
+        );
+        let schema: Vec<Value> =
+            serde_json::from_str(crate::seed::TMD710_SETTINGS_SCHEMA).expect("schema parses");
+        let fields = schema.iter().filter(|e| e["type"] != "section").count();
+        assert_eq!(fields, 33 + 35, "the form is both transports");
+        // ★ And it is GROUPED, like every other radio here. The TM-D710 was the
+        // only one shipping a flat list, which is what made 68 controls
+        // unreadable.
+        let sections = schema.len() - fields;
+        assert!(sections >= 10, "only {sections} section headings for {fields} fields");
     }
 
     /// ⚠⚠ SmartBeaconing is not on this radio — no menu 630/631/632 exists on
     /// the A, and the bytes at `+0x3D7` that match the published defaults were
-    /// graded against the **G**'s manual. This is the assertion that stops them
-    /// being filled in from that table again.
+    /// graded against the **G**'s manual.
     #[test]
     fn nothing_reaches_the_smartbeaconing_bytes() {
-        for f in TMD710_APRS_FIELDS {
+        for f in TMD710_IMAGE_FIELDS {
             assert!(
-                !(0x3D7..0x3DE).contains(&f.off),
+                !(f.win == W::Aprs && (0x3D7..0x3DE).contains(&f.off)),
                 "{} points into the SmartBeaconing bytes, which no menu on the A reaches",
                 f.key
             );
         }
     }
 
-    /// ★ The census, as an assertion rather than a sentence in a doc comment.
-    ///
-    /// The `new-radio` skill's gate is a **stated count** — "N of the radio's
-    /// M", with the M-N named — because "35 fields" was what this radio shipped
-    /// while missing its headline feature. Pinning the numbers means growing the
-    /// table forces someone to restate them, which is the only way a count in
-    /// prose stays true.
+    /// ⚠ Nothing may reach the five operating-state bytes in the config window.
+    /// They drift as the operator walks menus and are not settings; writing one
+    /// would fight the radio, and reading one into a profile would make every
+    /// saved profile differ from every other for no reason.
     #[test]
-    fn the_census_is_stated_rather_than_implied() {
-        assert_eq!(
-            TMD710_APRS_FIELDS.len(),
-            31,
-            "31 of the 66 individual settings in the radio's 6xx/7xx menus. If this moved,              update the census table in the module doc and the ## Owed rows in              scratchpad/kenwood_tmd710/APRS-MEASURED.md — a count nobody restates goes stale."
-        );
-        let schema: Vec<Value> =
-            serde_json::from_str(crate::seed::TMD710_SETTINGS_SCHEMA).expect("schema parses");
-        assert_eq!(
-            schema.len(),
-            31 + 35,
-            "the profile form is both transports: 35 MU fields and 22 image fields"
-        );
-        // Twelve menu numbers are represented. The radio has 34 in this range.
-        let mut menus: Vec<&str> = TMD710_APRS_FIELDS.iter().map(|f| f.menu).collect();
-        menus.sort_unstable();
-        menus.dedup();
-        assert_eq!(
-            menus,
-            ["600", "601", "602", "603", "606", "607", "609", "611", "614", "617", "625", "626"]
-        );
+    fn nothing_reaches_the_volatile_operating_state() {
+        for f in TMD710_IMAGE_FIELDS {
+            if f.win != W::Config {
+                continue;
+            }
+            let n = match f.kind {
+                AK::Text { bytes, .. } => bytes,
+                _ => 1,
+            };
+            for off in f.off..f.off + n {
+                let addr = CONFIG_BASE as usize + off;
+                assert!(
+                    ![0x0216, 0x0222, 0x0224, 0x0228, 0x022E].contains(&addr),
+                    "{} covers 0x{addr:04X}, which is volatile operating state",
+                    f.key
+                );
+            }
+        }
     }
 
     /// Keys are what a saved profile stores, and a byte may be shared only when
     /// each field owns a distinct bit of it.
     #[test]
     fn keys_are_unique_and_no_two_fields_own_one_byte() {
-        let mut keys: Vec<&str> = TMD710_APRS_FIELDS.iter().map(|f| f.key).collect();
+        let mut keys: Vec<&str> = TMD710_IMAGE_FIELDS.iter().map(|f| f.key).collect();
         let n = keys.len();
         keys.sort_unstable();
         keys.dedup();
         assert_eq!(keys.len(), n, "duplicate settings key");
 
-        let mut slots: Vec<(usize, i16)> = TMD710_APRS_FIELDS
+        let mut slots: Vec<(u16, usize, i16)> = TMD710_IMAGE_FIELDS
             .iter()
             .map(|f| match f.kind {
-                AK::Bit { bit } => (f.off, i16::from(bit)),
-                _ => (f.off, -1),
+                AK::Bit { bit } => (f.win.base(), f.off, i16::from(bit)),
+                _ => (f.win.base(), f.off, -1),
             })
             .collect();
         slots.sort_unstable();
         slots.dedup();
         assert_eq!(slots.len(), n, "two fields claim the same byte");
         assert!(
-            TMD710_APRS_FIELDS.iter().all(|f| f.off < APRS_BLOCK_LEN),
-            "a field points past the {APRS_BLOCK_LEN}-byte block"
+            TMD710_IMAGE_FIELDS.iter().all(|f| f.off < f.win.len()),
+            "a field points past the end of its window"
         );
     }
 
     /// The radio's own bytes decode to what its screen was showing.
     #[test]
-    fn the_real_block_decodes() {
-        let mut m = Map::new();
-        decode(&sample(), &mut m);
-        let v = Value::Object(m);
+    fn the_real_windows_decode() {
+        let v = Value::Object(decoded());
         assert_eq!(v["aprs-gps-baud"], json!("4800 bps"));
-        assert_eq!(v["aprs-waypoint-name"], json!("6-char"));
         assert_eq!(v["aprs-beacon-method"], json!("Auto"), "+0x16D was 02");
         assert_eq!(v["aprs-voice-alert"], json!(true), "Tim read VOICE ALERT as On");
         assert_eq!(v["aprs-voice-alert-ctcss"], json!("100.0 Hz"), "+0x1E0 was 0C");
         assert_eq!(v["aprs-ui-check-time"], json!(28), "+0x1E9 is literal seconds");
-        assert_eq!(v["aprs-temperature-unit"], json!("Fahrenheit"));
-        // `3F` is all six filter bits.
         for k in ["weather", "mobile", "navitra", "digi", "object", "others"] {
             assert_eq!(v[format!("aprs-filter-{k}")], json!(true), "{k}");
         }
+    }
+
+    /// ★ The two text fields, which pad with **different bytes** — measured, not
+    /// assumed. Decoding must stop at each field's own pad or the call sign
+    /// picks up NULs and the power-on message picks up `0xFF`s.
+    #[test]
+    fn the_two_text_fields_decode_to_what_the_radio_shows() {
+        let v = Value::Object(decoded());
+        assert_eq!(v["aprs-my-callsign"], json!("WW8L-1"), "10 bytes, NUL-padded");
+        assert_eq!(v["power-on-message"], json!("WW8L"), "8 bytes, 0xFF-padded");
+    }
+
+    /// And they re-encode with their own pad byte, filling the field.
+    #[test]
+    fn text_is_written_back_with_the_pad_byte_the_radio_uses() {
+        let base = sample();
+        let (out, changed) = patch(
+            &base,
+            &json!({ "aprs-my-callsign": "W1AW", "power-on-message": "HI" }),
+        )
+        .unwrap();
+        assert_eq!(changed, 2);
+        let aprs = &out.iter().find(|(w, _)| *w == W::Aprs).unwrap().1;
+        let cfg = &out.iter().find(|(w, _)| *w == W::Config).unwrap().1;
+        assert_eq!(&aprs[0x000..0x00A], b"W1AW\0\0\0\0\0\0");
+        assert_eq!(&cfg[0x0E0..0x0E8], b"HI\xff\xff\xff\xff\xff\xff");
+    }
+
+    /// A call sign one character too long is REFUSED, not truncated. A silently
+    /// shortened call sign goes on the air.
+    #[test]
+    fn text_too_long_for_the_field_is_refused() {
+        let base = sample();
+        let err = patch(&base, &json!({ "aprs-my-callsign": "WW8L-12345" })).unwrap_err();
+        assert!(err.contains("10 characters") && err.contains("Menu 600"), "{err}");
+        let err = patch(&base, &json!({ "power-on-message": "TOO LONG!" })).unwrap_err();
+        assert!(err.contains("Menu 500"), "{err}");
+        // Non-printable is refused too, rather than written as a control byte.
+        assert!(patch(&base, &json!({ "power-on-message": "A\u{7}B" })).is_err());
     }
 
     /// ★ The packet filter as it was actually measured: `04` marked Digi (which
@@ -469,10 +656,10 @@ mod tests {
             (0x04, vec!["digi"]),
             (0x2A, vec!["weather", "navitra", "object"]),
         ] {
-            let mut block = sample();
-            block[0x167] = mask;
+            let mut wins = sample();
+            wins.iter_mut().find(|(w, _)| *w == W::Aprs).unwrap().1[0x167] = mask;
             let mut m = Map::new();
-            decode(&block, &mut m);
+            decode(&wins, &mut m);
             for k in ["weather", "mobile", "navitra", "digi", "object", "others"] {
                 assert_eq!(
                     m[&format!("aprs-filter-{k}")],
@@ -484,22 +671,30 @@ mod tests {
     }
 
     /// ★ A patch touches the bytes it was asked for and **nothing else** — the
-    /// call sign, the position records and the status texts are not this form's
-    /// to rewrite.
+    /// position records, the status texts and the config window's VFO settings
+    /// are not this form's to rewrite.
     #[test]
     fn patching_leaves_every_byte_the_form_does_not_expose_alone() {
         let mut base = sample();
-        base[0x000..0x00A].copy_from_slice(b"W0ABC-9\0\0\0"); // call sign
-        base[0x089] = b'H'; // status text 1
-        base[0x474] = 0x08; // Sky Command tone
+        {
+            let aprs = &mut base.iter_mut().find(|(w, _)| *w == W::Aprs).unwrap().1;
+            aprs[0x089] = b'H'; // status text 1
+            aprs[0x474] = 0x08; // Sky Command tone
+        }
+        let cfg_before = base.iter().find(|(w, _)| *w == W::Config).unwrap().1.clone();
 
         let (out, changed) = patch(&base, &json!({ "aprs-temperature-unit": "Celsius" })).unwrap();
         assert_eq!(changed, 1);
-        assert_eq!(out[0x362], 0x01);
-        assert_eq!(differing_runs(&base, &out), vec![(0x362, 0x363)]);
-        assert_eq!(&out[0x000..0x00A], &base[0x000..0x00A]);
-        assert_eq!(out[0x089], b'H');
-        assert_eq!(out[0x474], 0x08);
+        let aprs = &out.iter().find(|(w, _)| *w == W::Aprs).unwrap().1;
+        assert_eq!(aprs[0x362], 0x01);
+        assert_eq!(aprs[0x089], b'H');
+        assert_eq!(aprs[0x474], 0x08);
+        // ⚠ And the OTHER window was not touched at all.
+        assert_eq!(
+            out.iter().find(|(w, _)| *w == W::Config).unwrap().1,
+            cfg_before,
+            "an APRS-only change wrote into the config window"
+        );
     }
 
     /// Six form fields share one byte, so clearing one must leave the other five.
@@ -508,16 +703,18 @@ mod tests {
         let base = sample();
         let (out, changed) = patch(&base, &json!({ "aprs-filter-digi": false })).unwrap();
         assert_eq!(changed, 1);
-        assert_eq!(out[0x167], 0x3B, "only bit 2 should have cleared");
+        assert_eq!(
+            out.iter().find(|(w, _)| *w == W::Aprs).unwrap().1[0x167],
+            0x3B,
+            "only bit 2 should have cleared"
+        );
     }
 
-    /// A value round-trips through the form's labels and back to the same byte.
+    /// A value round-trips through the form's labels and back to the same bytes.
     #[test]
     fn every_field_round_trips_through_its_labels() {
         let base = sample();
-        let mut m = Map::new();
-        decode(&base, &mut m);
-        let (out, changed) = patch(&base, &Value::Object(m)).unwrap();
+        let (out, changed) = patch(&base, &Value::Object(decoded())).unwrap();
         assert_eq!(changed, 0, "decoding and re-encoding must move nothing");
         assert_eq!(out, base);
     }
@@ -527,23 +724,23 @@ mod tests {
     #[test]
     fn an_unlabelled_value_round_trips_as_a_number() {
         let mut base = sample();
-        base[0x087] = 64; // no such position comment
+        base.iter_mut().find(|(w, _)| *w == W::Aprs).unwrap().1[0x087] = 64;
         let mut m = Map::new();
         decode(&base, &mut m);
         assert_eq!(m["aprs-position-comment"], json!(64));
         let (out, _) = patch(&base, &Value::Object(m)).unwrap();
-        assert_eq!(out[0x087], 64);
+        assert_eq!(out.iter().find(|(w, _)| *w == W::Aprs).unwrap().1[0x087], 64);
     }
 
     #[test]
     fn a_value_outside_the_measured_range_is_refused() {
-        let f = TMD710_APRS_FIELDS
+        let f = TMD710_IMAGE_FIELDS
             .iter()
             .find(|f| f.key == "aprs-ui-check-time")
             .unwrap();
         let err = encode_one(f, &json!(251)).unwrap_err();
         assert!(err.contains("0..=250") && err.contains("Menu 617"), "{err}");
-        let band = TMD710_APRS_FIELDS
+        let band = TMD710_IMAGE_FIELDS
             .iter()
             .find(|f| f.key == "aprs-data-band")
             .unwrap();

@@ -1,5 +1,10 @@
 [
   {
+    "key": "section-audio-and-voice",
+    "label": "Audio and Voice",
+    "type": "section"
+  },
+  {
     "key": "key-beep",
     "label": "Key beep (Menu 000)",
     "type": "boolean"
@@ -7,7 +12,7 @@
   {
     "key": "beep-volume",
     "label": "Beep volume (Menu 001)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "1",
       "2",
@@ -21,7 +26,7 @@
   {
     "key": "external-speaker-mode",
     "label": "External speaker mode (Menu 002)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "Mode 1",
       "Mode 2"
@@ -30,7 +35,7 @@
   {
     "key": "announce",
     "label": "Announce (Menu 003)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "Off",
       "Auto",
@@ -40,7 +45,7 @@
   {
     "key": "language",
     "label": "Language (Menu 004)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "English",
       "Japanese"
@@ -49,7 +54,7 @@
   {
     "key": "voice-volume",
     "label": "Voice volume (Menu 005)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "1",
       "2",
@@ -85,19 +90,24 @@
     "type": "boolean"
   },
   {
+    "key": "section-receive-and-transmit",
+    "label": "Receive and Transmit",
+    "type": "section"
+  },
+  {
     "key": "vhf-aip",
-    "label": "VHF AIP (Menu 100)",
+    "label": "VHF AIP (Menu 103)",
     "type": "boolean"
   },
   {
     "key": "uhf-aip",
-    "label": "UHF AIP (Menu 101)",
+    "label": "UHF AIP (Menu 104)",
     "type": "boolean"
   },
   {
     "key": "squelch-hang-up-time",
     "label": "Squelch hang-up time (Menu 106)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "Off",
       "125 ms",
@@ -108,7 +118,7 @@
   {
     "key": "mute-hang-up-time",
     "label": "Mute hang-up time (Menu 107)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "Off",
       "125 ms",
@@ -126,7 +136,7 @@
   {
     "key": "time-out-timer",
     "label": "Time-out timer (Menu 109)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "3 min",
       "5 min",
@@ -134,9 +144,14 @@
     ]
   },
   {
+    "key": "section-memory-and-echolink",
+    "label": "Memory and EchoLink",
+    "type": "section"
+  },
+  {
     "key": "memory-recall-method",
     "label": "Memory recall method (Menu 201)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "All bands",
       "Current band"
@@ -145,11 +160,16 @@
   {
     "key": "echolink-speed",
     "label": "EchoLink speed (Menu 205)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "Fast",
       "Slow"
     ]
+  },
+  {
+    "key": "section-dtmf",
+    "label": "DTMF",
+    "type": "section"
   },
   {
     "key": "dtmf-hold",
@@ -159,7 +179,7 @@
   {
     "key": "dtmf-speed",
     "label": "DTMF speed (Menu 302)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "Fast",
       "Slow"
@@ -168,7 +188,7 @@
   {
     "key": "dtmf-pause",
     "label": "DTMF pause (Menu 303)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "100 ms",
       "250 ms",
@@ -185,6 +205,11 @@
     "type": "boolean"
   },
   {
+    "key": "section-repeater",
+    "label": "Repeater",
+    "type": "section"
+  },
+  {
     "key": "automatic-repeater-offset",
     "label": "Automatic repeater offset (Menu 401)",
     "type": "boolean"
@@ -195,9 +220,20 @@
     "type": "boolean"
   },
   {
+    "key": "section-display",
+    "label": "Display",
+    "type": "section"
+  },
+  {
+    "key": "power-on-message",
+    "label": "Power-on message (Menu 500)",
+    "type": "text",
+    "max_length": 8
+  },
+  {
     "key": "display-brightness",
     "label": "Display brightness (Menu 501)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "Off",
       "Level 1",
@@ -218,11 +254,16 @@
   {
     "key": "backlight-colour",
     "label": "Backlight colour (Menu 503)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "Amber",
       "Green"
     ]
+  },
+  {
+    "key": "section-auxiliary",
+    "label": "Auxiliary",
+    "type": "section"
   },
   {
     "key": "microphone-key-lock",
@@ -231,8 +272,8 @@
   },
   {
     "key": "scan-resume-method",
-    "label": "Scan resume method (Menu 907)",
-    "type": "enum",
+    "label": "Scan resume method (Menu 514)",
+    "type": "select",
     "options": [
       "Time-operated",
       "Carrier-operated",
@@ -241,8 +282,8 @@
   },
   {
     "key": "auto-power-off",
-    "label": "Auto power off (Menu 917)",
-    "type": "enum",
+    "label": "Auto power off (Menu 516)",
+    "type": "select",
     "options": [
       "Off",
       "30 min",
@@ -254,19 +295,19 @@
   },
   {
     "key": "external-data-band",
-    "label": "External data band (Menu 918)",
-    "type": "enum",
+    "label": "External data band (Menu 517)",
+    "type": "select",
     "options": [
-      "Band A",
-      "Band B",
+      "A band",
+      "B band",
       "TX A-RX B",
-      "TX B-RX A"
+      "RX A-TX B"
     ]
   },
   {
     "key": "external-data-speed",
-    "label": "External data speed (Menu 919)",
-    "type": "enum",
+    "label": "External data speed (Menu 518)",
+    "type": "select",
     "options": [
       "1200 bps",
       "9600 bps"
@@ -274,8 +315,8 @@
   },
   {
     "key": "sqc-output-source",
-    "label": "SQC output source (Menu 921)",
-    "type": "enum",
+    "label": "SQC output source (Menu 520)",
+    "type": "select",
     "options": [
       "Off",
       "Busy",
@@ -287,18 +328,43 @@
   },
   {
     "key": "auto-pm-store",
-    "label": "Auto PM store (Menu 922)",
+    "label": "Auto PM store (Menu 521)",
     "type": "boolean"
   },
   {
     "key": "display-partition-bar",
-    "label": "Display partition bar (Menu 928)",
+    "label": "Display partition bar (Menu 527)",
     "type": "boolean"
+  },
+  {
+    "key": "section-aprs-basic",
+    "label": "APRS Basic",
+    "type": "section"
+  },
+  {
+    "key": "aprs-my-callsign",
+    "label": "My call sign (Menu 600)",
+    "type": "text",
+    "max_length": 9
+  },
+  {
+    "key": "aprs-beacon-type",
+    "label": "Beacon type (Menu 600)",
+    "type": "select",
+    "options": [
+      "APRS",
+      "Navitra"
+    ]
+  },
+  {
+    "key": "section-aprs-internal-tnc",
+    "label": "APRS Internal TNC",
+    "type": "section"
   },
   {
     "key": "aprs-data-band",
     "label": "Data band (Menu 601)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "A band",
       "B band",
@@ -309,7 +375,7 @@
   {
     "key": "aprs-data-speed",
     "label": "Packet data speed (Menu 601)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "1200 bps",
       "9600 bps"
@@ -318,7 +384,7 @@
   {
     "key": "aprs-dcd-sense",
     "label": "DCD sense (Menu 601)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "D or RxD band",
       "Both band",
@@ -326,9 +392,29 @@
     ]
   },
   {
+    "key": "aprs-tx-delay",
+    "label": "TX delay (Menu 601)",
+    "type": "select",
+    "options": [
+      "100 ms",
+      "150 ms",
+      "200 ms",
+      "300 ms",
+      "400 ms",
+      "500 ms",
+      "750 ms",
+      "1000 ms"
+    ]
+  },
+  {
+    "key": "section-aprs-gps-and-waypoints",
+    "label": "APRS GPS and Waypoints",
+    "type": "section"
+  },
+  {
     "key": "aprs-gps-baud",
     "label": "GPS port baud rate (Menu 602)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "2400 bps",
       "4800 bps",
@@ -336,15 +422,61 @@
     ]
   },
   {
+    "key": "aprs-gps-input",
+    "label": "GPS data input (Menu 602)",
+    "type": "select",
+    "options": [
+      "Off",
+      "GPS",
+      "Weather (PeetBros)",
+      "Weather (Davis)"
+    ]
+  },
+  {
+    "key": "aprs-gps-output",
+    "label": "GPS data output (Menu 602)",
+    "type": "select",
+    "options": [
+      "Off",
+      "Waypoint",
+      "DGPS"
+    ]
+  },
+  {
+    "key": "aprs-waypoint-format",
+    "label": "Waypoint format (Menu 603)",
+    "type": "select",
+    "options": [
+      "NMEA",
+      "Magellan",
+      "Kenwood"
+    ]
+  },
+  {
     "key": "aprs-waypoint-name",
     "label": "Waypoint name length (Menu 603)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "6-char",
       "7-char",
       "8-char",
       "9-char"
     ]
+  },
+  {
+    "key": "aprs-waypoint-output",
+    "label": "Waypoint output (Menu 603)",
+    "type": "select",
+    "options": [
+      "All",
+      "Local",
+      "Filtered"
+    ]
+  },
+  {
+    "key": "section-aprs-beacon-information",
+    "label": "APRS Beacon Information",
+    "type": "section"
   },
   {
     "key": "aprs-speed-info",
@@ -359,7 +491,7 @@
   {
     "key": "aprs-position-ambiguity",
     "label": "Position ambiguity (Menu 606)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "Off",
       "1 digit",
@@ -371,7 +503,7 @@
   {
     "key": "aprs-position-comment",
     "label": "Position comment (Menu 607)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "Off duty",
       "Enroute",
@@ -388,6 +520,28 @@
       "Custom 5",
       "Custom 6",
       "Emergency!"
+    ]
+  },
+  {
+    "key": "section-aprs-packet-filter",
+    "label": "APRS Packet Filter",
+    "type": "section"
+  },
+  {
+    "key": "aprs-position-limit",
+    "label": "Position limit (Menu 609)",
+    "type": "select",
+    "options": [
+      "Off",
+      "10",
+      "20",
+      "30",
+      "40",
+      "50",
+      "60",
+      "70",
+      "80",
+      "90"
     ]
   },
   {
@@ -421,9 +575,14 @@
     "type": "boolean"
   },
   {
+    "key": "section-aprs-beacon-transmission",
+    "label": "APRS Beacon Transmission",
+    "type": "section"
+  },
+  {
     "key": "aprs-beacon-method",
     "label": "Beacon TX method (Menu 611)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "Manual",
       "PTT",
@@ -441,6 +600,28 @@
     "type": "boolean"
   },
   {
+    "key": "aprs-beacon-interval",
+    "label": "Beacon initial interval (Menu 611)",
+    "type": "select",
+    "options": [
+      "0.2 min",
+      "0.5 min",
+      "1 min",
+      "2 min",
+      "3 min",
+      "5 min",
+      "10 min",
+      "20 min",
+      "30 min",
+      "60 min"
+    ]
+  },
+  {
+    "key": "section-aprs-voice-alert-and-timing",
+    "label": "APRS Voice Alert and Timing",
+    "type": "section"
+  },
+  {
     "key": "aprs-voice-alert",
     "label": "Voice alert (Menu 614)",
     "type": "boolean"
@@ -448,7 +629,7 @@
   {
     "key": "aprs-voice-alert-ctcss",
     "label": "Voice alert CTCSS frequency (Menu 614)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "67.0 Hz",
       "69.3 Hz",
@@ -502,122 +683,28 @@
     "max": 250
   },
   {
-    "key": "aprs-temperature-unit",
-    "label": "Temperature unit (Menu 626)",
-    "type": "enum",
-    "options": [
-      "Fahrenheit",
-      "Celsius"
-    ]
-  },
-  {
-    "key": "aprs-beacon-type",
-    "label": "Beacon type (Menu 600)",
-    "type": "enum",
-    "options": [
-      "APRS",
-      "Navitra"
-    ]
-  },
-  {
-    "key": "aprs-tx-delay",
-    "label": "TX delay (Menu 601)",
-    "type": "enum",
-    "options": [
-      "100 ms",
-      "150 ms",
-      "200 ms",
-      "300 ms",
-      "400 ms",
-      "500 ms",
-      "750 ms",
-      "1000 ms"
-    ]
-  },
-  {
-    "key": "aprs-gps-input",
-    "label": "GPS data input (Menu 602)",
-    "type": "enum",
-    "options": [
-      "Off",
-      "GPS",
-      "Weather (PeetBros)",
-      "Weather (Davis)"
-    ]
-  },
-  {
-    "key": "aprs-gps-output",
-    "label": "GPS data output (Menu 602)",
-    "type": "enum",
-    "options": [
-      "Off",
-      "Waypoint",
-      "DGPS"
-    ]
-  },
-  {
-    "key": "aprs-waypoint-format",
-    "label": "Waypoint format (Menu 603)",
-    "type": "enum",
-    "options": [
-      "NMEA",
-      "Magellan",
-      "Kenwood"
-    ]
-  },
-  {
-    "key": "aprs-waypoint-output",
-    "label": "Waypoint output (Menu 603)",
-    "type": "enum",
-    "options": [
-      "All",
-      "Local",
-      "Filtered"
-    ]
-  },
-  {
-    "key": "aprs-position-limit",
-    "label": "Position limit (Menu 609)",
-    "type": "enum",
-    "options": [
-      "Off",
-      "10",
-      "20",
-      "30",
-      "40",
-      "50",
-      "60",
-      "70",
-      "80",
-      "90"
-    ]
-  },
-  {
-    "key": "aprs-beacon-interval",
-    "label": "Beacon initial interval (Menu 611)",
-    "type": "enum",
-    "options": [
-      "0.2 min",
-      "0.5 min",
-      "1 min",
-      "2 min",
-      "3 min",
-      "5 min",
-      "10 min",
-      "20 min",
-      "30 min",
-      "60 min"
-    ]
+    "key": "section-aprs-display",
+    "label": "APRS Display",
+    "type": "section"
   },
   {
     "key": "aprs-interrupt-display-area",
     "label": "Interrupt display area (Menu 625)",
-    "type": "enum",
+    "type": "select",
     "options": [
       "Off",
       "Half",
       "Entire",
       "Entire always"
+    ]
+  },
+  {
+    "key": "aprs-temperature-unit",
+    "label": "Temperature unit (Menu 626)",
+    "type": "select",
+    "options": [
+      "Fahrenheit",
+      "Celsius"
     ]
   }
 ]

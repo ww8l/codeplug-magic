@@ -56,7 +56,7 @@ use std::time::{Duration, Instant};
 
 use super::driver::{RadioDriver, RadioIdentity};
 
-pub(crate) mod aprs;
+pub(crate) mod image_settings;
 pub(crate) mod encode;
 // ⚠ Reachable only from the measurement harness until a capability trait calls
 // it — the same stance `memory.rs` and `write_memory` are under, and for the

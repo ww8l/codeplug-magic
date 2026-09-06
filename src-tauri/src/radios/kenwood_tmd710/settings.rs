@@ -6,7 +6,7 @@
 //! ⚠⚠ It is not the radio's settings. `MU` reaches 42 of the radio's ~115
 //! menus and **none of the 600-series**, which is the APRS/TNC feature the
 //! radio is named for. Those live in the image behind `0M PROGRAM` and are
-//! [`super::aprs`]'s half. A settings read here is both exchanges and a
+//! [`super::image_settings`]'s half. A settings read here is both exchanges and a
 //! settings write is both again, because an operator's profile is one thing.
 //!
 //! ★ This radio shipped a correct, fully measured 35-field schema with **no
@@ -41,6 +41,63 @@
 //! value to a real radio. `scratchpad/kenwood_tmd710/MEASURED.md` grades every
 //! row and says which are still owed a look at the radio's own screen.
 //!
+//! ## ★★★ s133: the menu NUMBERS were the G's, and ten were wrong
+//!
+//! A full audit against the **A** manual's own menu table, asked for after the
+//! form went on screen. The values were right; the numbers beside them were not,
+//! and a wrong number sends an operator to the wrong menu:
+//!
+//! | field | said | the A actually has | what that number IS on the A |
+//! |---|---|---|---|
+//! | VHF AIP | 100 | **103** | 100 is PROGRAMMABLE VFO |
+//! | UHF AIP | 101 | **104** | 101 is STEP |
+//! | Microphone key lock | 513? | **513** ✓ | the `?` was unearned doubt |
+//! | Scan resume method | 907? | **514** | |
+//! | Auto power off | 917? | **516** | |
+//! | External data band | 918? | **517** | |
+//! | External data speed | 919? | **518** | |
+//! | SQC output source | 921? | **520** | |
+//! | Auto PM store | 922? | **521** | |
+//! | Display partition bar | 928 | **527** | |
+//!
+//! ★ The seven `9xx?` guesses came from a G-oriented source. The A puts all of
+//! them in the 5xx AUX group, and the A manual states every one. This is the
+//! same defect as the 6xx work — a source written for the **G** used on a
+//! non-G radio — and it survived because a menu number is documentation and
+//! nothing tests it. `MU`'s parameter order **is** the A's menu order, which is
+//! what makes the corrected numbers self-consistent.
+//!
+//! ## ★ p25 is menu 403 or 406, and it matters which
+//!
+//! `MU` follows menu order, so p25 sits between p24 (402) and p26 (501). The A
+//! manual leaves exactly two three-option menus in that gap, and p25's measured
+//! size is 3:
+//!
+//! - **403 REPEATER MODE** — `CROSS BAND / LOCKED TX:A-BAND / LOCKED TX:B-BAND`
+//! - **406 REPEATER ID TX** — `OFF / MORSE / VOICE`
+//!
+//! ⚠ One front-panel change to menu 403 settles it. Until then it stays
+//! unexposed, and the reason is not tidiness: 403 is **cross-band repeat**, so
+//! guessing wrong would make the radio transmit on a band the operator never
+//! chose. This is the one omitted parameter whose identity is now nearly known
+//! and still must not be shipped.
+//!
+//! ## What `MU` cannot reach at all
+//!
+//! Twelve menus the A has and this command has no parameter for: **105**
+//! S-METER SQUELCH, **110** WEATHER ALERT, **203** GROUP LINK, **504** CONTRAST,
+//! **505** display reverse, **515** VISUAL SCAN, **519** PC PORT BAUDRATE,
+//! **522** REMOTE ID, **523** REMOTE ANSWER BACK, **524**-**526** DATE/TIME/TIME
+//! ZONE, **528** COM PORT BAUDRATE. Plus the per-band and per-memory menus
+//! (100-102, 200, 202, 204, 301, 400, 405) which are not profile settings.
+//!
+//! ★ Several of those **are** in the config window this driver now reads —
+//! CHIRP names contrast, PC port baud, visual scan, group link, S-meter squelch,
+//! WX alert and repeater mode inside the `0x0200` block. That is a real second
+//! tranche and it is **not** shipped: CHIRP's field claims for this radio have
+//! never been checked, and its APRS claims were useless while its structure was
+//! right. Each would need the factory-default cross-check before it could ship.
+//!
 //! ## Grading
 //!
 //! Sizes are measured. **Orders are mostly inferred** — from the manual and from
@@ -53,7 +110,7 @@
 use serde_json::{json, Map, Value};
 use std::path::Path;
 
-use super::aprs;
+use super::image_settings as imgset;
 use super::image::ProgramMode;
 use super::memory::Menu;
 use super::{ask_settling, open_port, write_menu};
@@ -197,13 +254,13 @@ impl SettingsReader for super::KenwoodTmD710 {
         let menu = Menu::parse(&line)?;
 
         let mut pm = ProgramMode::enter(&mut *p)?;
-        let block = aprs::read_block(&mut pm)?;
+        let wins = imgset::read_all(&mut pm)?;
         pm.leave()?;
 
         let Value::Object(mut settings) = decode(&menu) else {
             unreachable!("decode returns an object")
         };
-        aprs::decode(&block, &mut settings);
+        imgset::decode(&wins, &mut settings);
 
         Ok(SettingsCapture {
             settings: Value::Object(settings),
@@ -211,7 +268,7 @@ impl SettingsReader for super::KenwoodTmD710 {
             // has two transports, so the file carries both halves: the menu line
             // and the APRS block as hex. Between them they are everything a
             // settings write on this radio can clobber.
-            backup: backup_text(&line, &block).into_bytes(),
+            backup: backup_text(&line, &wins).into_bytes(),
             backup_ext: "txt",
         })
     }
@@ -221,13 +278,15 @@ impl SettingsReader for super::KenwoodTmD710 {
 ///
 /// Written so `xxd -r` is not needed to read it and a person can see at a glance
 /// which half is which — a backup nobody can interpret is not a backup.
-fn backup_text(line: &str, block: &[u8]) -> String {
+fn backup_text(line: &str, wins: &imgset::Windows) -> String {
     let mut out = format!("{line}\n");
-    out.push_str("# APRS/TNC block, live copy, 0x8100..0x8580, 16 bytes a line\n");
-    for (i, chunk) in block.chunks(16).enumerate() {
-        let addr = 0x8100 + i * 16;
-        let hex: Vec<String> = chunk.iter().map(|b| format!("{b:02X}")).collect();
-        out.push_str(&format!("{addr:04X}  {}\n", hex.join(" ")));
+    for (w, buf) in wins {
+        out.push_str(&format!("# {w:?} window, 16 bytes a line\n"));
+        for (i, chunk) in buf.chunks(16).enumerate() {
+            let addr = w.base() as usize + i * 16;
+            let hex: Vec<String> = chunk.iter().map(|b| format!("{b:02X}")).collect();
+            out.push_str(&format!("{addr:04X}  {}\n", hex.join(" ")));
+        }
     }
     out
 }
@@ -257,7 +316,7 @@ impl SettingsWriter for super::KenwoodTmD710 {
         let base = Menu::parse(&before)?;
 
         let mut pm = ProgramMode::enter(&mut *p)?;
-        let aprs_before = aprs::read_block(&mut pm)?;
+        let img_before = imgset::read_all(&mut pm)?;
         pm.leave()?;
 
         // ⚠ The backup is written before a single byte is sent, and it holds
@@ -266,7 +325,7 @@ impl SettingsWriter for super::KenwoodTmD710 {
         std::fs::create_dir_all(backup_dir).map_err(|e| e.to_string())?;
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
         let backup_path = backup_dir.join(format!("kenwood_tmd710-menu-{stamp}.txt"));
-        std::fs::write(&backup_path, backup_text(&before, &aprs_before)).map_err(|e| e.to_string())?;
+        std::fs::write(&backup_path, backup_text(&before, &img_before)).map_err(|e| e.to_string())?;
 
         let (wanted, mut fields_written) = patch(&base, settings)?;
 
@@ -274,16 +333,16 @@ impl SettingsWriter for super::KenwoodTmD710 {
         // APRS half is unencodable must not leave the radio with its menus
         // already changed — this is the cheap half of atomicity, and the only
         // half a two-transport radio can have.
-        let (aprs_wanted, aprs_changed) = aprs::patch(&aprs_before, settings)?;
+        let (img_wanted, img_changed) = imgset::patch(&img_before, settings)?;
 
         let failed = write_menu(&mut *p, &wanted)?;
-        fields_written += aprs_changed;
+        fields_written += img_changed;
 
-        let (windows_written, aprs_verified) = if aprs_changed == 0 {
+        let (windows_written, img_verified) = if img_changed == 0 {
             (Vec::new(), true)
         } else {
             let mut pm = ProgramMode::enter(&mut *p)?;
-            let r = aprs::write_block_narrow(&mut pm, &aprs_before, &aprs_wanted);
+            let r = imgset::write_narrow(&mut pm, &img_before, &img_wanted);
             pm.leave()?;
             r?
         };
@@ -300,9 +359,9 @@ impl SettingsWriter for super::KenwoodTmD710 {
                 names.join("; ")
             ));
         }
-        if !aprs_verified {
+        if !img_verified {
             notes.push(
-                "the APRS block read back different from what was written. On this protocol \
+                "an image window read back different from what was written. On this protocol \
                  the radio answers 0x06 whether or not it kept a write, so the read-back is \
                  the only evidence — treat the 600-series settings as NOT written."
                     .to_string(),
@@ -315,7 +374,7 @@ impl SettingsWriter for super::KenwoodTmD710 {
             // `write_block_narrow` re-reads the block — both are real
             // read-backs and not a buffer compared with itself, the mistake
             // found in the TH-D72's review.
-            verified: Some(failed.is_empty() && aprs_verified),
+            verified: Some(failed.is_empty() && img_verified),
             note: (!notes.is_empty()).then(|| notes.join(" ")),
             backup_path: backup_path.to_string_lossy().into_owned(),
             expected_path: None,
@@ -379,13 +438,28 @@ mod tests {
     fn the_table_and_the_profile_schema_describe_the_same_fields() {
         let schema: Vec<serde_json::Value> =
             serde_json::from_str(crate::seed::TMD710_SETTINGS_SCHEMA).expect("schema parses");
-        // The form is both transports; `super::aprs` owns the `aprs-` half and
-        // asserts the same pairing over it.
+        // The form is both transports and `super::image_settings` asserts the
+        // same pairing over its half.
+        //
+        // ⚠ Partition on the keys that table actually owns, **not on a name
+        // prefix**. Menu 500's power-on message is an image field and is not
+        // called `aprs-*`, so a prefix test leaves it on this side and both
+        // halves claim it. The generator had the identical bug.
+        let theirs: Vec<&str> = crate::radios::kenwood_tmd710::image_settings::TMD710_IMAGE_FIELDS
+            .iter()
+            .map(|f| f.key)
+            .collect();
         let mine: Vec<&serde_json::Value> = schema
             .iter()
-            .filter(|e| !e["key"].as_str().is_some_and(|k| k.starts_with("aprs-")))
+            .filter(|e| e["type"] != "section")
+            .filter(|e| !theirs.contains(&e["key"].as_str().unwrap_or_default()))
             .collect();
-        assert_eq!(mine.len(), TMD710_SETTINGS_FIELDS.len());
+        let extra: Vec<&str> = mine
+            .iter()
+            .map(|e| e["key"].as_str().unwrap_or_default())
+            .filter(|k| !TMD710_SETTINGS_FIELDS.iter().any(|f| f.key == *k))
+            .collect();
+        assert_eq!(mine.len(), TMD710_SETTINGS_FIELDS.len(), "extra: {extra:?}");
 
         for f in TMD710_SETTINGS_FIELDS {
             let entry = schema
@@ -403,7 +477,7 @@ mod tests {
                     assert_eq!(entry["max"], serde_json::json!(max), "{}", f.key);
                 }
                 TK::Enum { labels } => {
-                    assert_eq!(entry["type"], "enum", "{}", f.key);
+                    assert_eq!(entry["type"], "select", "{}", f.key);
                     let opts: Vec<&str> = entry["options"]
                         .as_array()
                         .expect("options")

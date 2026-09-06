@@ -560,3 +560,67 @@ fn an_aprs_radio_offers_at_least_one_aprs_setting() {
     }
     assert!(checked > 0, "no APRS radio had a settings schema — this would pass vacuously");
 }
+
+/// ★★★ Every settings schema may only use field types the profile form can
+/// actually render.
+///
+/// The TM-D710 shipped 38 fields typed `"enum"`. The form's renderer branches on
+/// `"select"`, and its final `else` is a **free-text box** — so every dropdown
+/// on that radio rendered as a text input, including a 42-entry CTCSS list.
+/// Nothing failed and nothing warned; it just quietly stopped being a menu.
+///
+/// ⚠ The lesson is about the *test* that was supposed to catch it. There was
+/// already an agreement test pairing the Rust field table against this JSON —
+/// and it passed, because both said `"enum"`. **Two artifacts I generate from
+/// one sheet agreeing with each other says nothing about whether either is
+/// right about a third party.** The frontend is that third party, and this is
+/// the assertion that reaches it.
+///
+/// Kept deliberately dumb: the list below is read out of `src/lib/types.ts`, so
+/// adding a renderer branch updates the guard automatically and removing one
+/// breaks every schema that still uses it.
+#[test]
+fn every_settings_schema_uses_only_field_types_the_form_can_render() {
+    let types = read(&manifest_dir().join("../src/lib/types.ts"));
+    let decl = types
+        .split("export interface SettingField {")
+        .nth(1)
+        .and_then(|s| s.split('}').next())
+        .expect("SettingField is declared in src/lib/types.ts");
+    let line = decl
+        .lines()
+        .find(|l| l.trim_start().starts_with("type:"))
+        .expect("SettingField declares a `type` field");
+    let allowed: Vec<String> = line
+        .split(':')
+        .nth(1)
+        .expect("a type union")
+        .split('|')
+        .map(|s| s.trim().trim_end_matches(';').trim_matches('"').to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    assert!(
+        allowed.contains(&"select".to_string()) && allowed.len() >= 4,
+        "the union did not parse as expected: {allowed:?}"
+    );
+
+    let mut checked = 0;
+    for (name, _, schema_json) in crate::seed::model_capability_rows() {
+        if schema_json.trim() == "[]" {
+            continue;
+        }
+        let schema: Vec<serde_json::Value> =
+            serde_json::from_str(schema_json).unwrap_or_else(|e| panic!("{name}: {e}"));
+        for f in &schema {
+            let t = f["type"].as_str().unwrap_or_default();
+            checked += 1;
+            assert!(
+                allowed.contains(&t.to_string()),
+                "{name}: field {:?} is typed {t:?}, which the profile form does not \
+                 render — it falls through to a free-text box. The form knows {allowed:?}.",
+                f["key"].as_str().unwrap_or_default()
+            );
+        }
+    }
+    assert!(checked > 100, "only {checked} fields checked — this would pass vacuously");
+}

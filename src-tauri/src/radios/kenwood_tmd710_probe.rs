@@ -413,7 +413,7 @@
 //! Everything above was a doc comment until now — the shipped schema was still
 //! the 35-field, zero-APRS one this radio is the cautionary tale for.
 //! `scratchpad/kenwood_tmd710/APRS-MEASURED.md` is the sheet,
-//! `gen_tmd710_aprs.py` emits [`super::kenwood_tmd710::aprs`]'s table and the
+//! `gen_tmd710_image.py` emits [`super::kenwood_tmd710::aprs`]'s table and the
 //! profile schema from that one parse, and the form is now **57 fields: 35 over
 //! `MU` and 22 in the image**.
 //!
@@ -1682,8 +1682,8 @@ fn d710_settings_roundtrip() {
     let (line_before, block_before) = backup_before.split_once('\n').expect("two halves");
     println!("\nMU:    {line_before}");
     assert!(
-        block_before.contains("8100  "),
-        "the backup carries no APRS block — the image half of the read did not happen"
+        block_before.contains("8100  ") && block_before.contains("0200  "),
+        "the backup is missing an image window — the image half of the read did not happen"
     );
 
     println!("\n--- the 600-series half, as the form now sees it ---");
@@ -1699,7 +1699,8 @@ fn d710_settings_roundtrip() {
     for l in &aprs {
         println!("{l}");
     }
-    assert_eq!(aprs.len(), 31, "the image half did not decode");
+    assert_eq!(aprs.len(), 32, "the image half did not decode");
+    println!("  {:<28} {}", "power-on-message", before.settings["power-on-message"]);
 
     // ★ One field from EACH transport, in one write. Two visually obvious
     // values, and each is set to something it is NOT already on so the write

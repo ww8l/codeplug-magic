@@ -36,8 +36,8 @@ pub(crate) const TMD710_SETTINGS_FIELDS: &[TF] = &[
     TF { key: "playback-repeat", label: "Playback repeat", mu: 7, menu: Some("007"), kind: TK::Bool },  // MU p8; size MEASURED (2); inferred
     TF { key: "playback-repeat-interval", label: "Playback repeat interval", mu: 8, menu: Some("008"), kind: TK::Uint { min: 0, max: 60 } },  // MU p9; size MEASURED (61); inferred (value is the number)
     TF { key: "continuous-recording", label: "Continuous recording", mu: 9, menu: Some("009"), kind: TK::Bool },  // MU p10; size MEASURED (2); inferred
-    TF { key: "vhf-aip", label: "VHF AIP", mu: 10, menu: Some("100"), kind: TK::Bool },  // MU p11; size MEASURED (2); inferred
-    TF { key: "uhf-aip", label: "UHF AIP", mu: 11, menu: Some("101"), kind: TK::Bool },  // MU p12; size MEASURED (2); inferred
+    TF { key: "vhf-aip", label: "VHF AIP", mu: 10, menu: Some("103"), kind: TK::Bool },  // MU p11; size MEASURED (2); inferred
+    TF { key: "uhf-aip", label: "UHF AIP", mu: 11, menu: Some("104"), kind: TK::Bool },  // MU p12; size MEASURED (2); inferred
     TF { key: "squelch-hang-up-time", label: "Squelch hang-up time", mu: 12, menu: Some("106"), kind: TK::Enum { labels: &[(0, "Off"), (1, "125 ms"), (2, "250 ms"), (3, "500 ms")] } },  // MU p13; size MEASURED (4); inferred (manual, Menu 106, lists exactly these four)
     TF { key: "mute-hang-up-time", label: "Mute hang-up time", mu: 13, menu: Some("107"), kind: TK::Enum { labels: &[(0, "Off"), (1, "125 ms"), (2, "250 ms"), (3, "500 ms"), (4, "750 ms"), (5, "1000 ms")] } },  // MU p14; size MEASURED (6); inferred
     TF { key: "beat-shift", label: "Beat shift", mu: 14, menu: Some("108"), kind: TK::Bool },  // MU p15; size MEASURED (2); inferred
@@ -53,12 +53,12 @@ pub(crate) const TMD710_SETTINGS_FIELDS: &[TF] = &[
     TF { key: "display-brightness", label: "Display brightness", mu: 25, menu: Some("501"), kind: TK::Enum { labels: &[(0, "Off"), (1, "Level 1"), (2, "Level 2"), (3, "Level 3"), (4, "Level 4"), (5, "Level 5"), (6, "Level 6"), (7, "Level 7"), (8, "Level 8")] } },  // MU p26; size MEASURED (9); **measured** (s120 set LEVEL 3 and p26 alone moved 8→3, so index = level; size rules out Menu 504 CONTRAST, which has 16)
     TF { key: "automatic-brightness", label: "Automatic brightness", mu: 26, menu: Some("502"), kind: TK::Bool },  // MU p27; size MEASURED (2); inferred
     TF { key: "backlight-colour", label: "Backlight colour", mu: 27, menu: Some("503"), kind: TK::Enum { labels: &[(0, "Amber"), (1, "Green")] } },  // MU p28; size MEASURED (2); inferred
-    TF { key: "microphone-key-lock", label: "Microphone key lock", mu: 34, menu: Some("513?"), kind: TK::Bool },  // MU p35; size MEASURED (2); inferred
-    TF { key: "scan-resume-method", label: "Scan resume method", mu: 35, menu: Some("907?"), kind: TK::Enum { labels: &[(0, "Time-operated"), (1, "Carrier-operated"), (2, "Seek")] } },  // MU p36; size MEASURED (3); inferred (manual names the three modes, default Time-operated, and the as-found value is 0)
-    TF { key: "auto-power-off", label: "Auto power off", mu: 36, menu: Some("917?"), kind: TK::Enum { labels: &[(0, "Off"), (1, "30 min"), (2, "60 min"), (3, "90 min"), (4, "120 min"), (5, "180 min")] } },  // MU p37; size MEASURED (6); inferred
-    TF { key: "external-data-band", label: "External data band", mu: 37, menu: Some("918?"), kind: TK::Enum { labels: &[(0, "Band A"), (1, "Band B"), (2, "TX A-RX B"), (3, "TX B-RX A")] } },  // MU p38; size MEASURED (4); inferred
-    TF { key: "external-data-speed", label: "External data speed", mu: 38, menu: Some("919?"), kind: TK::Enum { labels: &[(0, "1200 bps"), (1, "9600 bps")] } },  // MU p39; size MEASURED (2); inferred (manual, "set the data speed to 1200 or 9600 bps")
-    TF { key: "sqc-output-source", label: "SQC output source", mu: 39, menu: Some("921?"), kind: TK::Enum { labels: &[(0, "Off"), (1, "Busy"), (2, "SQL"), (3, "TX"), (4, "Busy or TX"), (5, "SQL or TX")] } },  // MU p40; size MEASURED (6); inferred
-    TF { key: "auto-pm-store", label: "Auto PM store", mu: 40, menu: Some("922?"), kind: TK::Bool },  // MU p41; size MEASURED (2); inferred
-    TF { key: "display-partition-bar", label: "Display partition bar", mu: 41, menu: Some("928"), kind: TK::Bool },  // MU p42; size MEASURED (2); inferred (manual names Menu 928)
+    TF { key: "microphone-key-lock", label: "Microphone key lock", mu: 34, menu: Some("513"), kind: TK::Bool },  // MU p35; size MEASURED (2); inferred
+    TF { key: "scan-resume-method", label: "Scan resume method", mu: 35, menu: Some("514"), kind: TK::Enum { labels: &[(0, "Time-operated"), (1, "Carrier-operated"), (2, "Seek")] } },  // MU p36; size MEASURED (3); inferred (manual names the three modes, default Time-operated, and the as-found value is 0)
+    TF { key: "auto-power-off", label: "Auto power off", mu: 36, menu: Some("516"), kind: TK::Enum { labels: &[(0, "Off"), (1, "30 min"), (2, "60 min"), (3, "90 min"), (4, "120 min"), (5, "180 min")] } },  // MU p37; size MEASURED (6); inferred
+    TF { key: "external-data-band", label: "External data band", mu: 37, menu: Some("517"), kind: TK::Enum { labels: &[(0, "A band"), (1, "B band"), (2, "TX A-RX B"), (3, "RX A-TX B")] } },  // MU p38; size MEASURED (4); inferred (the manual's 4th value is `RX:A-BAND TX:B-BAND`; the old label said `TX B-RX A`, the same thing said backwards)
+    TF { key: "external-data-speed", label: "External data speed", mu: 38, menu: Some("518"), kind: TK::Enum { labels: &[(0, "1200 bps"), (1, "9600 bps")] } },  // MU p39; size MEASURED (2); inferred (manual, "set the data speed to 1200 or 9600 bps")
+    TF { key: "sqc-output-source", label: "SQC output source", mu: 39, menu: Some("520"), kind: TK::Enum { labels: &[(0, "Off"), (1, "Busy"), (2, "SQL"), (3, "TX"), (4, "Busy or TX"), (5, "SQL or TX")] } },  // MU p40; size MEASURED (6); inferred
+    TF { key: "auto-pm-store", label: "Auto PM store", mu: 40, menu: Some("521"), kind: TK::Bool },  // MU p41; size MEASURED (2); inferred
+    TF { key: "display-partition-bar", label: "Display partition bar", mu: 41, menu: Some("527"), kind: TK::Bool },  // MU p42; size MEASURED (2); inferred (the A manual names Menu **527**; this row said 928, which is the G's numbering)
 ];
