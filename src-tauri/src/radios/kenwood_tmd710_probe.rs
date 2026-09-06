@@ -157,40 +157,61 @@
 //! `0.2/0.5/1/2/3/5/10/20/30/60`. Take **defaults** from the manual — those
 //! cross-check perfectly — and **lists** from the radio.
 //!
-//! ## ★★★ Menu 625 is not in the image (s132, desk work, no radio time)
+//! ## ⚠⚠ RETRACTED: "menu 625 is not in the image" — it is, at `+0x35C`
 //!
-//! Search a menu's whole **default vector**, not one byte. Every menu measured
-//! so far lays its settings out contiguously in the manual's printed order —
-//! menu 601's four at `+0x00C`..`+0x00F`, menu 606's three at `+0x083`..`+0x085`
-//! — so a menu's defaults are a byte *string*, and a string is far rarer than
-//! any byte in it.
+//! This section claimed menu 625 was absent from every byte the radio serves,
+//! because its factory default vector `02 01 01` occurs zero times. **The claim
+//! was wrong and the search was right.** `02` was *my* index for `ENTIRE`, taken
+//! from the A manual's three-entry list `OFF / HALF / ENTIRE`. The factory byte
+//! is `03`, so the radio's list is longer than the manual prints.
 //!
-//! Menu **625 INTERRUPT DISPLAY** defaults to `DISPLAY AREA` = `ENTIRE` (index
-//! `02` of `OFF/HALF/ENTIRE`), `AUTO BRIGHTNESS` = `ON` (`01`), `CHANGE COLOR`
-//! = `ON` (`01`). The pattern `02 01 01` occurs **zero times in the entire
-//! 39 840 bytes** — live copy, all five factory PM copies, APRS block, config
-//! blocks, everywhere. So do `04 01 02 01 01` (624's tail plus 625) and the
-//! full ten-byte 624-627 default vector.
+//! `03 01 01` hits **once per block, at `+0x35C`, in all five factory copies** —
+//! block-unique, exactly like the ten menus the same instrument located.
 //!
-//! The APRS block is independently ruled out by counting anchors in a factory
-//! copy: it holds exactly **one** byte equal to `02` (`+0x00F`, TX delay) and
-//! exactly **one** equal to `04` (`+0x16E`, beacon interval), both already
-//! spoken for. `DISPLAY AREA` = `02` and `RX BEEP` = `04` have nowhere to live.
+//! ★★★ The lesson is not about the instrument, which was sound. It is that a
+//! default vector is built from **a default (a name) plus a list (an order)**,
+//! and on this radio the manual is reliable for the first and demonstrably not
+//! for the second — menu 611's interval list is missing entries, and now menu
+//! 625's DISPLAY AREA list is too. "Take **defaults** from the manual and
+//! **lists** from the radio" was already written down here before this run, and
+//! then an index was computed from a manual list anyway. **A vector search that
+//! returns zero hits indicts the vector before it indicts the image.**
 //!
-//! ⚠ This names **no** offset and must not be read as one. `0x0377` = `04`
-//! followed by `01 01` is the only unclaimed `04` in a config block outside the
-//! VFO table — and `0x0355` has the identical shape with CHIRP naming its
-//! neighbour `beepvol`. A byte that merely fits is not evidence.
+//! ⚠ Two conclusions rested on the retracted claim and both are withdrawn:
+//! that menus 624-627 are non-contiguous (they are contiguous), and that a
+//! setting existed which the read plan could not reach (the `0x9C00` probe was
+//! still right, but for reasons of its own — see below).
 //!
-//! ★ What it changes: the "invisible enum at its default" argument that rescued
-//! menus 612 and 613 **cannot** rescue 624/625, whose defaults are non-zero and
-//! would therefore show. Either those settings are non-contiguous, or they live
-//! in `0x9C00`-`0xFEEF` — the 25 328 addresses [`read_plan`] has never
-//! requested. That puts the two-minute probe of `0x9C00` back near the top of
-//! the list, ahead of hunting 624-627 from the front panel.
+//! ### Located by a front-panel change against a zero noise floor
 //!
-//! ⚠ The refutation rests on the contiguity rule, which stands on **two**
-//! menus. Best rule available; not a law.
+//! | offset | menu | field | evidence |
+//! |---|---|---|---|
+//! | `+0x35C` | 625 | DISPLAY AREA | `01` -> `00` set to `OFF`; factory `03` = `ENTIRE` |
+//! | `+0x35D` | 625 | AUTO BRIGHTNESS | factory `01` = `ON`, in the unique vector |
+//! | `+0x35E` | 625 | CHANGE COLOR | factory `01` = `ON`, in the unique vector |
+//! | `+0x360` | 626 | SPEED, DISTANCE | factory `00` = `mi/h mile` |
+//! | `+0x361` | 626 | ALTITUDE, RAIN | factory `00` = `feet/inch` |
+//! | `+0x362` | 626 | TEMPERATURE | `00` = `°F`, `01` = `°C` — **two values** |
+//! | `+0x363` | 627 | POSITION | factory `00` = `dd°mm.mm'` |
+//! | `+0x364` | 627 | GRID FORMAT | `00` -> `01` |
+//!
+//! ⚠ `+0x35F` = `82` is unexplained and sits between 625 and 626. Not named.
+//! ⚠ Menu **624** is unlocated. `+0x350` (live `03`, factory `00`) and `+0x351`
+//! (`01`) with ten zero bytes after them *look* like RX BEEP / APRS VOICE /
+//! SPECIAL CALL, but the manual's RX BEEP default is `ALL` against a factory
+//! `00`, so that is a guess and is recorded as one.
+//!
+//! ## ⚠ Menu 612 PACKET PATH moved no byte at all
+//!
+//! `TYPE` was set to `Others` on the front panel and a full re-dump differs
+//! from the pristine image in **three bytes, all of them menus 625/626/627**.
+//! The upper span `0x9C00`-`0xFEEF` changed only in the station list and its
+//! order table — new stations heard between dumps, which is a nice independent
+//! confirmation of what that region is, and not menu 612.
+//!
+//! So menu 612's TYPE is in **none of the 65 168 bytes this radio will serve**.
+//! Neither is `WIDE`, plain or AX.25 bit-shifted. This is now a measured
+//! negative rather than a failure to look.
 //!
 //! ## ★★★ The same instrument, run forwards: ten menus located (s132)
 //!
