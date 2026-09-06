@@ -201,17 +201,32 @@
 //! SPECIAL CALL, but the manual's RX BEEP default is `ALL` against a factory
 //! `00`, so that is a guess and is recorded as one.
 //!
-//! ## ⚠ Menu 612 PACKET PATH moved no byte at all
+//! ## ⚠⚠ Menu 612: a VOID result, not a negative one
 //!
-//! `TYPE` was set to `Others` on the front panel and a full re-dump differs
+//! `TYPE` was set to `Others` on the front panel and a full re-dump differed
 //! from the pristine image in **three bytes, all of them menus 625/626/627**.
 //! The upper span `0x9C00`-`0xFEEF` changed only in the station list and its
 //! order table — new stations heard between dumps, which is a nice independent
-//! confirmation of what that region is, and not menu 612.
+//! confirmation of what that region is.
 //!
-//! So menu 612's TYPE is in **none of the 65 168 bytes this radio will serve**.
-//! Neither is `WIDE`, plain or AX.25 bit-shifted. This is now a measured
-//! negative rather than a failure to look.
+//! That was written up as "menu 612's TYPE is in none of the 65 168 bytes this
+//! radio serves". **It is not a finding.** Asked afterwards to set the menu
+//! back, the operator found it *already* on `New N Paradigm` — so the radio was
+//! not holding the changed value when the dump ran, and a dump of an unchanged
+//! setting shows nothing trivially.
+//!
+//! ★★★ The whole session verified every *poke* by read-back, on the standing
+//! rule that this protocol acknowledges writes that never commit — and then
+//! took a **front-panel** change on trust. A change made by the operator needs
+//! the same proof as a change made by the harness: **leave the menu, re-enter
+//! it, and confirm the new value is still there before dumping.**
+//!
+//! ⚠ Still unexplained and possibly the real story: `Others` may require path
+//! strings to be entered before the selection persists, in which case the
+//! reversion is itself the measurement. Untested.
+//!
+//! (`WIDE` genuinely appears nowhere in the image, plain or AX.25 bit-shifted.
+//! That search stands; it just never implied the field was absent.)
 //!
 //! ## ★★★ The same instrument, run forwards: ten menus located (s132)
 //!
