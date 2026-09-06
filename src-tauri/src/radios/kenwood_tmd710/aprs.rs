@@ -49,13 +49,14 @@
 //! |---|---|---|
 //! | the radio has | ~115 | |
 //! | `MU` reaches | 42 | 35 shipped, 7 held (6 PF keys + p25, meanings unmeasured) |
-//! | the 6xx/7xx image block holds | 34 | 66, of which **22 ship** |
+//! | the 6xx/7xx image block holds | 34 | 66, of which **31 ship** |
 //! | reached by neither | ~39 | the 1xx-5xx menus with no `MU` parameter |
 //!
-//! So the form is **57 fields**, and the 44 unshipped 6xx/7xx settings break
-//! down as: 11 located but not anchored, 9 located but seen at a single value,
-//! 6 text or record fields whose padding is unmeasured, and 18 unlocated. Every
-//! one is a row in the sheet's `## Owed` table with the check that settles it.
+//! So the form is **66 fields**, and the 35 unshipped 6xx/7xx settings each have
+//! a row in the sheet's `## Owed` table naming the check that settles it: one
+//! (624 RX BEEP) has contradictory readings, nine are located but seen at a
+//! single value, six are text or record fields whose padding is unmeasured, and
+//! the rest are unlocated.
 //!
 //! ## Writing
 //!
@@ -392,21 +393,24 @@ mod tests {
     fn the_census_is_stated_rather_than_implied() {
         assert_eq!(
             TMD710_APRS_FIELDS.len(),
-            22,
-            "22 of the 66 individual settings in the radio's 6xx/7xx menus. If this moved,              update the census table in the module doc and the ## Owed rows in              scratchpad/kenwood_tmd710/APRS-MEASURED.md — a count nobody restates goes stale."
+            31,
+            "31 of the 66 individual settings in the radio's 6xx/7xx menus. If this moved,              update the census table in the module doc and the ## Owed rows in              scratchpad/kenwood_tmd710/APRS-MEASURED.md — a count nobody restates goes stale."
         );
         let schema: Vec<Value> =
             serde_json::from_str(crate::seed::TMD710_SETTINGS_SCHEMA).expect("schema parses");
         assert_eq!(
             schema.len(),
-            22 + 35,
+            31 + 35,
             "the profile form is both transports: 35 MU fields and 22 image fields"
         );
-        // Nine menu numbers are represented. The radio has 34 in this range.
+        // Twelve menu numbers are represented. The radio has 34 in this range.
         let mut menus: Vec<&str> = TMD710_APRS_FIELDS.iter().map(|f| f.menu).collect();
         menus.sort_unstable();
         menus.dedup();
-        assert_eq!(menus, ["601", "602", "603", "606", "607", "609", "611", "614", "617", "626"]);
+        assert_eq!(
+            menus,
+            ["600", "601", "602", "603", "606", "607", "609", "611", "614", "617", "625", "626"]
+        );
     }
 
     /// Keys are what a saved profile stores, and a byte may be shared only when

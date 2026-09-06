@@ -509,5 +509,115 @@
       "Fahrenheit",
       "Celsius"
     ]
+  },
+  {
+    "key": "aprs-beacon-type",
+    "label": "Beacon type (Menu 600)",
+    "type": "enum",
+    "options": [
+      "APRS",
+      "Navitra"
+    ]
+  },
+  {
+    "key": "aprs-tx-delay",
+    "label": "TX delay (Menu 601)",
+    "type": "enum",
+    "options": [
+      "100 ms",
+      "150 ms",
+      "200 ms",
+      "300 ms",
+      "400 ms",
+      "500 ms",
+      "750 ms",
+      "1000 ms"
+    ]
+  },
+  {
+    "key": "aprs-gps-input",
+    "label": "GPS data input (Menu 602)",
+    "type": "enum",
+    "options": [
+      "Off",
+      "GPS",
+      "Weather (PeetBros)",
+      "Weather (Davis)"
+    ]
+  },
+  {
+    "key": "aprs-gps-output",
+    "label": "GPS data output (Menu 602)",
+    "type": "enum",
+    "options": [
+      "Off",
+      "Waypoint",
+      "DGPS"
+    ]
+  },
+  {
+    "key": "aprs-waypoint-format",
+    "label": "Waypoint format (Menu 603)",
+    "type": "enum",
+    "options": [
+      "NMEA",
+      "Magellan",
+      "Kenwood"
+    ]
+  },
+  {
+    "key": "aprs-waypoint-output",
+    "label": "Waypoint output (Menu 603)",
+    "type": "enum",
+    "options": [
+      "All",
+      "Local",
+      "Filtered"
+    ]
+  },
+  {
+    "key": "aprs-position-limit",
+    "label": "Position limit (Menu 609)",
+    "type": "enum",
+    "options": [
+      "Off",
+      "10",
+      "20",
+      "30",
+      "40",
+      "50",
+      "60",
+      "70",
+      "80",
+      "90"
+    ]
+  },
+  {
+    "key": "aprs-beacon-interval",
+    "label": "Beacon initial interval (Menu 611)",
+    "type": "enum",
+    "options": [
+      "0.2 min",
+      "0.5 min",
+      "1 min",
+      "2 min",
+      "3 min",
+      "5 min",
+      "10 min",
+      "20 min",
+      "30 min",
+      "60 min"
+    ]
+  },
+  {
+    "key": "aprs-interrupt-display-area",
+    "label": "Interrupt display area (Menu 625)",
+    "type": "enum",
+    "options": [
+      "Off",
+      "Half",
+      "Entire",
+      "Entire always"
+    ]
   }
 ]

@@ -82,7 +82,7 @@ const ERROR_REPLY: &str = "?";
 /// fails while the operator is still looking at the screen.
 const REPLY_TIMEOUT: Duration = Duration::from_millis(1500);
 
-fn open_port(port: &str) -> Result<Box<dyn SerialPort>, String> {
+pub(crate) fn open_port(port: &str) -> Result<Box<dyn SerialPort>, String> {
     serialport::new(port, BAUD)
         .data_bits(serialport::DataBits::Eight)
         .parity(serialport::Parity::None)

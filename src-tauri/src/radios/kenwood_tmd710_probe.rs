@@ -443,6 +443,74 @@
 //! ID-52, 173 fields, a GPS section and no APRS/D-PRS settings at all. Listed as
 //! a known gap so it stays greppable and a new radio still cannot slip through.
 //!
+//! ## s133 at the radio — ladder step 5 PASSED, nine more fields measured
+//!
+//! ★★★ **The two-transport settings path works.** `read_settings` does `MU`
+//! then `0M PROGRAM` on one open port and all 31 image fields decode;
+//! `write_settings` patched one field from each transport, `verified=true`, one
+//! narrow write to `0x8462`, and Tim confirmed **Menu 501 DISPLAY BRIGHTNESS**
+//! and **Menu 626 TEMPERATURE** on the radio's own screens. The restore left
+//! both transports byte-identical.
+//!
+//! ⚠⚠ **A live command sent immediately after `E` draws SILENCE.** Not the `?`
+//! that [`super::kenwood_tmd710::ask_settling`] absorbs — nothing at all, and it
+//! killed the first settings write. [`d710_settling_after_program_mode`]
+//! separated the two candidate causes: with a long enough pause the **first**
+//! command is answered, so the radio needs *time* and is not discarding a
+//! command. Threshold measured between 100 ms (fails) and 250 ms (works);
+//! `ProgramMode::exit` now waits 500 ms, in the transition rather than at the
+//! call sites.
+//!
+//! ⚠ Once in five poke rounds the exit ack came back as `F6 06 0D` — a leftover
+//! byte in front of it. A full dump proved every written byte had committed, so
+//! rejecting that reply turns a **successful** write into a reported failure,
+//! which is the error that makes an operator run the write again. The ack is now
+//! accepted anywhere in the three-byte window, and refused only when absent.
+//!
+//! ### ★★★ This manual is wrong about LISTS three different ways
+//!
+//! Five poke rounds, each read off the front panel:
+//!
+//! | menu | the manual prints | the radio has |
+//! |---|---|---|
+//! | 611 INITIAL INTERVAL | 8 entries | **10** — `2 min` and `60 min` are missing |
+//! | 625 DISPLAY AREA | `OFF/HALF/ENTIRE`, default `ENTIRE` | **4** entries; index 3 is `ENTIRE ALWAYS` and that is what it ships on |
+//! | 624 RX BEEP | `OFF/MESSAGE ONLY/MINE/ALL NEW/ALL` | **reversed** (see below) |
+//! | 602 INPUT | `…/WEATHER(Davis)/WEATHER(PeetBros)` | **swapped**: 2 is PeetBros, 3 is Davis |
+//!
+//! ★★★ So three distinct failure modes — a list too **short**, a list with the
+//! wrong **labels**, and a list **permuted** — and the fourth (601 TX DELAY,
+//! 5 of 8 indices measured each at its printed position) came out exactly right.
+//! There is no way to tell which kind you have without measuring, and *agreeing
+//! with the manual at one index is not a signal*: 624's index 2 = MINE matched
+//! and the list was reversed around it, because MINE is the middle of an
+//! odd-length run. See [`an-anchored-index-catches-a-bad-list`].
+//!
+//! ### ⚠⚠ Menu 624 RX BEEP is HELD, on a contradiction
+//!
+//! `+0x350` measured `00`=ALL, `01`=ALL NEW, `02`=MINE, `03`=MESSAGE ONLY,
+//! `04`=ALL. **Two indices cannot be one entry.** Every reading but index 4 fits
+//! the manual's list reversed — `ALL/ALL NEW/MINE/MESSAGE ONLY/OFF` — under
+//! which index 4 is `OFF`; and index 4 is the one reading taken *without* first
+//! leaving and re-entering the menu, which is the discipline that already caught
+//! a stale front-panel read on menu 612. Re-poke `04` and read it after leaving
+//! the menu. Do not ship this field until then.
+//!
+//! ### Research, re-run for this substrate (asked, and checked rather than recalled)
+//!
+//! Nobody has published this map. CHIRP's `tmd710.py` is on disk: it maps
+//! channels, names and the `0x0200` PM config block, its settings groups are
+//! Display / Audio / Aux / TX-RX / Memory / PF Keys / VFO / Band Masks /
+//! Repeater / DTMF / Sky Command, and **neither the D710 nor the D710G class
+//! maps one byte at `0x8100`+**. LA3QMA's command repo — the source this
+//! project already uses for `MU` — documents no APRS/TNC settings command;
+//! `CS` ("set/read the callsign") was the one candidate and **this radio
+//! answers it `?`**. No MCP-2A file-format work is published either.
+//!
+//! ⚠ MCP-2A as a *measuring instrument* was offered and **declined** — the
+//! cable has to be re-attached to a VM for every pass, which is slower than
+//! poking. Do not re-offer it.
+//!
 //! ## The radio was returned to pristine
 //!
 //! `d710_restore_aprs_block` from `progfull-71022.bin`, then a full re-dump:
@@ -1573,50 +1641,109 @@ fn d710_settings_roundtrip() {
     let path = port_path();
     let dir = std::env::temp_dir().join("d710-settings-probe");
 
-    // Straight through the trait, exactly as `read_radio_settings` does.
+    // Straight through the trait, exactly as `read_radio_settings` does — and
+    // as of s133 that is TWO transports in one open port: the `MU` line, then
+    // `0M PROGRAM` for the APRS block. **Entering program mode after an `MU`
+    // exchange has never been done in front of the radio**, so this first call
+    // is itself the measurement.
     let before = DRIVER.read_settings(&path, "[]").expect("read settings");
-    let line_before = String::from_utf8(before.backup.clone()).expect("the backup is the MU line");
-    println!("\nbefore: {line_before}");
-    println!("beep volume reads {}", before.settings["beep-volume"]);
+    let backup_before = String::from_utf8(before.backup.clone()).expect("utf8 backup");
+    let (line_before, block_before) = backup_before.split_once('\n').expect("two halves");
+    println!("\nMU:    {line_before}");
+    assert!(
+        block_before.contains("8100  "),
+        "the backup carries no APRS block — the image half of the read did not happen"
+    );
 
-    // Something audible and harmless, and pick a value it is NOT already on so
-    // the write cannot pass by doing nothing — the trap that made a TH-D72
-    // settings write look verified against its own unread buffer.
-    let was = before.settings["beep-volume"].as_str().expect("an option label");
-    let target = if was == "2" { "6" } else { "2" };
+    println!("\n--- the 600-series half, as the form now sees it ---");
+    let mut aprs: Vec<String> = before
+        .settings
+        .as_object()
+        .expect("object")
+        .iter()
+        .filter(|(k, _)| k.starts_with("aprs-"))
+        .map(|(k, v)| format!("  {k:<28} {v}"))
+        .collect();
+    aprs.sort();
+    for l in &aprs {
+        println!("{l}");
+    }
+    assert_eq!(aprs.len(), 31, "the image half did not decode");
+
+    // ★ One field from EACH transport, in one write. Two visually obvious
+    // values, and each is set to something it is NOT already on so the write
+    // cannot pass by doing nothing — the trap that made a TH-D72 settings write
+    // look verified against its own unread buffer.
+    let was_beep = before.settings["display-brightness"].as_str().expect("an option label");
+    let beep = if was_beep == "Level 8" { "Level 3" } else { "Level 8" };
+    let was_unit = before.settings["aprs-temperature-unit"].as_str().expect("a label");
+    let unit = if was_unit == "Celsius" { "Fahrenheit" } else { "Celsius" };
+    println!("\ndisplay brightness {was_beep} -> {beep}, temperature unit {was_unit} -> {unit}");
 
     let report = DRIVER
-        .write_settings(&path, &json!({ "beep-volume": target }), "[]", &dir)
+        .write_settings(
+            &path,
+            &json!({ "display-brightness": beep, "aprs-temperature-unit": unit }),
+            "[]",
+            &dir,
+        )
         .expect("write settings");
     println!(
-        "wrote {} field(s), verified={:?}{}",
+        "wrote {} field(s), verified={:?}, windows={:?} {}",
         report.fields_written,
         report.verified,
+        report.windows_written,
         report.note.as_deref().unwrap_or("")
     );
-    assert_eq!(report.fields_written, 1, "expected exactly one field to change");
+    assert_eq!(report.fields_written, 2, "expected one field from each transport");
     assert_eq!(report.verified, Some(true), "the radio did not take the write");
+    assert_eq!(
+        report.windows_written.len(),
+        1,
+        "one APRS byte changed, so exactly one narrow write should have gone out"
+    );
 
     let mid = DRIVER.read_settings(&path, "[]").expect("re-read");
     assert_eq!(
-        mid.settings["beep-volume"],
-        json!(target),
-        "the decoder does not see the value the write claimed to make"
+        mid.settings["display-brightness"],
+        json!(beep),
+        "the decoder does not see the MU value the write claimed to make"
     );
+    assert_eq!(
+        mid.settings["aprs-temperature-unit"],
+        json!(unit),
+        "the decoder does not see the APRS value the write claimed to make"
+    );
+    println!("\n>>> Menu 501 DISPLAY BRIGHTNESS should be {beep}, Menu 626 TEMPERATURE {unit}.");
 
-    // Put it back, and require the WHOLE line to match — that is what says the
-    // write patched one parameter instead of rebuilding all 42.
+    // ★ The read-back above is the DRIVER checking its own work. Ladder step 5
+    // wants two visually obvious values read off the radio's own screens, which
+    // is the only independent half — so `D710_HOLD=1` stops here and leaves them
+    // on the radio. Re-run without it to restore.
+    if std::env::var("D710_HOLD").is_ok() {
+        println!("\n--- HELD on the radio. Re-run WITHOUT D710_HOLD to restore.\n");
+        return;
+    }
+
+    // Put it back, and require the WHOLE backup to match — both the 42-parameter
+    // line and all 1152 bytes of the APRS block. That is what says each write
+    // patched one field instead of rebuilding its whole transport, and it is a
+    // much stronger restore check than the menu line alone was.
     DRIVER
-        .write_settings(&path, &json!({ "beep-volume": was }), "[]", &dir)
+        .write_settings(
+            &path,
+            &json!({ "display-brightness": was_beep, "aprs-temperature-unit": was_unit }),
+            "[]",
+            &dir,
+        )
         .expect("restore");
     let after = DRIVER.read_settings(&path, "[]").expect("final read");
-    let line_after = String::from_utf8(after.backup).expect("utf8");
-    println!("after:  {line_after}");
+    let backup_after = String::from_utf8(after.backup).expect("utf8");
     assert_eq!(
-        line_after, line_before,
-        "the settings round trip did not leave the menu as it found it"
+        backup_after, backup_before,
+        "the settings round trip did not leave BOTH transports as it found them"
     );
-    println!("\n--- settings read + write proven through the driver traits\n");
+    println!("\n--- settings read + write proven through the driver traits, both transports\n");
 }
 
 /// Clear slots back to empty — `ME nnn,C`, the documented form, tested here.
@@ -2465,4 +2592,81 @@ async fn d710_full_codeplug_ladder() {
         "\n{} written, {} cleared\nbackup: {}\n{}",
         report.channels_written, report.slots_cleared, report.backup_path, report.note
     );
+}
+
+/// How long the radio needs after `E` before it answers a live-mode command.
+///
+/// The two-transport settings write failed on its first `MU` after leaving
+/// program mode — **silence**, not `?`, which is a different symptom from the
+/// mid-line parser state [`super::kenwood_tmd710::ask_settling`] exists for.
+/// Rather than sprinkle a retry over it, measure the gap: enter program mode,
+/// read one block, leave, then ask `ID` after a delay, doubling until it answers.
+///
+/// A control read before the whole sequence proves the port was good to begin
+/// with, so silence afterwards is the radio's answer and not a dead cable.
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_settling_after_program_mode() {
+    use crate::radios::kenwood_tmd710::image::{ProgramMode, APRS_LIVE};
+    use crate::radios::kenwood_tmd710::{ask, open_port};
+
+    let path = port_path();
+    println!("\n=== is it TIME, or is one command swallowed? ===\n");
+
+    // Two arms, and they give different answers. If a long sleep BEFORE the
+    // first command works, the radio needs time. If it still draws silence and
+    // the *second* command works regardless of any sleep, the radio is
+    // discarding exactly one command and a delay would never have fixed it.
+    for pre_ms in [0u64, 100, 250, 400, 550, 700, 850, 1000, 1500] {
+        let mut p = open_port(&path).expect("open");
+        let control = ask(&mut *p, "ID").expect("the control read before program mode");
+        println!("sleep {pre_ms} ms before the first command (control ID = {control:?})");
+
+        let mut pm = ProgramMode::enter(&mut *p).expect("enter");
+        let _ = pm.read(APRS_LIVE, 0).expect("one block");
+        pm.leave().expect("leave");
+
+        std::thread::sleep(Duration::from_millis(pre_ms));
+        for n in 1..=2 {
+            match ask(&mut *p, "ID") {
+                Ok(r) => {
+                    println!("  command {n}: {r:?}");
+                    break;
+                }
+                Err(_) => println!("  command {n}: silence"),
+            }
+        }
+        drop(p);
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    println!("\n--- a long pre-sleep that still draws silence means it is not time\n");
+}
+
+/// Send one **bare** command and print the reply.
+///
+/// ⚠ The safety argument is enforced, not documented: on this protocol a command
+/// with a parameter list WRITES and the bare form reads, so anything carrying a
+/// space or a comma is refused here. `TX` (which keys the transmitter) and `MC`
+/// (which moves the operator's current channel) are refused outright even bare.
+///
+/// `D710_ASK=CS`
+#[test]
+#[ignore = "requires a TM-D710 on the cable"]
+fn d710_ask_readonly() {
+    let cmd = std::env::var("D710_ASK").expect("set D710_ASK to one bare command, e.g. CS");
+    let cmd = cmd.trim().to_ascii_uppercase();
+    assert!(
+        !cmd.contains(' ') && !cmd.contains(','),
+        "{cmd:?} carries a parameter list, which on this radio WRITES. This harness reads."
+    );
+    assert!(
+        !["TX", "MC"].contains(&cmd.as_str()),
+        "{cmd} changes the radio: TX keys the transmitter, MC moves the current channel"
+    );
+
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+    let (text, raw) = ask(&mut *p, &cmd).expect("ask");
+    println!("\n{cmd} -> {text:?}\n     raw = {raw:02X?}\n");
 }

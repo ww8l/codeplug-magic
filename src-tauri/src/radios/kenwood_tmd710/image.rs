@@ -72,6 +72,10 @@ pub(crate) const APRS_BLOCK_LEN: usize = 0x480;
 /// enough that the hole at `0x7F00` is diagnosed rather than waited on.
 const BLOCK_TIMEOUT: Duration = Duration::from_millis(1200);
 
+/// How long the radio needs after `E` before it answers a live-mode command.
+/// Measured on the radio; see [`ProgramMode::exit`].
+const SETTLE_AFTER_EXIT: Duration = Duration::from_millis(500);
+
 /// Every request MCP-2A makes, in its order: 256-byte blocks `0x00`-`0x9B`
 /// except the hole, then two odd tails.
 ///
@@ -221,13 +225,40 @@ impl<'a> ProgramMode<'a> {
         self.inside = false;
         self.send(b"E")?;
         let mut ack = [0u8; 3];
-        // The radio answers `06 0D 00`. A short read here is worth reporting
-        // but not worth failing an otherwise good session over.
-        match self.fill(&mut ack) {
-            Ok(()) if ack[0] == 0x06 => Ok(()),
-            Ok(()) => Err(format!("leaving program mode: the radio answered {ack:02X?}")),
+        // The radio answers `06 0D 00` — but ⚠ **not always at offset 0.** One
+        // session in this campaign got `F6 06 0D`: a leftover byte from the
+        // preceding exchange arrived first and pushed the whole reply along.
+        // Every poked byte in that session was verified present afterwards by a
+        // full dump, so the writes had committed and only the goodbye was out of
+        // step. Requiring `06` in first position therefore turns a *successful*
+        // settings write into a reported failure, which is the worse error: an
+        // operator told a write failed will run it again.
+        //
+        // Accept the ack anywhere in the window and say so in the error only
+        // when it is absent entirely. This is safe precisely because `E` is the
+        // last thing in the session — a stray byte here cannot corrupt anything
+        // that follows it.
+        let r = match self.fill(&mut ack) {
+            Ok(()) if ack.contains(&0x06) => Ok(()),
+            Ok(()) => Err(format!(
+                "leaving program mode: the radio answered {ack:02X?}, with no 06 in it"
+            )),
             Err(e) => Err(format!("leaving program mode: {e}")),
-        }
+        };
+        // ★★★ MEASURED, not defensive. A live-mode command sent immediately
+        // after `E` draws **silence** — and silence, not the `?` that
+        // `ask_settling` exists to absorb. `d710_settling_after_program_mode`
+        // separated the two possible causes: with a long enough pause the very
+        // first command is answered, so the radio needs *time* and is not
+        // discarding a command. The threshold measured between 100 ms (fails)
+        // and 250 ms (works), every value above it clean; this is 2x the worst
+        // failing value.
+        //
+        // It lives here rather than at the call sites because it is a property
+        // of the transition, and the two-transport settings write is only the
+        // first caller that will cross it.
+        std::thread::sleep(SETTLE_AFTER_EXIT);
+        r
     }
 
     fn send(&mut self, bytes: &[u8]) -> Result<(), String> {
@@ -299,6 +330,11 @@ mod tests {
         /// Acknowledge a write and keep the old bytes — the failure that
         /// "0x06 came back" cannot distinguish from success.
         pub stubborn: bool,
+        /// Put one leftover byte in front of the exit ack, as the radio did
+        /// once during the s133 poke rounds.
+        pub stray_before_exit: bool,
+        /// Answer the goodbye with no `06` anywhere.
+        pub bad_exit_ack: bool,
     }
 
     impl FakeProgD710 {
@@ -307,7 +343,15 @@ mod tests {
             // Something recognisable in the APRS block and in block 0.
             mem[0..4].copy_from_slice(&[0x03, 0x4B, 0x01, 0xFF]);
             mem[APRS_LIVE as usize..APRS_LIVE as usize + 6].copy_from_slice(b"WW8L-1");
-            Self { prog: false, mem, seen: Vec::new(), hole_is_silent: true, stubborn: false }
+            Self {
+                prog: false,
+                mem,
+                seen: Vec::new(),
+                hole_is_silent: true,
+                stubborn: false,
+                stray_before_exit: false,
+                bad_exit_ack: false,
+            }
         }
     }
 
@@ -336,6 +380,14 @@ mod tests {
                 Some(b'E') => {
                     self.prog = false;
                     self.seen.push("E".into());
+                    if self.bad_exit_ack {
+                        out.extend_from_slice(&[0xAA, 0xBB, 0xCC]);
+                        return 1;
+                    }
+                    if self.stray_before_exit {
+                        // The `F6 06 0D` seen once on the real radio.
+                        out.push(0xF6);
+                    }
                     out.extend_from_slice(&[0x06, 0x0D, 0x00]);
                     1
                 }
@@ -428,6 +480,33 @@ mod tests {
             vec!["R 8100 4".to_string(), "W 8100 4".to_string(), "E".to_string()]
         );
         assert_eq!(&port.radio.mem[APRS_LIVE as usize..APRS_LIVE as usize + 4], b"K0AA");
+    }
+
+    /// ⚠ Measured on the radio, once, in the middle of a poke round: the exit
+    /// ack came back as `F6 06 0D`. A full dump afterwards proved every written
+    /// byte had committed, so only the goodbye was out of step — and rejecting
+    /// it would have reported a **successful** settings write as a failure, which
+    /// is the error that gets an operator to run the write a second time.
+    #[test]
+    fn a_stray_byte_before_the_exit_ack_does_not_fail_a_session_that_worked() {
+        let mut radio = FakeProgD710::new();
+        radio.stray_before_exit = true;
+        let mut port = FakePort::new(radio);
+        let mut prog = ProgramMode::enter(&mut port).expect("enter");
+        prog.write(APRS_LIVE, b"K0AA").expect("write");
+        prog.leave().expect("a stray byte before the ack is not a failed session");
+    }
+
+    /// But a window with no `06` in it at all still fails — the tolerance is for
+    /// a shifted ack, not for a radio that never acknowledged.
+    #[test]
+    fn an_exit_with_no_acknowledgement_anywhere_is_still_an_error() {
+        let mut radio = FakeProgD710::new();
+        radio.bad_exit_ack = true;
+        let mut port = FakePort::new(radio);
+        let prog = ProgramMode::enter(&mut port).expect("enter");
+        let err = prog.leave().unwrap_err();
+        assert!(err.contains("no 06 in it"), "{err}");
     }
 
     #[test]
