@@ -2133,3 +2133,107 @@ fn d710_dump_span() {
     println!("\n{total} bytes from 0x{lo:04X}-0x{hi:04X} -> {out}");
     println!("offsets in the file are addresses; FF means never answered.");
 }
+
+/// Put the radio back to a reference dump, writing **only the bytes that
+/// actually differ**.
+///
+/// [`d710_restore_aprs_block`] covers the 1152 bytes of the live APRS block,
+/// which is enough while a measurement pass only pokes there. It is not enough
+/// once the operator changes a menu whose byte nobody has located yet — the
+/// change can land anywhere, and asking the operator to write down old values
+/// first makes them the backup system for a dump this harness already holds.
+///
+/// So: read the image, diff it against the reference, and write back the
+/// differing runs. ★ Narrow the write to what changed — a restore that rewrites
+/// regions it did not need to touch is a bigger operation than the change it is
+/// undoing.
+///
+/// ⚠ The five bytes at `0x0216`, `0x0222`, `0x0224`, `0x0228` and `0x022E` are
+/// operating state that drifts as the operator walks menus. They are **skipped**,
+/// not restored: writing them back would be pushing stale state onto a radio
+/// that has legitimately moved on, and they are why a "clean" dump still shows
+/// five differences.
+///
+/// `D710_IMAGE=<path>` names the reference. **Dry-run by default** — it prints
+/// what it would write and stops; set `D710_RESTORE=1` to actually write. A
+/// harness that can write anywhere in the image should not do so by accident.
+#[test]
+#[ignore = "requires a TM-D710 on the cable — WRITES to the radio when D710_RESTORE=1"]
+fn d710_restore_diff() {
+    use super::kenwood_tmd710::image::ProgramMode;
+
+    /// Operating state, not settings. See the doc comment.
+    const VOLATILE: [u32; 5] = [0x0216, 0x0222, 0x0224, 0x0228, 0x022E];
+
+    let src = std::env::var("D710_IMAGE").expect("set D710_IMAGE to a reference dump");
+    let want = std::fs::read(&src).unwrap_or_else(|e| panic!("reading {src}: {e}"));
+    assert_eq!(want.len(), 0x1_0000, "a reference dump is a 64 KiB addressed file");
+    let commit = std::env::var("D710_RESTORE").is_ok_and(|v| v == "1");
+
+    let path = port_path();
+    let mut p = open(&path, 57600).expect("open");
+    let _ = ask(&mut *p, "ID");
+    assert!(ask(&mut *p, "ID").expect("ID").0.contains("TM-D710"));
+    let mut prog = ProgramMode::enter(&mut *p).expect("enter");
+
+    let image = prog.read_image().expect("read the image");
+    let have = image.as_addressed_bytes();
+
+    // Contiguous runs of differing addresses, so the write is as narrow as the
+    // change and no narrower.
+    let mut runs: Vec<(u32, u32)> = vec![];
+    for a in 0..0x1_0000u32 {
+        let differs = have[a as usize] != want[a as usize]
+            && image.slice(a as u16, 1).is_ok()
+            && !VOLATILE.contains(&a);
+        match runs.last_mut() {
+            Some((_, end)) if differs && *end == a => *end = a + 1,
+            _ if differs => runs.push((a, a + 1)),
+            _ => {}
+        }
+    }
+
+    let total: u32 = runs.iter().map(|(a, b)| b - a).sum();
+    println!("\n{} differing run(s), {total} byte(s):", runs.len());
+    for (a, b) in &runs {
+        println!(
+            "  0x{a:04X}..0x{:04X}  radio {} -> reference {}",
+            b - 1,
+            show(&have[*a as usize..*b as usize]),
+            show(&want[*a as usize..*b as usize])
+        );
+    }
+    let skipped: Vec<u32> =
+        VOLATILE.into_iter().filter(|a| have[*a as usize] != want[*a as usize]).collect();
+    if !skipped.is_empty() {
+        println!(
+            "  (skipped {} volatile operating-state byte(s): {})",
+            skipped.len(),
+            skipped.iter().map(|a| format!("0x{a:04X}")).collect::<Vec<_>>().join(", ")
+        );
+    }
+
+    if runs.is_empty() {
+        println!("\nNothing to restore — the radio already matches {src}.");
+        return;
+    }
+    if !commit {
+        println!("\nDry run. Set D710_RESTORE=1 to write these back.");
+        return;
+    }
+
+    for (a, b) in &runs {
+        for chunk_start in (*a..*b).step_by(256) {
+            let n = 256.min(b - chunk_start) as usize;
+            let data = &want[chunk_start as usize..chunk_start as usize + n];
+            prog.write(chunk_start as u16, data)
+                .unwrap_or_else(|e| panic!("write 0x{chunk_start:04X}: {e}"));
+            // ⚠ This protocol acknowledges writes that did not commit.
+            let back = prog
+                .read(chunk_start as u16, if n == 256 { 0 } else { n as u8 })
+                .unwrap_or_else(|e| panic!("read back 0x{chunk_start:04X}: {e}"));
+            assert_eq!(back, data, "0x{chunk_start:04X} did not take the write");
+        }
+    }
+    println!("\nRestored {total} byte(s) from {src}; every run read back clean.");
+}
