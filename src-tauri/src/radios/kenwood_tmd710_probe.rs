@@ -201,32 +201,52 @@
 //! SPECIAL CALL, but the manual's RX BEEP default is `ALL` against a factory
 //! `00`, so that is a guess and is recorded as one.
 //!
-//! ## ⚠⚠ Menu 612: a VOID result, not a negative one
+//! ## ★★★ Menu 612 at `+0x421`, and why the first attempt measured nothing
 //!
-//! `TYPE` was set to `Others` on the front panel and a full re-dump differed
-//! from the pristine image in **three bytes, all of them menus 625/626/627**.
-//! The upper span `0x9C00`-`0xFEEF` changed only in the station list and its
-//! order table — new stations heard between dumps, which is a nice independent
-//! confirmation of what that region is.
+//! First attempt: `TYPE` was set to `Others`, and a full re-dump differed from
+//! pristine in three bytes, all of them menus 625/626/627. That was written up
+//! as "menu 612's TYPE is in none of the 65 168 bytes this radio serves". **It
+//! was not a finding.** Asked afterwards to set the menu back, the operator
+//! found it *already* on `New N Paradigm` — the radio was not holding the
+//! change when the dump ran, and a dump of an unchanged setting shows nothing
+//! trivially.
 //!
-//! That was written up as "menu 612's TYPE is in none of the 65 168 bytes this
-//! radio serves". **It is not a finding.** Asked afterwards to set the menu
-//! back, the operator found it *already* on `New N Paradigm` — so the radio was
-//! not holding the changed value when the dump ran, and a dump of an unchanged
-//! setting shows nothing trivially.
+//! ★★★ Every **poke** in this campaign is verified by read-back, on the standing
+//! rule that this protocol acknowledges writes that never commit — and then a
+//! **front-panel** change was taken on trust. **An operator's change needs the
+//! same proof as a harness write: leave the menu, re-enter it, confirm the value
+//! held, then dump.**
 //!
-//! ★★★ The whole session verified every *poke* by read-back, on the standing
-//! rule that this protocol acknowledges writes that never commit — and then
-//! took a **front-panel** change on trust. A change made by the operator needs
-//! the same proof as a change made by the harness: **leave the menu, re-enter
-//! it, and confirm the new value is still there before dumping.**
+//! The retest, with that check: `TYPE` = `Relay` **persisted**, and exactly one
+//! non-volatile byte moved.
 //!
-//! ⚠ Still unexplained and possibly the real story: `Others` may require path
-//! strings to be entered before the selection persists, in which case the
-//! reversion is itself the measurement. Untested.
+//! | offset | menu | field | values |
+//! |---|---|---|---|
+//! | `+0x421` | 612 | PACKET PATH TYPE | `00` = `New N Paradigm`, `01` = `Relay` |
+//! | `+0x350` | 624 | RX BEEP | `03` = `ALL NEW`, `02` = `MINE` |
 //!
-//! (`WIDE` genuinely appears nowhere in the image, plain or AX.25 bit-shifted.
-//! That search stands; it just never implied the field was absent.)
+//! ⚠ So `Others` really does not persist while `New N Paradigm` and `Relay` do —
+//! most likely it requires path strings first. The reversion was the radio
+//! refusing an incomplete setting, which is a fact about menu 612 and not noise.
+//!
+//! `WIDE` genuinely appears nowhere in the image, plain or AX.25 bit-shifted.
+//! That search stands; it simply never implied the field was absent, because
+//! `WIDE1-1, WIDE2-1` is what enum value `00` *renders as*.
+//!
+//! ## ★★ Neither half of the A manual is trustworthy alone
+//!
+//! A default vector needs a **default** (a name) and a **list** (an order), and
+//! this radio's manual gets each one wrong somewhere:
+//!
+//! | menu | manual default | manual list | which was wrong |
+//! |---|---|---|---|
+//! | 625 DISPLAY AREA | `ENTIRE` ✓ | `OFF/HALF/ENTIRE` -> index 2 ✗ (byte is `03`) | the **list** |
+//! | 624 RX BEEP | `ALL` ✗ (factory is `00`) | `OFF/MESSAGE ONLY/MINE/…` -> `MINE` = 2 ✓ | the **default** |
+//! | 611 INITIAL INTERVAL | `3 min` ✓ | 8 entries, radio has ≥10 ✗ | the **list** |
+//!
+//! ★ So "defaults from the manual, lists from the radio" is a **useful bias, not
+//! a rule** — 624 is a counter-example in the other direction. Confirm whichever
+//! half a conclusion actually rests on.
 //!
 //! ## ★★★ The same instrument, run forwards: ten menus located (s132)
 //!
