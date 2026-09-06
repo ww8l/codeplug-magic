@@ -2294,6 +2294,55 @@ fn d710_restore_diff() {
     println!("\nRestored {total} byte(s) from {src}; every run read back clean.");
 }
 
+/// ## ✅ RUN AND PASSED on the real radio (s132)
+///
+/// 69 memories programmed from codeplug 5 (DEN ANALOG + CHEYENNE, dev DB), 31
+/// channels skipped — every skip a DMR/D-STAR/YSF/P25 repeater this radio
+/// cannot do. Pushed from the **app's own Program button**, not this harness.
+///
+/// **Verified four ways, in increasing independence:**
+///
+/// 1. per-memory read-back inside `program` — proves the radio echoed the write
+/// 2. `d710_read_slots`: 000/034/068 populated, **069, 070, 500, 503 and 506
+///    empty**, so the clear covered the whole range and a program is a replace
+/// 3. ★★★ **the operator read 000, 034, 068 and 069 off the radio's own
+///    screen** — the only step that asks the radio what it calls a slot rather
+///    than comparing a read-back to the same computation that produced it. That
+///    distinction is what made the BT-9000's "ladder step 3 PASSED" worthless.
+/// 4. region diff of a full image dump against the pre-program reference
+///
+/// ### ★★ The region diff answered a question the operator asked first
+///
+/// *"Do I need to do a settings read first?"* No: the D710 takes the
+/// `CodeplugProgrammer` branch of `program_radio`, which never reads
+/// `non_channel_settings` — that lookup is in the `ImageProgrammer` branch this
+/// radio does not implement. Proven rather than asserted:
+///
+/// - the **APRS block differed in 0 bytes**
+/// - all **42 `MU` menu parameters** read back identical to the prior capture
+/// - the only config-block movement was VFO / current-channel state, outside
+///   every known settings offset (`beepon` `0x0350`, `beepvol` `0x0351`,
+///   `bright` `0x0368`, PF keys `0x036B`-`0x0370`, `pwron` `0x02E0`)
+///
+/// That is the exact defect the BT-9000 shipped in reverse: there,
+/// `carries_profile_settings` was false while the whole-image upload rewrote
+/// the settings segment on every program. Here there is no image write at all.
+///
+/// ### ⚠ What this step did NOT test
+///
+/// The ladder's step 3 is "memories, **groups, group names, per-group
+/// numbering**". This driver programs **flat memories only** — `preview`
+/// reports `zones: 0` — so the groups half is untested because it is
+/// unimplemented, not because it passed. The TM-D710 does have memory groups
+/// (CHIRP maps group names at `0x7D00`). Recorded as a gap.
+///
+/// ### The radio was restored and the restore verified
+///
+/// `d710_restore_diff` wrote back 292 runs / 1325 bytes, every run read back
+/// clean. A fresh dump then differed from the pre-program reference in **5
+/// bytes, all of them the known volatile operating state, and 0 bytes across
+/// the channel map, memories and names.**
+///
 /// **Hardware ladder step 3 — the full codeplug**, driven through the app's own
 /// pipeline rather than a synthetic payload.
 ///
