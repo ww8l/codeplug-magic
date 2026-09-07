@@ -204,6 +204,10 @@ export interface SettingField {
   min?: number;
   max?: number;
   max_length?: number;
+  // An example of the format, for a text field whose shape cannot be guessed
+  // (the TM-D710's coordinates and APRS symbol). Shown as the input's
+  // placeholder, so it disappears the moment there is a value.
+  placeholder?: string;
   options?: string[];
 }
 

@@ -13,7 +13,7 @@
 //!
 //! `scratchpad/kenwood_tmd710/APRS-MEASURED.md` grades every located field and
 //! `gen_tmd710_image.py` emits this table and the profile schema from that one
-//! sheet. **22 of the 66 individual settings in the 6xx/7xx range ship.** A row
+//! sheet. **39 of the 66 individual settings in the 6xx/7xx range ship.** A row
 //! ships only when its whole encoding is *anchored*: every index is measured on
 //! the radio, is the factory default confirmed against the A manual, or is the
 //! single remaining printed entry.
@@ -49,74 +49,122 @@
 //! |---|---|---|
 //! | the radio has | ~115 | |
 //! | `MU` reaches | 42 | 35 shipped, 7 held (6 PF keys + p25, meanings unmeasured) |
-//! | the 6xx/7xx image block holds | 34 | 66, of which **31 ship** |
+//! | the 6xx/7xx image block holds | 34 | 66, of which **39 ship** |
 //! | reached by neither | ~39 | the 1xx-5xx menus with no `MU` parameter |
 //!
-//! So the form is **66 fields**, and the 35 unshipped 6xx/7xx settings each have
-//! a row in the sheet's `## Owed` table naming the check that settles it: one
-//! (624 RX BEEP) has contradictory readings, nine are located but seen at a
-//! single value, six are text or record fields whose padding is unmeasured, and
-//! the rest are unlocated.
+//! So the form is **95 controls**, which is not the same number as 39 settings:
+//! menus 605 and 608 hold **five records each**, so three position settings
+//! become fifteen controls and two status-text settings become ten. The census
+//! counts settings; the form counts controls; `the_census_is_stated_rather_than_implied`
+//! asserts the arithmetic between them so "95 fields" can never be reported as
+//! coverage it is not.
 //!
-//! ## ⚠⚠ WHERE THIS STOPS — read before adding anything (s133)
+//! The 27 unshipped 6xx/7xx settings each have a row in the sheet's `## Owed`
+//! table naming the check that settles it: three belong to menu 612's packet
+//! path (see below), nine are located but seen at a single value, and the rest
+//! are unlocated.
 //!
-//! **Tim's decision: no PR until APRS is genuinely usable.** That overrides
-//! CLAUDE.md's "one PR when the radio is essentially done" default for this
-//! radio. The hardware ladder is complete and the channel half is finished; the
-//! settings half is **about 33 of the radio's 66 6xx/7xx settings**, and the
-//! missing ones are the ones an operator actually needs.
+//! ## ⚠⚠ WHERE THIS STOPS — read before adding anything (s134)
 //!
-//! ### The gap that defines "usable", in priority order
+//! **Tim's decision stands: no PR until APRS is genuinely usable.** That
+//! overrides CLAUDE.md's "one PR when the radio is essentially done" default for
+//! this radio.
 //!
-//! You can set your call sign and not your position, status text, symbol or
-//! path. That is the thing to fix, and it is four fields:
+//! ### What s134 closed
 //!
-//! | menu | setting | offset | what has to be measured |
-//! |---|---|---|---|
-//! | 608 | STATUS TEXT ×5 | `+0x089`, 44 B each | the padding byte, and whether the trailing bytes are NUL or space. Write a known string, dump, look |
-//! | 605 | MY POSITION ×5 | `+0x01C`, 20 B each | the lat/lon layout inside the record. Set a known position on the front panel and decode it |
-//! | 610 | STATION ICON | `+0x169`, 2 B | raw APRS symbol table + code. Factory `5C 4B` = `\K` = the Kenwood icon; Tim's reads `/-` = a house. Pick three icons, dump, and the pairs fall out |
-//! | 612 | PACKET PATH TYPE | `+0x421` | `00` = New N Paradigm, `01` = Relay measured. Poke `02`, `03` and read the screen. ⚠ `Others` does not persist without path strings, which is a fact about the menu, not noise |
+//! The gap that defined "usable" was: *you can set your call sign and not your
+//! position, status text, symbol or path.* Three of those four are now measured
+//! on the radio and shipped.
 //!
-//! Then the second rank: 613 NETWORK (unlocated), 615/616, 618-621 UIDIGI /
-//! UIFLOOD / UITRACE / phrases, 622 auto-reply, 623 group filtering (`+0x2F6`
-//! literal located, padding unmeasured), 628/629 Navitra, 700-703 Sky Command.
+//! | menu | setting | how it is anchored |
+//! |---|---|---|
+//! | 605 | MY POSITION ×5 | 8-byte `FF`-padded name, then `[deg][min][frac16 LE][hemisphere]` **twice**. The fraction is thousandths of a minute; latitude is `0`=N/`1`=S and longitude `0`=E/`1`=W, **all four read on the front panel**. Two slots poked with disjoint digits (12/34/321 + 98/12/654, then 56/7/890 + 123/45/670) |
+//! | 608 | STATUS TEXT ×5 | array base `+0x08A`, record = `[42 text][1 unknown][1 TX rate]`. Padding measured off **three texts the radio itself wrote**; rate stores the DENOMINATOR (`00`=Off, `03` read `1/3`) |
+//! | 610 | STATION ICON | the raw APRS symbol table + code, anchored twice (`/-`→House, `/>`→Car) and agreeing with the **published APRS spec** rather than any list in the manual |
+//! | 624 | RX BEEP | all five indices, the manual's list **reversed** |
 //!
-//! ### Two things are built and NOT verified on hardware
+//! ★★★ **`+0x165` is resolved: it is status text record 5's TX rate.** Three
+//! hypotheses died on that byte — position comment (s129), TX rate (s131),
+//! position limit (s132) — and every one failed for the same reason: **the record
+//! boundary was off by one**, not the encoding. s131's "`05` reads `1/5`" was
+//! right about the encoding and wrong about which record owned it. When a byte
+//! resists three guesses, suspect the array around it, not the byte.
 //!
-//! The cable came off the Mac before these ran. Neither is hard; both are one
-//! command:
+//! ### ⚠ Menu 612 PACKET PATH is located and deliberately NOT shipped
 //!
-//! 1. **The `W::Config` window has never been read by the driver.** Every other
-//!    window read is proven. Run `d710_settings_roundtrip` and check the two
-//!    text fields decode to `WW8L-1` and `WW8L`.
-//! 2. **The two text fields have never been written to the radio**, only to a
-//!    test buffer. The same run covers it.
+//! It is not one setting. The manual lists four types, each with its own
+//! sub-fields, and the menu shows all four with a marker on the one in use:
 //!
-//! ### Open questions with the exact check that settles each
+//! - `+0x421` type index — `00`=New-N and `01`=Relay measured. `02` and `03`
+//!   **both fell back to New-N** while their string field was empty, which is the
+//!   manual's documented behaviour and not a bad offset. Once a path string
+//!   existed the byte held `03` through a front-panel `USE`, but the marker was
+//!   never read afterwards, so index 3 has **indirect evidence only**.
+//! - `+0x172` TOTAL HOPS — one value (`03`). ⚠⚠ poking `07` left menu 612 with
+//!   **nothing selectable** until the block was restored, so 7 is out of range.
+//! - `+0x184` the OTHERS path string — NUL-padded, and the radio **uppercases**
+//!   it (`0vt` typed on the panel stored as `0VT`). Width unmeasured.
+//! - `+0x174` WIDE 1-1 — went `01`→`02` when set ON, so it is **not** a 0/1
+//!   boolean and the OFF value is unconfirmed.
 //!
-//! - **624 RX BEEP `+0x350` is CONTRADICTORY** — `00` and `04` both read `ALL`.
-//!   All other readings fit the manual's list reversed, under which `04` is
-//!   `OFF`. Index 4 is the only reading taken without leaving and re-entering
-//!   the menu first. Re-poke `04`, leave menu 624, re-enter, read.
-//! - **`MU` p25 is menu 403 or 406** — both are three-option menus between p24
-//!   (402) and p26 (501), and `MU` follows menu order. Change menu **403** on
-//!   the front panel and read `MU`. ⚠ 403 is cross-band repeat; do not guess it.
+//! One short round settles all four: poke `+0x174` at `01`/`02`, `+0x172` at
+//! `01`/`02`/`04`, set an ABBR for State/Section/Region, and read menu 612.
+//!
+//! ### ⚠ Built and NOT verified on hardware
+//!
+//! **`d710_record_fields_write`** exercises menu 605's and 608's records through
+//! `write_settings` — the same call the profile screen makes — into slot 3 of
+//! each, which is unused on this operator's radio, and puts the as-found bytes
+//! back raw afterwards (the form cannot express "FF-filled", because an empty
+//! field means *leave it alone*). It was written after the cable came off the Mac
+//! and **has never run**. One command:
+//!
+//! ```text
+//! D710_PORT=… cargo test --lib d710_record_fields_write -- --ignored --nocapture
+//! ```
+//!
+//! Everything else in the settings path IS hardware-proven, including — as of
+//! s134 — the `W::Config` window read, which had never been done by the driver:
+//! it decoded `power-on-message` to `WW8L` and the call sign to `WW8L-1` off the
+//! real radio, and the restore left both transports byte-identical.
+//!
+//! ### ⚠⚠ A hazard this module now defends against, and one it does not
+//!
+//! `patch` treats an **empty string as "not set"** and leaves the radio's bytes
+//! alone. That is load-bearing: a profile the operator has never downloaded into
+//! seeds every text field to `""` (`seedValues` → `fieldDefault`), and
+//! `write_radio_settings` sends the profile as *saved* — so treating `""` as a
+//! value would let a fresh profile blank the call sign, all five status texts and
+//! all five position records in one write. Same shape as #90.
+//!
+//! ⚠ **The same seeding still pushes every `select` and `boolean` default**, and
+//! that is NOT fixed here. A fresh D710 profile written to a radio would set ~60
+//! settings to a schema default the operator never chose. It is a form-layer
+//! problem, not this module's, and it is not specific to this radio.
+//!
+//! ### Still open, each with its check
+//!
+//! - **`MU` p25 is menu 403 or 406** — change menu **403** on the front panel and
+//!   read `MU`. ⚠ 403 is cross-band repeat; do not guess it.
 //! - **A second tranche sits in `W::Config`**, which this driver already reads.
 //!   CHIRP names contrast (504), PC port baud (519), visual scan (515), group
 //!   link (203), S-meter squelch (105), WX alert (110) and repeater mode (403)
-//!   inside the `0x0200` block. ⚠ **CHIRP's field claims for this radio have
-//!   never been checked** — its APRS claims were useless while its structure was
-//!   right — so each needs the factory-default cross-check before it ships.
-//! - Single-valued and unexplained, unchanged: `+0x35D`, `+0x35E`, `+0x360`,
-//!   `+0x361`, `+0x363`, the `+0x0B5` per-record question, `+0x165`, `+0x00B`.
+//!   inside the `0x0200` block. ⚠ CHIRP's *field* claims for this radio have
+//!   never been checked, so each needs the factory-default cross-check first.
+//! - Single-valued or unexplained: `+0x35D`, `+0x35E`, `+0x360`, `+0x361`,
+//!   `+0x363`, `+0x00B`, `+0x35F`=`82`, and each record's own unknown byte —
+//!   position idx8/idx19 and status text's 43rd.
+//! - The ten group **names** and menu **203** itself are settings and unlocated.
 //!
 //! ### ★ How to work on this without wasting a radio session
 //!
 //! Batch **4-6 pokes across different menus in one pass**, then one walk of the
-//! front panel. Five rounds settled nine fields that way. Always: distinct
-//! values, a control read, leave-and-re-enter before believing a screen, and a
-//! step-aligned negative control when probing an edge.
+//! front panel. Always: distinct values, a control read, leave-and-re-enter
+//! before believing a screen, and a step-aligned negative control at an edge.
+//!
+//! ★★ And **look for the A manual before asking the operator anything.** Menu
+//! 612's four-field shape is in `TM-D710A_manual.txt` plus the G's PACKET PATH
+//! section; a question was put to Tim that the manual on disk already answered.
 //!
 //! ## Writing
 //!
@@ -193,6 +241,20 @@ impl AF {
     pub(crate) fn display(&self) -> String {
         format!("{} (Menu {})", self.label, self.menu)
     }
+
+    /// How many bytes this field occupies.
+    ///
+    /// Derived from the kind rather than stored, so a new multi-byte kind cannot
+    /// be added while some caller goes on assuming one byte — which is what the
+    /// overlap and volatile-state guards below both depend on.
+    pub(crate) fn span(&self) -> usize {
+        match self.kind {
+            AK::Text { bytes, .. } => bytes,
+            AK::LatLon { .. } => 5,
+            AK::Symbol => 2,
+            AK::Bool | AK::Bit { .. } | AK::Enum { .. } | AK::Uint { .. } | AK::Ctcss => 1,
+        }
+    }
 }
 
 pub(crate) enum AK {
@@ -215,6 +277,31 @@ pub(crate) enum AK {
     /// the channel encoder uses, read rather than re-typed so the two cannot
     /// drift. Measured at `08` = 88.5 Hz and `0C` = 100.0 Hz.
     Ctcss,
+    /// Half of a menu 605 position: `[deg][min][frac lo][frac hi][hemisphere]`,
+    /// five bytes, the fraction a 16-bit LITTLE-endian count of **thousandths of
+    /// a minute**.
+    ///
+    /// Measured by poking a slot the operator was not using and reading the
+    /// front panel: 12/34/321 came back as `12 34.32` and 98/12/654 as
+    /// `098 12.65`, so the panel shows two decimals of a value stored with
+    /// three. A second slot (56/7/890 and 123/45/670) confirmed it.
+    ///
+    /// ⚠ The hemisphere byte sits **after** its value, not before it, and the
+    /// two hemispheres do not share a convention: latitude is `0`=N/`1`=S and
+    /// longitude is `0`=E/`1`=W. Both were read on the screen for both fields.
+    /// The record is symmetric — `[value][hemisphere]` twice — which is what
+    /// made an earlier split that put both flags up front fit the operator's own
+    /// data perfectly and predict the wrong thing.
+    LatLon { lon: bool },
+    /// A station icon: the raw APRS symbol **table** byte then **code** byte,
+    /// exactly two printable characters.
+    ///
+    /// Not an index into the menu's icon list. `2F 2D` = `/-` reads House on the
+    /// radio and a poked `2F 3E` = `/>` read Car — two anchors, and both agree
+    /// with the published APRS symbol spec rather than with any list in the
+    /// manual, so the encoding rests on a standard instead of on a printed
+    /// order this radio's manual has already got wrong three different ways.
+    Symbol,
 }
 
 include!("tmd710_image_table.rs");
@@ -236,19 +323,22 @@ fn bytes_of<'a>(wins: &'a [(W, Vec<u8>)], f: &AF, n: usize) -> Option<&'a [u8]> 
 /// Decode the windows into the profile form's shape.
 pub(crate) fn decode(wins: &[(W, Vec<u8>)], out: &mut Map<String, Value>) {
     for f in TMD710_IMAGE_FIELDS {
-        if let AK::Text { bytes, pad, .. } = f.kind {
-            let Some(raw) = bytes_of(wins, f, bytes) else { continue };
-            // Everything up to the first pad byte. The radio writes the pad
-            // itself, so trimming it is reading, not cleaning up.
-            let end = raw.iter().position(|b| *b == pad).unwrap_or(raw.len());
-            let text: String = raw[..end].iter().map(|b| *b as char).collect();
-            out.insert(f.key.to_string(), json!(text));
+        if f.span() > 1 {
+            let Some(raw) = bytes_of(wins, f, f.span()) else { continue };
+            let value = match f.kind {
+                AK::Text { .. } | AK::Symbol => json!(trim_text(raw)),
+                AK::LatLon { lon } => json!(decode_latlon(raw, lon)),
+                _ => unreachable!("{} spans {} bytes but is not a multi-byte kind", f.key, f.span()),
+            };
+            out.insert(f.key.to_string(), value);
             continue;
         }
         let Some(&b) = bytes_of(wins, f, 1).map(|s| &s[0]) else { continue };
         let value = match &f.kind {
-            // Handled above; the `continue` there is what makes this arm dead.
-            AK::Text { .. } => unreachable!("text decodes before this match"),
+            // Handled above; the `continue` there is what makes these arms dead.
+            AK::Text { .. } | AK::Symbol | AK::LatLon { .. } => {
+                unreachable!("multi-byte kinds decode before this match")
+            }
             AK::Bool => json!(b != 0),
             AK::Bit { bit } => json!(b & (1 << bit) != 0),
             AK::Uint { .. } => json!(b),
@@ -267,6 +357,129 @@ pub(crate) fn decode(wins: &[(W, Vec<u8>)], out: &mut Map<String, Value>) {
         };
         out.insert(f.key.to_string(), value);
     }
+}
+
+/// Text up to the first byte that is not printable ASCII.
+///
+/// ⚠ **Not up to `pad`.** `pad` is what the radio writes after text *it* wrote,
+/// and that is not what fills a record the radio has never written: a status text
+/// slot the operator has never used is `FF`-filled while a used one is
+/// NUL-padded, and the power-on message pads with `FF` where the call sign pads
+/// with `00`. Every one of those terminates here. [`encode_text`] refuses
+/// non-printable input, so a non-printable byte inside one of these fields is
+/// always padding or space the radio has never touched.
+fn trim_text(raw: &[u8]) -> String {
+    let end = raw.iter().position(|b| !(0x20..0x7F).contains(b)).unwrap_or(raw.len());
+    raw[..end].iter().map(|b| *b as char).collect()
+}
+
+/// One position half as the form shows it — `"N 40 29.240"` — or `""` for a slot
+/// the radio is not using.
+///
+/// An all-zero record is the radio's own empty slot; four of this operator's five
+/// hold exactly that. It decodes to the empty string so the form shows a blank
+/// rather than a spurious position on the equator, and [`encode_latlon`] writes
+/// the zeros back for an empty string, so the round trip is exact.
+fn decode_latlon(raw: &[u8], lon: bool) -> String {
+    if raw.iter().all(|b| *b == 0) {
+        return String::new();
+    }
+    let hemi = match (lon, raw[4]) {
+        (false, 0) => 'N',
+        (false, _) => 'S',
+        (true, 0) => 'E',
+        (true, _) => 'W',
+    };
+    // ⚠ Thousandths of a minute, LITTLE-endian, and the panel shows only two of
+    // the three digits — poking 321 read back as `.32`. So the third digit is
+    // real storage the radio will not display, and rounding it away here would
+    // change a position the operator never edited.
+    let frac = u16::from_le_bytes([raw[2], raw[3]]);
+    // Zero-padded exactly as the radio's own screen shows it — three degree
+    // digits for a longitude, two for a latitude, two minute digits for both.
+    // Tim read `098 12.65` and `56 07.89` off the panel, and a form that renders
+    // the same position differently from the radio is a form you cannot check
+    // against the radio.
+    let deg = if lon { format!("{:03}", raw[0]) } else { format!("{:02}", raw[0]) };
+    format!("{hemi} {deg} {:02}.{frac:03}", raw[1])
+}
+
+/// `"N 40 29.240"` -> `[deg, min, frac lo, frac hi, hemisphere]`.
+fn encode_latlon(f: &AF, v: &Value, lon: bool) -> Result<Vec<u8>, String> {
+    let raw = v
+        .as_str()
+        .ok_or_else(|| format!("{} expects text, got {v}", f.display()))?;
+    let s = raw.trim();
+    if s.is_empty() {
+        // The radio's own "unused slot". Reached only from a value that was
+        // explicitly cleared, since `patch` skips an untouched empty field.
+        return Ok(vec![0; 5]);
+    }
+    let shape = if lon { "W 104 55.840" } else { "N 40 29.240" };
+    let bad = || format!("{} should look like \"{shape}\"; got {s:?}", f.display());
+
+    // The hemisphere letter is taken from either end: "40 29.240 N" is how a lot
+    // of people write it, and refusing that teaches an operator nothing.
+    let mut body = s.to_ascii_uppercase();
+    let letters = if lon { ['E', 'W'] } else { ['N', 'S'] };
+    let hemi = if body.starts_with(letters) {
+        body.remove(0)
+    } else if body.ends_with(letters) {
+        body.pop().expect("non-empty")
+    } else {
+        return Err(format!(
+            "{} needs {} or {} for the hemisphere; got {s:?}",
+            f.display(),
+            letters[0],
+            letters[1]
+        ));
+    };
+
+    let mut parts = body.split_whitespace();
+    let (Some(d), Some(m), None) = (parts.next(), parts.next(), parts.next()) else {
+        return Err(bad());
+    };
+    let (whole, frac) = match m.split_once('.') {
+        Some((whole, fr)) => {
+            if fr.is_empty() || fr.len() > 3 || !fr.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(bad());
+            }
+            // Left-aligned, because it is a decimal fraction: ".5" is 500
+            // thousandths of a minute, not 5.
+            (whole, format!("{fr:0<3}").parse::<u16>().map_err(|_| bad())?)
+        }
+        None => (m, 0),
+    };
+    let deg: u16 = d.parse().map_err(|_| bad())?;
+    let min: u16 = whole.parse().map_err(|_| bad())?;
+
+    let deg_max = if lon { 180 } else { 90 };
+    if deg > deg_max || (deg == deg_max && (min > 0 || frac > 0)) {
+        return Err(format!("{} is past {deg_max}\u{b0}; got {s:?}", f.display()));
+    }
+    if min > 59 {
+        return Err(format!("{} has {min} minutes; the radio stores 0-59", f.display()));
+    }
+    let [lo, hi] = frac.to_le_bytes();
+    Ok(vec![deg as u8, min as u8, lo, hi, u8::from(hemi == 'S' || hemi == 'W')])
+}
+
+/// `"/-"` -> the two raw APRS symbol bytes, table then code.
+fn encode_symbol(f: &AF, v: &Value) -> Result<Vec<u8>, String> {
+    let s = v
+        .as_str()
+        .ok_or_else(|| format!("{} expects text, got {v}", f.display()))?;
+    let c: Vec<char> = s.chars().collect();
+    // Exactly two, not "at most two": a symbol is a table byte AND a code byte,
+    // and half of one is not a lesser symbol, it is a different one.
+    if c.len() != 2 || c.iter().any(|c| !(' '..='~').contains(c)) {
+        return Err(format!(
+            "{} is an APRS symbol table and code \u{2014} exactly two characters, \
+             like \"/-\" for a house or \"/>\" for a car; got {s:?}",
+            f.display()
+        ));
+    }
+    Ok(vec![c[0] as u8, c[1] as u8])
 }
 
 /// One text value as the bytes the radio stores, padded as the radio pads.
@@ -296,10 +509,23 @@ fn encode_text(f: &AF, v: &Value) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+/// One multi-byte field's value as the bytes the radio stores, or `None` when
+/// the field is a single byte and belongs to [`encode_one`].
+fn encode_multi(f: &AF, v: &Value) -> Option<Result<Vec<u8>, String>> {
+    match f.kind {
+        AK::Text { .. } => Some(encode_text(f, v)),
+        AK::Symbol => Some(encode_symbol(f, v)),
+        AK::LatLon { lon } => Some(encode_latlon(f, v, lon)),
+        _ => None,
+    }
+}
+
 /// One form value as the byte the radio stores.
 fn encode_one(f: &AF, v: &Value) -> Result<u8, String> {
     Ok(match &f.kind {
-        AK::Text { .. } => unreachable!("text goes through encode_text"),
+        AK::Text { .. } | AK::Symbol | AK::LatLon { .. } => {
+            unreachable!("multi-byte kinds go through encode_multi")
+        }
         AK::Bool | AK::Bit { .. } => match v.as_bool() {
             Some(b) => u8::from(b),
             None => return Err(format!("{} expects true or false, got {v}", f.display())),
@@ -370,12 +596,30 @@ pub(crate) fn patch(base: &[(W, Vec<u8>)], settings: &Value) -> Result<(Windows,
         if v.is_null() {
             continue;
         }
+        // ⚠⚠ An empty string means **"not set"**, and the radio's own bytes are
+        // left exactly as they came. It does NOT mean "erase this field".
+        //
+        // This is not tidiness. A profile the operator has never downloaded into
+        // seeds every text field to `""` (`seedValues` -> `fieldDefault`), and
+        // `write_radio_settings` sends the profile as SAVED — so treating `""` as
+        // a value would let a fresh profile blank the operator's call sign, all
+        // five status texts and all five position records in one write, none of
+        // which this form had ever shown them. Same shape as #90.
+        //
+        // The cost is that the form cannot clear one of these fields, which is
+        // the far cheaper half of the trade: nothing here has a useful empty
+        // value on the air, and an unused position slot is already unused.
+        if v.as_str() == Some("") {
+            continue;
+        }
         let Some((_, buf)) = out.iter_mut().find(|(w, _)| *w == f.win) else { continue };
 
-        if let AK::Text { bytes, .. } = f.kind {
-            let encoded = encode_text(f, v)?;
-            if buf[f.off..f.off + bytes] != encoded[..] {
-                buf[f.off..f.off + bytes].copy_from_slice(&encoded);
+        if let Some(encoded) = encode_multi(f, v) {
+            let encoded = encoded?;
+            let n = f.span();
+            debug_assert_eq!(encoded.len(), n, "{} encoded {} bytes", f.key, encoded.len());
+            if buf[f.off..f.off + n] != encoded[..] {
+                buf[f.off..f.off + n].copy_from_slice(&encoded);
                 changed += 1;
             }
             continue;
@@ -493,7 +737,35 @@ mod tests {
         ] {
             aprs[off] = v;
         }
+        // The operator's own two position records and three of his status texts,
+        // byte for byte out of `progfull-54397.bin`. Synthetic values would test
+        // the parser against itself; these are what the radio holds and what its
+        // screen was showing while they were read.
+        aprs[0x01C..0x030].copy_from_slice(
+            b"THESHACK\x00\x28\x1d\xf0\x00\x00\x68\x37\x48\x03\x01\x00",
+        );
+        aprs[0x030..0x044].copy_from_slice(
+            b"RancH\xff\xff\xff\x00\x28\x1a\x08\x02\x00\x68\x3b\x96\x00\x01\x00",
+        );
+        let one = b"IN THE SHACK ON 447.275, 3171 DMR, ";
+        aprs[0x08A..0x08A + one.len()].copy_from_slice(one);
+        aprs[0x0B5] = 0x01; // status text 1 TX rate = 1/1
+        // ⚠ Record 3 as the radio leaves a slot it has NEVER written: FF-filled,
+        // not NUL-padded. That is the case the decoder's terminator has to cover
+        // and the reason it stops at the first non-printable byte instead of at
+        // this field's `pad`.
+        aprs[0x0E2..0x0E2 + 42].fill(0xFF);
+        aprs[0x169..0x16B].copy_from_slice(b"/-"); // station icon: a house
+        aprs[0x350] = 0x03; // 624 RX beep = Message only
         vec![(W::Config, cfg), (W::Aprs, aprs)]
+    }
+
+    /// One field by key, so a codec test names the field the form names.
+    fn field(key: &str) -> &'static AF {
+        TMD710_IMAGE_FIELDS
+            .iter()
+            .find(|f| f.key == key)
+            .unwrap_or_else(|| panic!("no field {key:?}"))
     }
 
     fn decoded() -> Map<String, Value> {
@@ -522,6 +794,17 @@ mod tests {
                 AK::Text { chars, .. } => {
                     assert_eq!(e["type"], "text", "{}", f.key);
                     assert_eq!(e["max_length"], json!(chars), "{}", f.key);
+                }
+                // Both render as text, and both are unguessable without the
+                // example the schema carries as a placeholder — so the
+                // placeholder is part of what has to agree, not decoration.
+                AK::Symbol | AK::LatLon { .. } => {
+                    assert_eq!(e["type"], "text", "{}", f.key);
+                    assert!(
+                        e["placeholder"].as_str().is_some_and(|s| !s.is_empty()),
+                        "{} has no placeholder, so its format is unguessable",
+                        f.key
+                    );
                 }
                 AK::Uint { min, max } => {
                     assert_eq!(e["type"], "integer", "{}", f.key);
@@ -571,15 +854,34 @@ mod tests {
     fn the_census_is_stated_rather_than_implied() {
         assert_eq!(
             TMD710_IMAGE_FIELDS.len(),
-            33,
-            "32 of the 66 individual settings in the radio's 6xx/7xx menus, plus menu \
-             500's power-on message from the config window. If this moved, update the \
-             census in the module doc and the ## Owed rows in APRS-MEASURED.md."
+            60,
+            "controls, not settings — the five-record menus contribute five rows each. \
+             If this moved, update the census in the module doc and the ## Owed rows \
+             in APRS-MEASURED.md."
         );
+
+        // ⚠ The 66 denominator counts each menu's DISTINCT settings, which is how
+        // CENSUS.md itemised it: menu 605 contributes NAME / LATITUDE / LONGITUDE
+        // and menu 608 contributes TEXT / TX RATE — once each, not once per
+        // record. So the per-record menus have to collapse before the two numbers
+        // can honestly be compared, and stating that here is what stops "60
+        // fields" from being quietly reported as coverage it is not.
+        let per_record =
+            TMD710_IMAGE_FIELDS.iter().filter(|f| matches!(f.menu, "605" | "608")).count();
+        assert_eq!(per_record, 25, "five records of 3 position and 2 status-text settings");
+        let distinct = TMD710_IMAGE_FIELDS.len() - per_record + 5;
+        assert_eq!(
+            distinct - 1,
+            39,
+            "39 of the 66 individual settings in the radio's 6xx/7xx menus. The -1 is \
+             menu 500's power-on message, which comes from the config window and is \
+             not an APRS setting at all."
+        );
+
         let schema: Vec<Value> =
             serde_json::from_str(crate::seed::TMD710_SETTINGS_SCHEMA).expect("schema parses");
         let fields = schema.iter().filter(|e| e["type"] != "section").count();
-        assert_eq!(fields, 33 + 35, "the form is both transports");
+        assert_eq!(fields, 60 + 35, "the form is both transports");
         // ★ And it is GROUPED, like every other radio here. The TM-D710 was the
         // only one shipping a flat list, which is what made 68 controls
         // unreadable.
@@ -611,11 +913,7 @@ mod tests {
             if f.win != W::Config {
                 continue;
             }
-            let n = match f.kind {
-                AK::Text { bytes, .. } => bytes,
-                _ => 1,
-            };
-            for off in f.off..f.off + n {
+            for off in f.off..f.off + f.span() {
                 let addr = CONFIG_BASE as usize + off;
                 assert!(
                     ![0x0216, 0x0222, 0x0224, 0x0228, 0x022E].contains(&addr),
@@ -636,20 +934,30 @@ mod tests {
         keys.dedup();
         assert_eq!(keys.len(), n, "duplicate settings key");
 
-        let mut slots: Vec<(u16, usize, i16)> = TMD710_IMAGE_FIELDS
-            .iter()
-            .map(|f| match f.kind {
-                AK::Bit { bit } => (f.win.base(), f.off, i16::from(bit)),
-                _ => (f.win.base(), f.off, -1),
-            })
-            .collect();
-        slots.sort_unstable();
-        slots.dedup();
-        assert_eq!(slots.len(), n, "two fields claim the same byte");
+        // ⚠ Every byte of every field, not just the first. Twenty of these
+        // fields are multi-byte records laid out at a fixed stride, so the
+        // failure this has to catch is a record whose offset arithmetic is off
+        // and which therefore runs into its neighbour — invisible to a check
+        // that only compares starting offsets, and it would corrupt the field
+        // next door on the first write.
+        let mut owner: std::collections::HashMap<(u16, usize, i16), &str> =
+            std::collections::HashMap::new();
+        for f in TMD710_IMAGE_FIELDS {
+            let bit = match f.kind {
+                AK::Bit { bit } => i16::from(bit),
+                _ => -1,
+            };
+            for off in f.off..f.off + f.span() {
+                if let Some(prev) = owner.insert((f.win.base(), off, bit), f.key) {
+                    panic!("{} and {} both claim {:?} +0x{off:03X}", f.key, prev, f.win);
+                }
+            }
+        }
         assert!(
-            TMD710_IMAGE_FIELDS.iter().all(|f| f.off < f.win.len()),
-            "a field points past the end of its window"
+            TMD710_IMAGE_FIELDS.iter().all(|f| f.off + f.span() <= f.win.len()),
+            "a field runs past the end of its window"
         );
+        let _ = n;
     }
 
     /// The radio's own bytes decode to what its screen was showing.
@@ -822,4 +1130,170 @@ mod tests {
         assert!(runs.iter().all(|(s, e)| e - s <= 256), "{runs:?}");
         assert_eq!(runs.iter().map(|(s, e)| e - s).sum::<usize>(), 600);
     }
+
+    /// The operator's own records, decoded to what his radio's screen shows and
+    /// re-encoded to the very same bytes.
+    #[test]
+    fn a_position_record_round_trips_through_the_operators_own_bytes() {
+        let v = Value::Object(decoded());
+        assert_eq!(v["aprs-position-1-name"], json!("THESHACK"));
+        assert_eq!(v["aprs-position-1-lat"], json!("N 40 29.240"));
+        assert_eq!(v["aprs-position-1-lon"], json!("W 104 55.840"));
+        // FF-padded name, and a fraction whose low byte is zero — the case a
+        // big-endian reading would decode as 8.192 minutes instead of 0.520.
+        assert_eq!(v["aprs-position-2-name"], json!("RancH"));
+        assert_eq!(v["aprs-position-2-lat"], json!("N 40 26.520"));
+        assert_eq!(v["aprs-position-2-lon"], json!("W 104 59.150"));
+
+        let base = sample();
+        let (out, changed) = patch(&base, &v).expect("re-encode");
+        assert_eq!(changed, 0, "decoding and re-encoding the radio's own bytes moved one");
+        assert_eq!(out, base);
+    }
+
+    /// ★ The measurement that named this layout, kept as a test: the exact bytes
+    /// poked into a slot the operator was not using, and the exact strings his
+    /// front panel then showed.
+    ///
+    /// ⚠ The panel showed `12 34.32` for a stored 321 — two digits of a value
+    /// held in three. The third digit is real storage, so it is preserved here
+    /// rather than rounded to what the screen can draw.
+    #[test]
+    fn the_poked_positions_decode_to_what_the_front_panel_showed() {
+        // lat 12/34/321 with hemisphere 1, lon 98/12/654 with hemisphere 1
+        assert_eq!(decode_latlon(&[12, 34, 0x41, 0x01, 1], false), "S 12 34.321");
+        assert_eq!(decode_latlon(&[98, 12, 0x8E, 0x02, 1], true), "W 098 12.654");
+        // and the same slots with hemisphere 0, which read N and E on the screen
+        assert_eq!(decode_latlon(&[12, 34, 0x41, 0x01, 0], false), "N 12 34.321");
+        assert_eq!(decode_latlon(&[98, 12, 0x8E, 0x02, 0], true), "E 098 12.654");
+        // the second slot, a different set of digits entirely
+        assert_eq!(decode_latlon(&[56, 7, 0x7A, 0x03, 1], false), "S 56 07.890");
+        assert_eq!(decode_latlon(&[123, 45, 0x9E, 0x02, 0], true), "E 123 45.670");
+    }
+
+    #[test]
+    fn a_position_is_accepted_the_way_people_actually_write_one() {
+        let lat = field("aprs-position-1-lat");
+        let want = vec![40, 29, 0xF0, 0x00, 0];
+        for s in ["N 40 29.240", "n 40 29.240", "40 29.240 N", "  N   40   29.240  "] {
+            assert_eq!(encode_latlon(lat, &json!(s), false).expect(s), want, "{s:?}");
+        }
+        // A fraction is DECIMAL, so ".5" is 500 thousandths of a minute, not 5.
+        assert_eq!(
+            encode_latlon(lat, &json!("N 40 29.5"), false).expect("short fraction"),
+            vec![40, 29, 0xF4, 0x01, 0]
+        );
+        assert_eq!(
+            encode_latlon(lat, &json!("N 40 29"), false).expect("no fraction"),
+            vec![40, 29, 0, 0, 0]
+        );
+    }
+
+    #[test]
+    fn a_position_the_radio_cannot_store_is_refused_rather_than_clamped() {
+        let lat = field("aprs-position-1-lat");
+        let lon = field("aprs-position-1-lon");
+        for s in ["E 40 29.240", "40 29.240", "N 91 00.000", "N 40 60.000", "N 40 29.2405"] {
+            assert!(encode_latlon(lat, &json!(s), false).is_err(), "{s:?} was accepted");
+        }
+        // A longitude reaches 180 and takes E/W, not N/S — the two halves do not
+        // share a range or a letter pair.
+        assert!(encode_latlon(lon, &json!("N 104 55.840"), true).is_err());
+        assert!(encode_latlon(lon, &json!("W 104 55.840"), true).is_ok());
+        assert!(encode_latlon(lon, &json!("W 181 00.000"), true).is_err());
+        assert!(encode_latlon(lat, &json!("N 104 55.840"), false).is_err(), "past 90");
+    }
+
+    /// An unused slot is all zeros on the radio and blank in the form, both ways.
+    #[test]
+    fn an_unused_position_slot_is_blank_in_the_form_and_zeros_on_the_radio() {
+        let v = Value::Object(decoded());
+        assert_eq!(v["aprs-position-3-lat"], json!(""), "slot 3 is unused");
+        assert_eq!(v["aprs-position-5-lon"], json!(""));
+        assert_eq!(
+            encode_latlon(field("aprs-position-3-lat"), &json!(""), false).expect("blank"),
+            vec![0; 5]
+        );
+    }
+
+    /// A symbol is a table byte AND a code byte; half of one is a different
+    /// symbol, not a shorter one.
+    #[test]
+    fn a_station_icon_is_exactly_two_characters() {
+        assert_eq!(Value::Object(decoded())["aprs-station-icon"], json!("/-"));
+        let f = field("aprs-station-icon");
+        assert_eq!(encode_symbol(f, &json!("/>")).expect("car"), b"/>".to_vec());
+        assert_eq!(encode_symbol(f, &json!("\\K")).expect("factory"), b"\\K".to_vec());
+        for s in ["/", "", "/->", "/\n"] {
+            assert!(encode_symbol(f, &json!(s)).is_err(), "{s:?} was accepted");
+        }
+    }
+
+    /// ⚠ A slot the radio has never written is FF-filled, while one it wrote is
+    /// NUL-padded — so a decoder that trimmed this field's `pad` would hand the
+    /// form 42 characters of `ÿ` for an empty status text.
+    #[test]
+    fn a_status_text_the_radio_never_wrote_reads_blank_rather_than_ff() {
+        let v = Value::Object(decoded());
+        assert_eq!(v["aprs-status-text-1"], json!("IN THE SHACK ON 447.275, 3171 DMR, "));
+        assert_eq!(v["aprs-status-text-3"], json!(""), "an FF-filled record");
+        // The rate stores the DENOMINATOR, which is what being off by one record
+        // hid for two sessions.
+        assert_eq!(v["aprs-status-text-1-rate"], json!("1/1"));
+        assert_eq!(v["aprs-status-text-3-rate"], json!("Off"));
+        // ★ And record 5's rate is `+0x165`, the byte this project misnamed three
+        // times. It falls out of the array formula rather than being asserted.
+        assert_eq!(field("aprs-status-text-5-rate").off, 0x165);
+        assert_eq!(field("aprs-status-text-5").off, 0x13A);
+    }
+
+    /// ⚠⚠ The rule that stops a fresh profile from wiping the radio.
+    ///
+    /// A profile the operator has never downloaded into seeds every text field to
+    /// `""`, and `write_radio_settings` sends the profile as saved. If `""` were a
+    /// value, that write would blank the call sign, all five status texts and all
+    /// five position records in one go — none of which the form had ever shown
+    /// them. Same shape as #90.
+    #[test]
+    fn an_empty_field_leaves_the_radios_own_bytes_alone() {
+        let base = sample();
+        let blank = json!({
+            "aprs-my-callsign": "",
+            "power-on-message": "",
+            "aprs-status-text-1": "",
+            "aprs-position-1-name": "",
+            "aprs-position-1-lat": "",
+            "aprs-position-1-lon": "",
+            "aprs-station-icon": "",
+        });
+        let (out, changed) = patch(&base, &blank).expect("a blank profile must not fail");
+        assert_eq!(changed, 0, "a blank field counted as a change");
+        assert_eq!(out, base, "a blank profile rewrote the radio's own bytes");
+
+        // And a value that IS set still lands, so this is not a blanket skip.
+        let (out, changed) =
+            patch(&base, &json!({ "aprs-status-text-1": "CQ" })).expect("a real value");
+        assert_eq!(changed, 1);
+        let (_, aprs) = out.iter().find(|(w, _)| *w == W::Aprs).expect("aprs window");
+        assert_eq!(&aprs[0x08A..0x08C], b"CQ");
+        assert!(aprs[0x08C..0x0B4].iter().all(|b| *b == 0), "the rest pads as the radio pads");
+        assert_eq!(aprs[0x0B5], 0x01, "the neighbouring TX rate byte was not touched");
+    }
+
+    /// A field that ran into its neighbour would corrupt it on the first write,
+    /// and twenty of these are records at a fixed stride.
+    #[test]
+    fn the_record_strides_land_where_the_radio_puts_them() {
+        for n in 0..5u8 {
+            let i = n + 1;
+            let b = 0x01C + usize::from(n) * 20;
+            assert_eq!(field(&format!("aprs-position-{i}-name")).off, b);
+            assert_eq!(field(&format!("aprs-position-{i}-lat")).off, b + 9);
+            assert_eq!(field(&format!("aprs-position-{i}-lon")).off, b + 14);
+            let s = 0x08A + usize::from(n) * 44;
+            assert_eq!(field(&format!("aprs-status-text-{i}")).off, s);
+            assert_eq!(field(&format!("aprs-status-text-{i}-rate")).off, s + 43);
+        }
+    }
+
 }

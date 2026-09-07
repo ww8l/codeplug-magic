@@ -474,6 +474,111 @@
     ]
   },
   {
+    "key": "section-aprs-my-position",
+    "label": "APRS My Position",
+    "type": "section"
+  },
+  {
+    "key": "aprs-position-1-name",
+    "label": "My position 1 name (Menu 605)",
+    "type": "text",
+    "max_length": 8
+  },
+  {
+    "key": "aprs-position-1-lat",
+    "label": "My position 1 latitude (Menu 605)",
+    "type": "text",
+    "max_length": 12,
+    "placeholder": "N 40 29.240"
+  },
+  {
+    "key": "aprs-position-1-lon",
+    "label": "My position 1 longitude (Menu 605)",
+    "type": "text",
+    "max_length": 12,
+    "placeholder": "W 104 55.840"
+  },
+  {
+    "key": "aprs-position-2-name",
+    "label": "My position 2 name (Menu 605)",
+    "type": "text",
+    "max_length": 8
+  },
+  {
+    "key": "aprs-position-2-lat",
+    "label": "My position 2 latitude (Menu 605)",
+    "type": "text",
+    "max_length": 12,
+    "placeholder": "N 40 29.240"
+  },
+  {
+    "key": "aprs-position-2-lon",
+    "label": "My position 2 longitude (Menu 605)",
+    "type": "text",
+    "max_length": 12,
+    "placeholder": "W 104 55.840"
+  },
+  {
+    "key": "aprs-position-3-name",
+    "label": "My position 3 name (Menu 605)",
+    "type": "text",
+    "max_length": 8
+  },
+  {
+    "key": "aprs-position-3-lat",
+    "label": "My position 3 latitude (Menu 605)",
+    "type": "text",
+    "max_length": 12,
+    "placeholder": "N 40 29.240"
+  },
+  {
+    "key": "aprs-position-3-lon",
+    "label": "My position 3 longitude (Menu 605)",
+    "type": "text",
+    "max_length": 12,
+    "placeholder": "W 104 55.840"
+  },
+  {
+    "key": "aprs-position-4-name",
+    "label": "My position 4 name (Menu 605)",
+    "type": "text",
+    "max_length": 8
+  },
+  {
+    "key": "aprs-position-4-lat",
+    "label": "My position 4 latitude (Menu 605)",
+    "type": "text",
+    "max_length": 12,
+    "placeholder": "N 40 29.240"
+  },
+  {
+    "key": "aprs-position-4-lon",
+    "label": "My position 4 longitude (Menu 605)",
+    "type": "text",
+    "max_length": 12,
+    "placeholder": "W 104 55.840"
+  },
+  {
+    "key": "aprs-position-5-name",
+    "label": "My position 5 name (Menu 605)",
+    "type": "text",
+    "max_length": 8
+  },
+  {
+    "key": "aprs-position-5-lat",
+    "label": "My position 5 latitude (Menu 605)",
+    "type": "text",
+    "max_length": 12,
+    "placeholder": "N 40 29.240"
+  },
+  {
+    "key": "aprs-position-5-lon",
+    "label": "My position 5 longitude (Menu 605)",
+    "type": "text",
+    "max_length": 12,
+    "placeholder": "W 104 55.840"
+  },
+  {
     "key": "section-aprs-beacon-information",
     "label": "APRS Beacon Information",
     "type": "section"
@@ -520,6 +625,121 @@
       "Custom 5",
       "Custom 6",
       "Emergency!"
+    ]
+  },
+  {
+    "key": "section-aprs-status-text",
+    "label": "APRS Status Text",
+    "type": "section"
+  },
+  {
+    "key": "aprs-status-text-1",
+    "label": "Status text 1 (Menu 608)",
+    "type": "text",
+    "max_length": 42
+  },
+  {
+    "key": "aprs-status-text-1-rate",
+    "label": "Status text 1 TX rate (Menu 608)",
+    "type": "select",
+    "options": [
+      "Off",
+      "1/1",
+      "1/2",
+      "1/3",
+      "1/4",
+      "1/5",
+      "1/6",
+      "1/7",
+      "1/8"
+    ]
+  },
+  {
+    "key": "aprs-status-text-2",
+    "label": "Status text 2 (Menu 608)",
+    "type": "text",
+    "max_length": 42
+  },
+  {
+    "key": "aprs-status-text-2-rate",
+    "label": "Status text 2 TX rate (Menu 608)",
+    "type": "select",
+    "options": [
+      "Off",
+      "1/1",
+      "1/2",
+      "1/3",
+      "1/4",
+      "1/5",
+      "1/6",
+      "1/7",
+      "1/8"
+    ]
+  },
+  {
+    "key": "aprs-status-text-3",
+    "label": "Status text 3 (Menu 608)",
+    "type": "text",
+    "max_length": 42
+  },
+  {
+    "key": "aprs-status-text-3-rate",
+    "label": "Status text 3 TX rate (Menu 608)",
+    "type": "select",
+    "options": [
+      "Off",
+      "1/1",
+      "1/2",
+      "1/3",
+      "1/4",
+      "1/5",
+      "1/6",
+      "1/7",
+      "1/8"
+    ]
+  },
+  {
+    "key": "aprs-status-text-4",
+    "label": "Status text 4 (Menu 608)",
+    "type": "text",
+    "max_length": 42
+  },
+  {
+    "key": "aprs-status-text-4-rate",
+    "label": "Status text 4 TX rate (Menu 608)",
+    "type": "select",
+    "options": [
+      "Off",
+      "1/1",
+      "1/2",
+      "1/3",
+      "1/4",
+      "1/5",
+      "1/6",
+      "1/7",
+      "1/8"
+    ]
+  },
+  {
+    "key": "aprs-status-text-5",
+    "label": "Status text 5 (Menu 608)",
+    "type": "text",
+    "max_length": 42
+  },
+  {
+    "key": "aprs-status-text-5-rate",
+    "label": "Status text 5 TX rate (Menu 608)",
+    "type": "select",
+    "options": [
+      "Off",
+      "1/1",
+      "1/2",
+      "1/3",
+      "1/4",
+      "1/5",
+      "1/6",
+      "1/7",
+      "1/8"
     ]
   },
   {
@@ -578,6 +798,13 @@
     "key": "section-aprs-beacon-transmission",
     "label": "APRS Beacon Transmission",
     "type": "section"
+  },
+  {
+    "key": "aprs-station-icon",
+    "label": "Station icon (Menu 610)",
+    "type": "text",
+    "max_length": 12,
+    "placeholder": "/-"
   },
   {
     "key": "aprs-beacon-method",
@@ -683,9 +910,21 @@
     "max": 250
   },
   {
-    "key": "section-aprs-display",
-    "label": "APRS Display",
+    "key": "section-aprs-display-and-sound",
+    "label": "APRS Display and Sound",
     "type": "section"
+  },
+  {
+    "key": "aprs-rx-beep",
+    "label": "RX beep (Menu 624)",
+    "type": "select",
+    "options": [
+      "All",
+      "All new",
+      "Mine",
+      "Message only",
+      "Off"
+    ]
   },
   {
     "key": "aprs-interrupt-display-area",

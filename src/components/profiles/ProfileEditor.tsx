@@ -821,6 +821,7 @@ function SettingsField({
     ) : (
       <TextInput
         maxLength={field.max_length}
+        placeholder={field.placeholder}
         value={String(value ?? "")}
         onChange={(e) => onChange(e.target.value)}
       />

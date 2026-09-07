@@ -2196,6 +2196,112 @@ fn d710_poke_aprs() {
     println!("\n{} bytes poked; read back clean. Restore with d710_restore_aprs_block.", before.len());
 }
 
+/// Write menu 605's position record and menu 608's status text **through the
+/// driver traits**, and prove the radio holds what the form asked for.
+///
+/// ★ The codecs for these were measured with pokes and then tested against a
+/// buffer, and a buffer cannot tell you the offset arithmetic is right — two
+/// generated artifacts agreeing proves nothing. This points the test at the real
+/// consumer: `write_settings`, the same call the profile screen makes.
+///
+/// ⚠ Uses **slot 3 of each**, which is unused on this operator's radio, so a
+/// wrong offset damages nothing of his. The as-found bytes of both records are
+/// captured first and written back raw at the end, because the form itself
+/// cannot express "FF-filled": an empty field deliberately means *leave it
+/// alone*, so the driver has no way to un-write a record it created.
+#[test]
+#[ignore = "requires a TM-D710 on the cable — WRITES to the radio"]
+fn d710_record_fields_write() {
+    use super::kenwood_tmd710::image::{ProgramMode, APRS_LIVE};
+    use crate::radios::driver::{SettingsReader, SettingsWriter};
+    use crate::radios::kenwood_tmd710::DRIVER;
+    use serde_json::json;
+
+    /// Position record 3 and status text record 3, as byte ranges in the block.
+    const POS3: (u16, usize) = (0x044, 20);
+    const TXT3: (u16, usize) = (0x0E2, 42);
+
+    let path = port_path();
+    let dir = std::env::temp_dir().join("d710-record-probe");
+
+    // --- as found, raw, before anything ------------------------------------
+    let asfound = {
+        let mut p = open(&path, 57600).expect("open");
+        let _ = ask(&mut *p, "ID");
+        assert!(ask(&mut *p, "ID").expect("ID").0.contains("TM-D710"));
+        let mut prog = ProgramMode::enter(&mut *p).expect("enter");
+        let mut got = vec![];
+        for (off, len) in [POS3, TXT3] {
+            got.push((off, prog.read(APRS_LIVE + off, len as u8).expect("read record")));
+        }
+        prog.leave().expect("leave");
+        got
+    };
+    for (off, bytes) in &asfound {
+        println!("as found +0x{off:03X}  {}", show(bytes));
+    }
+
+    let before = DRIVER.read_settings(&path, "[]").expect("read settings");
+    for k in ["aprs-position-3-name", "aprs-position-3-lat", "aprs-position-3-lon",
+              "aprs-status-text-3", "aprs-status-text-3-rate"] {
+        println!("  {k:<26} {}", before.settings[k]);
+    }
+
+    // Values chosen so a swapped or off-by-one field cannot look right: the
+    // latitude and longitude share no digit, the minutes differ, and the
+    // fractions are three distinct digits each.
+    let want = json!({
+        "aprs-position-3-name": "PROBE3",
+        "aprs-position-3-lat":  "S 12 34.321",
+        "aprs-position-3-lon":  "E 098 12.654",
+        "aprs-status-text-3":   "CQ FROM CODEPLUG MAGIC",
+        "aprs-status-text-3-rate": "1/3",
+    });
+    let report = DRIVER.write_settings(&path, &want, "[]", &dir).expect("write settings");
+    println!(
+        "\nwrote {} field(s), verified={:?}, windows={:?}",
+        report.fields_written, report.verified, report.windows_written
+    );
+    assert_eq!(report.fields_written, 5);
+    assert_eq!(report.verified, Some(true), "the radio did not take the write");
+
+    // --- the radio's own bytes, decoded again ------------------------------
+    let after = DRIVER.read_settings(&path, "[]").expect("re-read");
+    for (k, v) in want.as_object().expect("object") {
+        assert_eq!(&after.settings[k], v, "{k} did not come back off the radio");
+    }
+    println!("\nall five fields read back off the radio as written");
+
+    // ⚠ And the neighbours are untouched. A record that overran would corrupt
+    // the record next door, which the field's own read-back cannot see.
+    for k in ["aprs-position-2-name", "aprs-position-2-lat", "aprs-position-2-lon",
+              "aprs-position-4-lat", "aprs-status-text-2", "aprs-status-text-4",
+              "aprs-status-text-2-rate", "aprs-status-text-4-rate", "aprs-my-callsign"] {
+        assert_eq!(after.settings[k], before.settings[k], "{k} moved and should not have");
+    }
+    println!("neighbouring records unchanged");
+
+    // --- give the records back exactly as found ----------------------------
+    {
+        let mut p = open(&path, 57600).expect("open");
+        let _ = ask(&mut *p, "ID");
+        let mut prog = ProgramMode::enter(&mut *p).expect("enter");
+        for (off, bytes) in &asfound {
+            prog.write(APRS_LIVE + off, bytes).expect("restore record");
+            let back = prog.read(APRS_LIVE + off, bytes.len() as u8).expect("read back");
+            assert_eq!(&back, bytes, "+0x{off:03X} did not take the restore");
+        }
+        prog.leave().expect("leave");
+    }
+    let restored = DRIVER.read_settings(&path, "[]").expect("final read");
+    assert_eq!(
+        String::from_utf8(restored.backup).expect("utf8"),
+        String::from_utf8(before.backup).expect("utf8"),
+        "the radio was not given back as it was found"
+    );
+    println!("\n--- menu 605 and menu 608 records proven through the driver, radio as found\n");
+}
+
 /// Bytes as hex plus their printable reading, which is how every field in this
 /// block has to be looked at: half of them are text and half are not.
 fn show(b: &[u8]) -> String {
