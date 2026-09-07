@@ -64,11 +64,14 @@
 //! path (see below), nine are located but seen at a single value, and the rest
 //! are unlocated.
 //!
-//! ## ⚠⚠ WHERE THIS STOPS — read before adding anything (s134)
+//! ## WHERE THIS STOPS — read before adding anything (s134)
 //!
-//! **Tim's decision stands: no PR until APRS is genuinely usable.** That
-//! overrides CLAUDE.md's "one PR when the radio is essentially done" default for
-//! this radio.
+//! **Tim called this done on 2026-09-06**, after the three fields below landed:
+//! *"close enough mark it all as good, we'll deal with those unlikely bugs if
+//! they occur."* That lifts the earlier "no PR until APRS is usable" gate and
+//! settles the two checks listed under *Accepted unverified* — they are a
+//! deliberate risk, not an oversight, and each still names the one command that
+//! would close it.
 //!
 //! ### What s134 closed
 //!
@@ -110,14 +113,22 @@
 //! One short round settles all four: poke `+0x174` at `01`/`02`, `+0x172` at
 //! `01`/`02`/`04`, set an ABBR for State/Section/Region, and read menu 612.
 //!
-//! ### ⚠ Built and NOT verified on hardware
+//! ### ⚠ Accepted unverified — a decision, not an oversight
 //!
-//! **`d710_record_fields_write`** exercises menu 605's and 608's records through
-//! `write_settings` — the same call the profile screen makes — into slot 3 of
-//! each, which is unused on this operator's radio, and puts the as-found bytes
-//! back raw afterwards (the form cannot express "FF-filled", because an empty
-//! field means *leave it alone*). It was written after the cable came off the Mac
-//! and **has never run**. One command:
+//! **`d710_record_fields_write` has never run on a radio.** It exercises menu
+//! 605's and 608's records through `write_settings` — the same call the profile
+//! screen makes — into slot 3 of each, which is unused on this operator's radio,
+//! and puts the as-found bytes back raw afterwards (the form cannot express
+//! "FF-filled", because an empty field means *leave it alone*). It was written
+//! after the cable came off the Mac, and Tim chose to ship without it.
+//!
+//! So what IS and IS NOT established for the 27 fields s134 added: every
+//! **encoding** was measured on the radio, and the **codecs** are tested only
+//! against a buffer built from the radio's own bytes. The offsets are guarded by
+//! `the_record_strides_land_where_the_radio_puts_them` and by a whole-span
+//! overlap check, which is why the residual risk was judged small — but a buffer
+//! cannot prove the driver writes where it means to. If a position or status text
+//! ever comes back wrong, run this FIRST; it is one command:
 //!
 //! ```text
 //! D710_PORT=… cargo test --lib d710_record_fields_write -- --ignored --nocapture
@@ -142,7 +153,10 @@
 //! settings to a schema default the operator never chose. It is a form-layer
 //! problem, not this module's, and it is not specific to this radio.
 //!
-//! ### Still open, each with its check
+//! ### Not shipped, and not planned — each still names its check
+//!
+//! None of these blocks the model; they are here so a later session does not
+//! rediscover them from scratch.
 //!
 //! - **`MU` p25 is menu 403 or 406** — change menu **403** on the front panel and
 //!   read `MU`. ⚠ 403 is cross-band repeat; do not guess it.
