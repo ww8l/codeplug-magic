@@ -21,6 +21,21 @@ substantial work under `src-tauri/src/radios/`.
 
 ## Standing workflow
 
+- **⚠⚠ Build. Do not commit, do not push, do not run `/code-review`. Stop and
+  say the work is ready.** Tim, 2026-09-06: *"Just build the thing and when I'm
+  ready to push I'll ask for code review."* Committing and pushing are **his
+  calls, on his timing** — `/code-review` is a command he invokes when he is ready
+  to push, not a step for this agent to run on its own.
+
+  ⚠ The failure this replaces is real: in s134 this agent finished each piece of
+  work, ran `npm run ci`, committed and pushed — five times, unasked — and Tim's
+  objection ("you just haul off and start doing CI") was about being moved past,
+  not about which checks ran. A green `npm run ci` is not permission to commit and
+  is not a review; it runs the tests that already exist, so it cannot find the bug
+  nobody thought to test for.
+
+  So: finish the work, leave it in the working tree, and report what changed and
+  what is unverified. Commit only when asked, and push only when asked.
 - **Verify in dev, then commit, then push.** `npm run tauri:dev` runs against a
   separate `.dev` app identifier, so dev never shares the production database.
 - **CI is free and unmetered.** The repo went public on 2026-08-22, so standard
@@ -31,6 +46,11 @@ substantial work under `src-tauri/src/radios/`.
   three OSes before it lands, which is the point: a branch that has never been
   verified anywhere but the author's Mac should not reach `main`. This reverses
   the old rule, which existed only because a PR cost metered minutes.
+- **⚠ A radio model is finished work only when the whole model is done.** Keep
+  pushing the branch — that is what runs CI — but do not open a PR per phase or
+  per hardware step, and do not treat an open one as something to keep
+  merge-ready commit by commit. One PR, opened when the radio is essentially
+  complete: channels and settings both working, the hardware ladder climbed.
 - **`main` is still verified on its own.** CI runs on push to `main` as well, so
   a merge of two green branches gets checked as the combination — this project
   has shipped bugs that existed nowhere else. Landing by local merge is still

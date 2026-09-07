@@ -25,6 +25,33 @@ re-measured.
 **What the user has:** radio / cable / microSD card / programming software
 (RT Systems, OEM CPS, none) / availability for hardware steps.
 
+## ★ What this radio IS — the census
+
+Fill this in **before** reading any source in depth. A published table covers
+what its author needed; the gap is invisible without the radio's own list.
+
+**Headline features** (from the manual's first pages, not from a driver): TNC /
+APRS · GPS · D-STAR · DMR · second receiver · cross-band repeat · weather alert
+· … Each one is a whole family of settings, and the model name often says so
+(Kenwood's `D` in TM-**D**710 is the data/APRS half; the TM-V71 is the same
+radio without it).
+
+**Menu census** — the denominator for everything downstream:
+
+| menu group | what it covers | how many | transport that reaches it |
+|---|---|---|---|
+| 0xx | | | |
+| 1xx | | | |
+| … | | | |
+| **total** | | **N** | **M reached, N-M elsewhere** |
+
+⚠ A group with **no** transport is a finding, not an omission — write it here
+and say so out loud, with the number. "This command reaches M of N menus; the
+other N-M are in \<where\>." The TM-D710 shipped a correct 35-field settings
+schema with **no APRS at all** on an APRS radio, because `MU` stops at menu 500
+and nobody ever counted. Every field in it was measured and right; the set was
+the problem.
+
 ## Shape of the work
 
 `driver_key = "<manufacturer>_<model>"`, `export_format = "<key>"`,

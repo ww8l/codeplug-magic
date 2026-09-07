@@ -23,7 +23,7 @@ use crate::models::RadioModel;
 /// Every driver compiled into the app. Order is not significant — lookups are
 /// by `key()`, which is unique. (A static array rather than a slice literal:
 /// references to statics aren't const-promotable inside a returned temporary.)
-static DRIVERS: [&dyn RadioDriver; 8] = [
+static DRIVERS: [&dyn RadioDriver; 9] = [
     &super::baofeng_uv5r::DRIVER,
     &super::binteradio_bt9000::DRIVER,
     &super::tidradio_tdh3::DRIVER,
@@ -32,6 +32,7 @@ static DRIVERS: [&dyn RadioDriver; 8] = [
     &super::icom_id52::DRIVER,
     &super::kenwood_thd75::DRIVER,
     &super::kenwood_thd72::DRIVER,
+    &super::kenwood_tmd710::DRIVER,
 ];
 
 pub(crate) fn all_drivers() -> &'static [&'static dyn RadioDriver] {
@@ -82,6 +83,8 @@ mod tests {
             "yaesu_ft5d",
             "icom_id52",
             "kenwood_thd75",
+            "kenwood_thd72",
+            "kenwood_tmd710",
         ] {
             let d = driver_for_key(key).unwrap_or_else(|| panic!("no driver for '{key}'"));
             assert_eq!(d.key(), key);
@@ -129,6 +132,17 @@ mod tests {
                 // caught anywhere downstream — this radio stored 127 in fields
                 // whose maxima are 9, 2, 3 and 1 (issue #43).
                 "binteradio_bt9000" => (true, true),
+                // TM-D710: reads and writes its 42 menu parameters over the
+                // same `MU` ASCII command as the TH-D72 above, and for the same
+                // reason — a live-mode radio has no image for settings to live
+                // in. It claimed NEITHER half until Phase 4 (#113), because
+                // "nothing has ever been written to this radio" was true and a
+                // capability flag would have put a settings write in front of an
+                // operator. Writing is now proven: `d710_menu_bounds` wrote and
+                // restored every one of the 42 parameters on Tim's radio, and
+                // every exposed range was measured there rather than read off
+                // the published sheet that was wrong about five of them.
+                "kenwood_tmd710" => (true, true),
                 _ => (true, true),
             };
             assert_eq!(

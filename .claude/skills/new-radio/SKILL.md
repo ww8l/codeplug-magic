@@ -37,6 +37,38 @@ not the opening move, and this has paid off on every radio where it was tried.
 | GitHub RE repos for the model or its siblings | Config-file structure, command tables, enum tables |
 | **The radio's own manual** | Menu order, option lists, defaults — and it is a *published source*, not a fallback |
 
+### ★ First enumerate what the RADIO has, not what a source describes
+
+Do this before reading any source in depth, and write it down. A published table
+covers what its author needed; the gap between that and the radio is invisible
+unless you have the radio's own list to hold it against.
+
+1. **What is this radio FOR?** Read the model's feature list — the manual's
+   first pages, the manufacturer's product page. A built-in TNC, a GPS, D-STAR,
+   a second receiver, cross-band repeat: each is a whole family of settings.
+   Manufacturer naming often carries it (Kenwood's `D` in TM-**D**710 and
+   TH-**D**75 means the data/APRS half; the TM-V71 is the same radio without it).
+2. **Enumerate the complete menu map** from the manual — every group, and how
+   many menus are in each. This is the denominator for everything after it.
+3. **For each group, name the transport that reaches it.** A group with no
+   transport is a **finding**, not an omission, and it belongs in `PLAN.md`
+   before a line of code.
+
+⚠ **One command's coverage is not the radio's settings.** The TM-D710 (#113)
+shipped a 35-field settings schema built on its `MU` command, every field
+measured on the radio and correct — and **no APRS at all**, on a radio whose
+headline feature is APRS. `MU` carries menus 000-5xx; the APRS and TNC settings
+are the 600-series and there is no `MU` parameter for one of them. The radio's
+own `aprs_capable` flag was set to `true` in the same session. Nobody counted
+the menus, so nobody noticed the settings stopped at 500.
+
+The earlier note that "`MU` is not exhaustive — menus 504, 505 and 506 have no
+parameter" was already in `FINDINGS.md`. It was read as a three-menu gap instead
+of the question it actually was: *what else is missing, and how would we know?*
+
+**Ask that question out loud in `PLAN.md`, with a number.** "The manual lists N
+menus in G groups; this transport reaches M of them; the other N-M are <where>."
+
 Then classify, because it decides how much of this process applies:
 
 - **Clone of a family already supported** — AT-D868UV/D578 against the D890UV,
@@ -49,9 +81,14 @@ Then classify, because it decides how much of this process applies:
   record-by-record programming (AnyTone).
 
 **Gate:** a `PLAN.md` in `scratchpad/<driver_key>/` naming the sources found,
-the programming medium, the family, and what the user owns. Template in
-`templates/PLAN.md`. Nothing is written before this exists — it is also the
-thing that makes a resumed session cheap.
+the programming medium, the family, and what the user owns — **plus the menu
+census above: how many menus the radio has, how many the chosen transport
+reaches, and where the rest live.** Nothing is written before this exists; it is
+also the thing that makes a resumed session cheap.
+
+⚠ If the census cannot be completed because a group's transport is unknown, that
+is the finding to report, not a detail to settle later. A radio shipped with a
+whole feature's settings missing looks finished from the inside.
 
 ## 2. Anchor on a file the radio wrote
 
@@ -178,7 +215,19 @@ Then wire *both* ends, and check each off explicitly:
 - [ ] **`apply_settings` called by the export path**
 - [ ] the table↔schema agreement test
 
-**Gate:** a test proving an export carries memories **and** settings together.
+- [ ] **the coverage check against step 1's menu census** — the schema's field
+      count and groups reconciled against the menus the radio actually has, with
+      every absence named
+
+**Gate:** a test proving an export carries memories **and** settings together,
+and a **stated count**: N of the radio's M menus are exposed, and the M-N are
+listed with a reason. "35 fields" is not a result; "35 of the 42 this transport
+reaches, and the transport reaches 42 of the radio's ~90" is.
+
+⚠ A cheap mechanical version of that reconciliation: the seed row already
+asserts what the radio can do. A model with `aprs_capable: true` and no APRS
+field in its settings schema is a contradiction the test suite can catch on its
+own, and the TM-D710 shipped exactly that pairing for a whole session.
 
 ⚠ The fourth box is the one that nearly shipped broken. The read path worked and
 the form filled correctly, so nothing looked wrong — the values simply never
@@ -235,6 +284,14 @@ if the folder is empty, the process above still stands on its own.
 
 ## Traps, each of which has already cost time
 
+- ★ **A source's coverage is not the radio's.** Every field measured off one
+  command can be right and the set still be badly incomplete — the TM-D710
+  shipped a correct 35-field settings schema with no APRS on an APRS radio,
+  because `MU` stops at menu 500 and nobody counted the menus. Enumerate what
+  the radio HAS first, then hold every source against it.
+- ★ **A noted gap is a question, not a footnote.** "`MU` is not exhaustive —
+  three menus have no parameter" sat in the findings for two sessions. It was
+  the same fact as "an entire feature is unreachable", written small.
 - A working **read** path hides a dead **write** path. Verify the write.
 - A printed option list is **display** order, not the stored index. One radio
   prints High/Medium/Low and stores Low as 0.
