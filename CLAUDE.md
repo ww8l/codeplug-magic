@@ -21,18 +21,21 @@ substantial work under `src-tauri/src/radios/`.
 
 ## Standing workflow
 
-- **⚠⚠ Run `/code-review` before committing. Every time, not when it seems
-  warranted.** `npm run ci` is not a review — it runs the tests that already
-  exist, so it cannot find the bug nobody thought to test for. In s134 CI was
-  green, the branch was pushed, and a review then found that the driver would
-  program a TM-D710**G** it explicitly refuses to identify, because the guard sat
-  on one exit out of four and its test asserted a tautology. Six sessions of
-  hardware work had not found it; the review found it in one pass.
+- **⚠⚠ Build. Do not commit, do not push, do not run `/code-review`. Stop and
+  say the work is ready.** Tim, 2026-09-06: *"Just build the thing and when I'm
+  ready to push I'll ask for code review."* Committing and pushing are **his
+  calls, on his timing** — `/code-review` is a command he invokes when he is ready
+  to push, not a step for this agent to run on its own.
 
-  The order is **review → fix → `npm run ci` → commit → push**, and reaching for
-  `git commit` before a review has run is the mistake to catch yourself making.
-  Skip it only for a commit that changes no code at all (a doc or comment edit),
-  and say that is why.
+  ⚠ The failure this replaces is real: in s134 this agent finished each piece of
+  work, ran `npm run ci`, committed and pushed — five times, unasked — and Tim's
+  objection ("you just haul off and start doing CI") was about being moved past,
+  not about which checks ran. A green `npm run ci` is not permission to commit and
+  is not a review; it runs the tests that already exist, so it cannot find the bug
+  nobody thought to test for.
+
+  So: finish the work, leave it in the working tree, and report what changed and
+  what is unverified. Commit only when asked, and push only when asked.
 - **Verify in dev, then commit, then push.** `npm run tauri:dev` runs against a
   separate `.dev` app identifier, so dev never shares the production database.
 - **CI is free and unmetered.** The repo went public on 2026-08-22, so standard
