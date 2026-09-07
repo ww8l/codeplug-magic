@@ -25,12 +25,11 @@
 //! - an **empty** slot answers [`EMPTY_REPLY`] — `N`, not an error and not a
 //!   blank line. 962 of 1000 slots answered that way, with zero surprises
 //!
-//! ⚠ Not measured, and therefore not yet used to build a line from a channel:
-//! the **tone and DCS index tables**. The captured lines carry indices (`12`,
-//! `08`, `18`) whose meaning nothing here has established — a published table
-//! would be a guess about what a number means, and writing a wrong tone to a
-//! real repeater is the failure this project has hit most often. Building a
-//! `Memory` from an app channel waits on one measurement pass.
+//! The **tone and DCS index tables** were the open question here — the captured
+//! lines carry indices (`12`, `08`, `18`) whose meaning nothing had established,
+//! and writing a wrong tone to a real repeater is the failure this project has hit
+//! most often. They are now measured on the radio ([`super::tone`]) and
+//! [`super::encode`] builds a `Memory` from an app channel, verified on hardware.
 
 // ⚠ Phase 2 lands the encoder before the path that will call it, so in a
 // non-test build every item below is unused.

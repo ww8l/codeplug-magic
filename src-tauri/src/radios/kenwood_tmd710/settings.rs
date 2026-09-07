@@ -250,6 +250,10 @@ impl SettingsReader for super::KenwoodTmD710 {
     /// mode is an error naming what to do about it.
     fn read_settings(&self, port: &str, _schema_json: &str) -> Result<SettingsCapture, String> {
         let mut p = open_port(port)?;
+        // ⚠ Identity first even on the READ. The read is harmless, but it feeds a
+        // profile that `write_settings` later pushes back, so a menu line decoded
+        // from the wrong Kenwood becomes 42 wrong values on the next write.
+        super::confirm_model(&mut *p)?;
         let line = ask_settling(&mut *p, "MU")?;
         let menu = Menu::parse(&line)?;
 
@@ -312,6 +316,12 @@ impl SettingsWriter for super::KenwoodTmD710 {
         backup_dir: &Path,
     ) -> Result<SettingsWriteReport, String> {
         let mut p = open_port(port)?;
+        // ⚠⚠ Identity first. This path writes 42 menu parameters AND raw bytes into
+        // the image at `0x8100`/`0x0200`, and it had no model check of any kind —
+        // the only accidental guard was `Menu::parse` counting 42 fields, which
+        // says nothing about the image half. It is also the path that reaches the
+        // APRS block, so it is the one that most needed the check.
+        super::confirm_model(&mut *p)?;
         let before = ask_settling(&mut *p, "MU")?;
         let base = Menu::parse(&before)?;
 
@@ -336,7 +346,6 @@ impl SettingsWriter for super::KenwoodTmD710 {
         let (img_wanted, img_changed) = imgset::patch(&img_before, settings)?;
 
         let failed = write_menu(&mut *p, &wanted)?;
-        fields_written += img_changed;
 
         let (windows_written, img_verified) = if img_changed == 0 {
             (Vec::new(), true)
@@ -346,6 +355,12 @@ impl SettingsWriter for super::KenwoodTmD710 {
             pm.leave()?;
             r?
         };
+        // ⚠ Counted only once the read-back agrees. Adding this before the write
+        // let a report say "27 fields written" while `verified` was `false` and the
+        // note told the operator to treat the 600-series settings as NOT written.
+        if img_verified {
+            fields_written += img_changed;
+        }
 
         let mut notes: Vec<String> = Vec::new();
         if !failed.is_empty() {

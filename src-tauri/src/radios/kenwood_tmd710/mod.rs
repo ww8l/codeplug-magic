@@ -17,8 +17,8 @@
 //!
 //! - **A write is not atomic.** Every other radio here commits an image; this
 //!   one commits a memory at a time, so a failure halfway leaves the radio
-//!   half-programmed. Nothing in this module writes yet, and whatever does will
-//!   need to say where it stopped.
+//!   half-programmed. [`program`] therefore reports **where it stopped** and how
+//!   many memories went out before that, and saves a restorable transcript first.
 //! - **There is no image to back up.** The equivalent is a transcript of the
 //!   radio's own `ME`/`MU` lines.
 //!
@@ -39,13 +39,25 @@
 //! errored the next well-formed line. So one `?` is not a refusal — see
 //! [`ask_settling`].
 //!
-//! ## Capabilities: none yet, deliberately
+//! ## Capabilities
 //!
-//! This driver identifies and nothing else, the same scaffolding stance the
-//! FT5D was registered under. `memory.rs` can already read and re-emit a slot,
-//! but **nothing has ever been written to this radio**. A capability trait here
-//! would put a "Program radio" button in front of an operator for a path no one
-//! has proven.
+//! ⚠ This section said "none yet, deliberately — this driver identifies and
+//! nothing else, nothing has ever been written to this radio" for four sessions
+//! after all three of these were wired and climbed the hardware ladder. In a
+//! driver whose doc comments ARE the record of what is proven, a stale one is
+//! worse than none: it tells the next reader the write path is dead.
+//!
+//! - [`Identifier`](crate::radios::driver::Identifier) — `ID`, read-only.
+//! - [`CodeplugProgrammer`] — memories over live mode, one `ME`/`MN` pair at a
+//!   time, each verified by read-back. **Ladder rungs 1-5 passed.**
+//! - [`SettingsReader`]/[`SettingsWriter`] — 95 controls over **two transports in
+//!   one port session**: `MU` for 42 menu parameters, and the image behind
+//!   `0M PROGRAM` for the 6xx APRS group, which `MU` cannot reach at all.
+//!
+//! ⚠⚠ Every one of these opens the radio and so must call [`confirm_model`] —
+//! `every_path_that_opens_the_radio_confirms_the_model` asserts it. The G is
+//! refused, and it was accepted here by a `contains("TM-D710")` for four
+//! sessions while `identify` refused it by name.
 //!
 //! The tone and DCS tables are no longer unmeasured — see [`tone`], where the
 //! radio's own refusal of an out-of-range index settled that fields 9-11 are
@@ -145,6 +157,43 @@ pub(crate) fn ask_settling(p: &mut dyn SerialPort, cmd: &str) -> Result<String, 
         Ok(reply) => Ok(reply),
         Err(_) => ask(p, cmd),
     }
+}
+
+/// The model an `ID` reply names, or an error refusing it.
+///
+/// ⚠⚠ **Shared by every entry point that opens this radio**, because a guard on
+/// one exit is not a guard. `identify` refused the TM-D710**G** from the day it
+/// was written — the G has a menu set nobody has measured — while `program`
+/// checked `id.contains("TM-D710")`, which `"TM-D710G"` satisfies, and the two
+/// settings paths checked nothing at all. So the one radio this driver explicitly
+/// refuses to identify could still be sent 1000 `ME` lines and a settings write.
+/// See `gate-only-covers-owned-exits`: grep the call sites, not the affordances.
+pub(crate) fn check_model(reply: &str) -> Result<String, String> {
+    let model = reply
+        .strip_prefix("ID ")
+        .ok_or_else(|| format!("unexpected answer to ID: {reply:?}. Nothing was written."))?
+        .trim()
+        .to_string();
+    if model == "TM-D710G" {
+        return Err(
+            "this is a TM-D710G. Only the TM-D710 (non-G) has been measured — the G has a              different menu set, and programming it from this driver would write settings              nobody has checked against it (issue #113). Nothing was written."
+                .into(),
+        );
+    }
+    // ⚠ Exact, not `contains`. `TM-D710` covers the D710A and D710E, which answer
+    // identically; anything else is refused by name.
+    if model != "TM-D710" {
+        return Err(format!(
+            "expected a TM-D710 on this port, but it says {model:?}. Nothing was written."
+        ));
+    }
+    Ok(model)
+}
+
+/// Ask the radio what it is and refuse anything this driver was not measured on.
+pub(crate) fn confirm_model(p: &mut dyn SerialPort) -> Result<String, String> {
+    let reply = ask_settling(p, "ID")?;
+    check_model(&reply)
 }
 
 /// Write one memory, then **prove it landed** by reading the slot back and
@@ -264,24 +313,7 @@ impl RadioDriver for KenwoodTmD710 {
     fn identify(&self, port: &str) -> Result<RadioIdentity, String> {
         let mut p = open_port(port)?;
         let reply = ask_settling(&mut *p, "ID")?;
-        let model = reply
-            .strip_prefix("ID ")
-            .ok_or_else(|| format!("unexpected answer to ID: {reply:?}"))?
-            .to_string();
-
-        if model == "TM-D710G" {
-            return Err(
-                "this is a TM-D710G. Only the TM-D710 (non-G) has been measured — the G has a \
-                 different menu set, and programming it from this driver would write settings \
-                 nobody has checked against it (issue #113)."
-                    .into(),
-            );
-        }
-        if model != "TM-D710" {
-            return Err(format!(
-                "expected a TM-D710 on this port, but it says {model:?}."
-            ));
-        }
+        let model = check_model(&reply)?;
 
         Ok(RadioIdentity {
             matched: model.clone(),
@@ -408,6 +440,12 @@ mod tests {
 
     /// The G is a different radio. Refusing it by name beats programming it
     /// with a menu table measured on the non-G.
+    ///
+    /// ★★★ This test used to prove **nothing**: it asserted
+    /// `reply.strip_prefix("ID ").unwrap() == "TM-D710G"` — the fake's own answer
+    /// compared against itself, a guard that cannot fail. While it sat here green,
+    /// `program` accepted the G through `id.contains("TM-D710")` and both settings
+    /// paths checked no model at all. Now it exercises the real decision.
     #[test]
     fn a_d710g_is_named_and_refused() {
         let mut radio = FakeD710::new();
@@ -415,9 +453,54 @@ mod tests {
         let mut p = FakePort::new(radio);
         let reply = ask(&mut p, "ID").unwrap();
         assert_eq!(reply, "ID TM-D710G");
-        // identify() itself needs a real port; the refusal it applies to this
-        // reply is the branch under test, so exercise the same condition.
-        assert!(reply.strip_prefix("ID ").unwrap() == "TM-D710G");
+
+        let err = check_model(&reply).expect_err("the G must be refused");
+        assert!(err.contains("TM-D710G"), "{err}");
+        assert!(err.contains("Nothing was written"), "{err}");
+
+        assert_eq!(check_model("ID TM-D710").expect("the measured radio"), "TM-D710");
+        // ⚠ A substring test is exactly how the G got through, so anything that
+        // merely CONTAINS the model has to be refused too.
+        for other in
+            ["ID TM-D710G", "ID TM-D710GE", "ID TM-V71", "ID TM-D700", "ID ", "TM-D710", ""]
+        {
+            assert!(check_model(other).is_err(), "{other:?} was accepted");
+        }
+    }
+
+    /// ⚠⚠ Every path that opens this radio must go through [`check_model`].
+    ///
+    /// The bug this guards was not a wrong check, it was a check in only one of
+    /// four places — `identify` refused the G while `program` and both settings
+    /// paths did not. A per-path assertion could not have caught that, because the
+    /// paths that were wrong were the ones nobody had written a test for. So this
+    /// asserts the *shape*: one `confirm_model` for every `open_port`, and no
+    /// hand-rolled substring test anywhere.
+    #[test]
+    fn every_path_that_opens_the_radio_confirms_the_model() {
+        for (name, src) in
+            [("program.rs", include_str!("program.rs")), ("settings.rs", include_str!("settings.rs"))]
+        {
+            let count = |needle: &str| {
+                src.lines()
+                    .filter(|l| l.split("//").next().unwrap_or("").contains(needle))
+                    .count()
+            };
+            let opens = count("open_port(");
+            let confirms = count("confirm_model(");
+            assert!(opens > 0, "{name} no longer opens a port — update this guard");
+            assert_eq!(
+                opens, confirms,
+                "{name} opens {opens} port(s) but confirms the model {confirms} time(s)"
+            );
+            for line in src.lines() {
+                let code = line.split("//").next().unwrap_or("");
+                assert!(
+                    !code.contains("contains(\"TM-D710\")"),
+                    "{name} rolls its own model check instead of using check_model: {line}"
+                );
+            }
+        }
     }
 
     /// A write is only believed after the radio says it back. This is the

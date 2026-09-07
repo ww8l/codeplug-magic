@@ -819,6 +819,13 @@ mod tests {
                         "{} has no placeholder, so its format is unguessable",
                         f.key
                     );
+                    // ⚠ A symbol is exactly two characters and `encode_symbol`
+                    // refuses anything else, so the form must refuse it too — it
+                    // shipped as 12, which meant the operator learned that at write
+                    // time. A coordinate IS parsed, so its width is the canonical
+                    // form's ("W 180 59.999").
+                    let want = if matches!(f.kind, AK::Symbol) { 2 } else { 12 };
+                    assert_eq!(e["max_length"], json!(want), "{}", f.key);
                 }
                 AK::Uint { min, max } => {
                     assert_eq!(e["type"], "integer", "{}", f.key);

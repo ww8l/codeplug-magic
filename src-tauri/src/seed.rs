@@ -1256,10 +1256,6 @@ mod tests {
         }
     }
 
-    /// `tx_bands`/`rx_bands` are hand-written JSON that the exporter parses
-    /// leniently — a typo would not fail loudly, it would quietly fall back to
-    /// the old contiguous-span rules and drop channels again. Check the shape
-    /// here, where it is cheap.
     /// ★ The TM-D710's coverage, checked against the sweep that measured it.
     ///
     /// `d710_rx_band_sweep` wrote 1350 frequencies into a spare memory slot and
@@ -1387,6 +1383,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
+    /// `tx_bands`/`rx_bands` are hand-written JSON that the exporter parses
+    /// leniently — a typo would not fail loudly, it would quietly fall back to
+    /// the old contiguous-span rules and drop channels again. Check the shape
+    /// here, where it is cheap.
     #[test]
     fn seeded_band_lists_are_well_formed() {
         let parse = |json: &str| -> Vec<Vec<f64>> {

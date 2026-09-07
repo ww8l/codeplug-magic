@@ -803,7 +803,7 @@
     "key": "aprs-station-icon",
     "label": "Station icon (Menu 610)",
     "type": "text",
-    "max_length": 12,
+    "max_length": 2,
     "placeholder": "/-"
   },
   {

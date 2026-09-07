@@ -309,6 +309,15 @@ pub(crate) fn sanitize_name(source: &str) -> String {
     source
         .chars()
         .map(|ch| if ch == ',' { NAME_COMMA_REPLACEMENT } else { ch })
+        // ⚠ Non-ASCII is replaced, not passed through. `MAX_NAME` is 8 BYTES on
+        // the radio, and this used to bound `chars()` — so a RepeaterBook or CSV
+        // name carrying an en dash, an accent or a smart quote produced an `MN`
+        // line longer than 8 bytes. The radio keeps its 8, `write_memory`'s
+        // read-back compare then fails on a line that was otherwise fine, and
+        // because this program path is not atomic the run stops there and leaves
+        // the radio holding a mixture. `image_settings::encode_text` refuses
+        // out-of-range characters for the same reason.
+        .map(|ch| if ch.is_ascii_graphic() || ch == ' ' { ch } else { '?' })
         .take(MAX_NAME)
         .collect()
 }
@@ -316,6 +325,29 @@ pub(crate) fn sanitize_name(source: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ⚠ `MAX_NAME` is a count of BYTES on the radio, so a name is only safe if
+    /// every character it can emit is one byte. A multibyte character used to get
+    /// through and overrun the field, which fails `write_memory`'s read-back and
+    /// stops a non-atomic program run partway.
+    #[test]
+    fn a_sanitized_name_never_exceeds_max_name_bytes() {
+        for src in [
+            "W0QEY Fort Collins",
+            "Cañon City",
+            "Rocky \u{2013} Mtn",          // en dash
+            "\u{201c}Quoted\u{201d} Rptr", // smart quotes
+            "\u{1F4FB} radio",             // an emoji, 4 bytes
+            "A,B,C,D,E,F,G,H,I",
+            "",
+        ] {
+            let out = sanitize_name(src);
+            assert!(out.len() <= MAX_NAME, "{src:?} -> {out:?} is {} bytes", out.len());
+            assert!(out.chars().count() <= MAX_NAME, "{src:?} -> {out:?}");
+            assert!(out.is_ascii(), "{src:?} -> {out:?} is not ASCII");
+            assert!(!out.contains(','), "a comma would split the MN line: {out:?}");
+        }
+    }
 
     fn channel(rx: f64) -> Channel {
         Channel {

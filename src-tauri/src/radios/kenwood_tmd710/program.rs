@@ -33,8 +33,8 @@ use std::path::Path;
 
 use super::encode::{encode_channel, encode_name};
 use super::memory::{Memory, MemoryName, EMPTY_REPLY, MAX_NAME};
-use super::{ask, ask_settling, open_port, write_memory, write_name};
-use crate::commands::export::{exclusion_reason, expanded_name};
+use super::{ask, open_port, write_memory, write_name};
+use crate::commands::export::{exclusion_reason, expanded_names};
 use crate::radios::driver::{
     CodeplugPayload, CodeplugPreview, CodeplugProgrammer, ProgramReport, SkippedChannel,
 };
@@ -82,10 +82,22 @@ pub(crate) fn plan(payload: &CodeplugPayload) -> Result<Plan, String> {
     }
     let max_slots = model.memory_channels.unwrap_or(1000) as usize;
 
+    // ⚠ Computed for the WHOLE payload up front, because disambiguation is a
+    // property of the set: `expanded_names` can only tell two `W0QEY` repeaters
+    // apart by seeing both. Every other radio here does this; the TM-D710 called
+    // the singular `expanded_name` per channel and so shipped duplicate names to
+    // the radio while the export preview showed them pulled apart (#26).
+    //
+    // Indexed by position in `payload.channels`, including the excluded ones, so
+    // a skipped channel cannot shift the names of the ones after it.
+    let names = expanded_names(payload.channels.iter(), model);
+
     let mut memories = Vec::new();
     let mut skipped = Vec::new();
-    for ec in payload.channels {
-        let name = expanded_name(ec, model);
+    // (what the app calls the channel, what the radio will keep) — so the
+    // truncation warning can compare them instead of guessing from a length.
+    let mut planned_names: Vec<(String, String)> = Vec::new();
+    for (ec, name) in payload.channels.iter().zip(names) {
         // Band and mode fit first — the same verdict the export preview shows,
         // so the two cannot disagree about which channels are in.
         if let Some(reason) = exclusion_reason(&ec.channel, model) {
@@ -105,10 +117,19 @@ pub(crate) fn plan(payload: &CodeplugPayload) -> Result<Plan, String> {
         match encode_channel(slot as u16, &ec.channel) {
             Ok(m) => {
                 let mut n = encode_name(slot as u16, &ec.channel);
-                // `expanded_name` is what the rest of the app calls this channel
-                // (it disambiguates duplicates and appends talkgroup labels), so
-                // it wins over the raw column the encoder reached for.
-                n.text = super::encode::sanitize_name(&name);
+                // ⚠ `name` comes from `expanded_names` (PLURAL), which appends
+                // talkgroup labels AND pulls collisions apart. The singular
+                // `expanded_name` does NOT disambiguate — a comment here used to
+                // claim it did — so two W0QEY repeaters both reached the radio as
+                // `W0QEY Fo` while every export path showed `W0QEY V`/`W0QEY U`.
+                //
+                // ⚠ And an empty result is dropped rather than written: a channel
+                // with no long or short name yields `""` here, which would
+                // overwrite `encode_name`'s call-sign fallback and send `MN nnn,`.
+                if !name.is_empty() {
+                    n.text = super::encode::sanitize_name(&name);
+                    planned_names.push((name.clone(), n.text.clone()));
+                }
                 memories.push((m, n));
             }
             Err(reason) => skipped.push(SkippedChannel { name, reason }),
@@ -124,7 +145,7 @@ pub(crate) fn plan(payload: &CodeplugPayload) -> Result<Plan, String> {
             memories.len()
         ));
     }
-    if name_is_truncated(&memories) {
+    if name_is_truncated(&planned_names) {
         warnings.push(format!(
             "Some channel names are longer than the {MAX_NAME} characters this radio keeps and \
              have been shortened."
@@ -139,8 +160,14 @@ pub(crate) fn plan(payload: &CodeplugPayload) -> Result<Plan, String> {
     })
 }
 
-fn name_is_truncated(memories: &[(Memory, MemoryName)]) -> bool {
-    memories.iter().any(|(_, n)| n.text.chars().count() == MAX_NAME)
+/// Whether any name actually lost characters.
+///
+/// ⚠ Compares the name against the source it came from. Testing
+/// `len() == MAX_NAME` warned about every name that merely *filled* the field —
+/// a codeplug whose longest name was exactly `SIMPLEX8` told the operator names
+/// "have been shortened" when nothing had been.
+fn name_is_truncated(planned: &[(String, String)]) -> bool {
+    planned.iter().any(|(source, kept)| source != kept)
 }
 
 impl CodeplugProgrammer for super::KenwoodTmD710 {
@@ -159,12 +186,12 @@ impl CodeplugProgrammer for super::KenwoodTmD710 {
 
         // Identity first. Every command below is a write, and sending `ME` lines
         // at a radio that turns out to be a TM-V71 would program the wrong set.
-        let id = ask_settling(&mut *p, "ID")?;
-        if !id.contains("TM-D710") {
-            return Err(format!(
-                "the radio on {port} identifies as {id:?}, not a TM-D710. Nothing was written."
-            ));
-        }
+        //
+        // ⚠ Through `confirm_model`, which is the SAME check `identify` applies.
+        // This used to be `id.contains("TM-D710")` — and `"TM-D710G"` contains
+        // `"TM-D710"`, so the one radio `identify` refuses by name could still be
+        // sent 1000 `ME` lines plus a clear pass from here.
+        super::confirm_model(&mut *p)?;
 
         // ── The backup, before anything goes out ───────────────────────────
         std::fs::create_dir_all(backup_dir).map_err(|e| e.to_string())?;
@@ -201,8 +228,23 @@ impl CodeplugProgrammer for super::KenwoodTmD710 {
         // program is a full replace and not a merge with whatever was there.
         let mut slots_cleared = 0usize;
         for slot in occupied.iter().copied().filter(|s| (*s as usize) >= plan.memories.len()) {
+            // ⚠ Read back, like every write above. A non-`?` reply is not evidence
+            // on this protocol: a well-formed line the radio chooses to ignore
+            // draws nothing at all, and this counted such a slot as cleared — so a
+            // previous codeplug's channel stayed live while the report said it was
+            // gone. `d710_clear_slots` verifies the same way.
             ask(&mut *p, &format!("ME {slot:03},C"))
-                .map_err(|e| stopped_at(slot, channels_written, &backup_path, &e))?;
+                .map_err(|e| clear_failed(slot, slots_cleared, &backup_path, &e))?;
+            let after = ask(&mut *p, &format!("ME {slot:03}"))
+                .map_err(|e| clear_failed(slot, slots_cleared, &backup_path, &e))?;
+            if after != EMPTY_REPLY {
+                return Err(clear_failed(
+                    slot,
+                    slots_cleared,
+                    &backup_path,
+                    &format!("the radio still reports {after}"),
+                ));
+            }
             slots_cleared += 1;
         }
 
@@ -223,9 +265,8 @@ impl CodeplugProgrammer for super::KenwoodTmD710 {
             expected_path: String::new(),
             warnings: plan.warnings.clone(),
             note: format!(
-                "Every memory was read back and matched. {} memories written, {slots_cleared} \
-                 cleared.",
-                channels_written
+                "Every memory was read back and matched, and every cleared slot was read back \
+                 empty. {channels_written} memories written, {slots_cleared} cleared."
             ),
         })
     }
@@ -242,6 +283,24 @@ fn stopped_at(slot: u16, written: usize, backup: &Path, cause: &str) -> String {
         "Programming stopped at memory {slot:03}. {written} memories were written before it, and \
          the radio is now holding a MIXTURE of the new codeplug and what it had. The radio's \
          original contents were saved to {} first and can be restored.\n\nCause: {cause}",
+        backup.display()
+    )
+}
+
+/// The error the CLEAR pass needs, which is a different situation.
+///
+/// ⚠ This used to reuse [`stopped_at`], which told the operator "Programming
+/// stopped at memory 500, 62 memories were written before it, the radio is
+/// holding a MIXTURE" — when in fact every memory had been written correctly and
+/// only a leftover slot from a previous codeplug failed to clear. The right
+/// action is different too: nothing needs rewriting, one stale slot needs
+/// removing.
+fn clear_failed(slot: u16, cleared: usize, backup: &Path, cause: &str) -> String {
+    format!(
+        "All memories were written and verified, but clearing leftover memory {slot:03} failed \
+         after {cleared} slot(s) had been cleared. The new codeplug IS on the radio; what remains \
+         is one or more channels from what was there before, at memory {slot:03} and possibly \
+         above it. The radio's original contents were saved to {} first.\n\nCause: {cause}",
         backup.display()
     )
 }

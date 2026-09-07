@@ -41,14 +41,21 @@
 //! right, 0 wrong** under "0-based index into this list". That pins the offset
 //! and the interior of the table independently of anything printed.
 //!
-//! ## ⚠ Nothing here is called yet
+//! ## ⚠ Why `allow(dead_code)` is still here
 //!
-//! Every item below carries `allow(dead_code)` because the Phase 2 encoder —
-//! the thing that builds an `ME` line from a library channel — does not exist
-//! yet. The attribute goes away with it. It is spelled out because a
-//! `never used` warning on an encoder is normally a **bug report**: on the
-//! D890UV a whole settings write path sat unreferenced behind a working read
-//! path and nobody noticed. See `read-path-working-hides-a-dead-write-path`.
+//! This said "nothing here is called yet — the Phase 2 encoder does not exist"
+//! for several sessions after [`super::encode`] shipped and climbed the hardware
+//! ladder. It does exist, and it uses [`TONES_DHZ`] and [`DCS_CODES`].
+//!
+//! What is still test-only is the **reverse** direction — [`tone_hz`] and
+//! [`dcs_code`], which turn an index back into a value and are used by the
+//! measurement harness and by tests, not by any shipped path. That is why the
+//! attribute is conditional on `not(test)` rather than unconditional, and it is
+//! spelled out because a `never used` warning on an encoder is normally a **bug
+//! report**: on the D890UV a whole settings write path sat unreferenced behind a
+//! working read path and nobody noticed. If a `never used` appears here for
+//! anything the encoder needs, that is the bug, not the attribute. See
+//! `read-path-working-hides-a-dead-write-path`.
 //!
 //! ## What is still unconfirmed
 //!
