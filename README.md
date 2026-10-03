@@ -8,8 +8,8 @@ channel, zone, scan-list, and contact programming that goes into a handheld or m
 Instead of juggling a separate vendor programming tool (CPS) per radio, you maintain **one
 master database** of repeaters and channels, then generate or directly program a codeplug for
 whichever radio you own. Channels can be imported from RepeaterBook, geocoded from a city name,
-organized into zones and scan lists, and pushed straight to the radio over USB or its microSD
-card — or exported as CSV for tools that expect it.
+organized into zones and scan lists, and pushed straight to the radio over USB, a programming
+cable, or its microSD card — or exported as CSV for tools that expect it.
 
 > **Status:** working prototype, actively developed. Programming paths for the radios below have
 > been verified on real hardware, but this is early software — always keep a backup of your
@@ -30,8 +30,10 @@ card — or exported as CSV for tools that expect it.
 | **Kenwood TM-D710** | APRS + Analog | 2 m / 70 cm TX, 118–524 MHz RX | Serial cable — read, write, settings | 1000 memories; 95 settings across **two transports** — 35 over the radio's `MU` command and 60 more, including the APRS position, status texts and station icon, out of the settings image `MU` cannot reach. Programmed live, one memory at a time over the COM port on the rear of the **operation panel** (not the main unit), so there is no image file and a backup is a transcript of the radio's own lines |
 | **Binteradio BT-9000** | Analog FM/NFM | 18–64 / 136–174 / 200–260 / 400–520 MHz TX, 18–520 MHz RX | Direct USB — read, write, settings | 960 channels in 15 fixed zones; 42 menu settings. Also sold as the Radtel RT-950 Pro, Bajeton BJ-9000 and Tenway TP-900 Pro — the radio reports itself as `RT-950` |
 
-Direct USB programming reads the radio's current image, applies your changes, backs up the
-original, writes, and can verify the result byte-for-byte.
+Direct USB and cable programming reads the radio's current image, applies your changes, backs up
+the original, writes, and can verify the result byte-for-byte. The ID-5100 clones its whole
+image at once and refuses a clone it cannot accept by resetting itself to factory defaults, so the
+app checks every memory against the radio's receive coverage before anything is sent.
 
 Cable-free radios are programmed through their own microSD card instead: the app patches the file
 the radio itself wrote — the FT5D's `BACKUP.dat`, the ID-52's `.icf`, the TH-D75's `.d75` — so the
@@ -81,7 +83,8 @@ bench. If you own one of these and want to help measure or test it, say so on it
 - **Zones, scan lists, and talkgroups** with per-channel scan-list assignment.
 - **DMR contacts** — a local mirror of the [radioid.net](https://radioid.net) DMR-ID → callsign
   database, with prioritized export and (on the D890UV) direct caller-ID database programming.
-- **Direct radio programming** over USB with backup, write, and byte-level verify.
+- **Direct radio programming** over USB or a programming cable (Icom ID-5100, Kenwood TM-D710)
+  with backup, write, and byte-level verify.
 - **microSD programming** for radios that take a card instead of a cable (Yaesu FT5D, Icom ID-52,
   Kenwood TH-D75), patching the radio's own backup/settings file so its menus and memories come
   back together.
@@ -138,7 +141,8 @@ Every borrowing is also cited at its use site in the source. This section is the
 
 **[CHIRP](https://chirpmyradio.com)** — GPLv3, compatible. Struct layouts, tone tables, and
 encode/decode routines for the Baofeng and TIDRADIO drivers; the FT5D settings map (from
-`ft1d.py`); the Icom `.icf` container format (from `icf.py`); and the TH-D75 channel memory layout
+`ft1d.py`); the Icom `.icf` container format and the Icom clone protocol (from `icf.py`); the
+ID-5100 memory, bank and bitmap layout (from `id5100.py`); and the TH-D75 channel memory layout
 (from `thd74.py`).
 
 **[qdmr](https://github.com/hmatuschek/qdmr)** — GPLv3, © Hannes Matuschek DM3MAT; compatible.
