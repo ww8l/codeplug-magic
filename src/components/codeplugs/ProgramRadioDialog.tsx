@@ -481,6 +481,12 @@ export function ProgramRadioDialog({
                       <strong>Write to radio</strong>.
                     </>
                   )}
+                  {caps?.after_write && (
+                    <>
+                      {" "}
+                      <strong>{caps.after_write}</strong>
+                    </>
+                  )}
                 </span>
               </div>
             )}
@@ -637,8 +643,17 @@ export function ProgramRadioDialog({
             {busy === "program" && (
               <div className="mx-5 mb-4 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
                 <Spinner className="h-3.5 w-3.5" />
-                Backing up → writing channels → verifying… keep the radio on and
-                the cable connected.
+                <span>
+                  Backing up → writing channels → verifying… keep the radio on and
+                  the cable connected.
+                  {caps?.after_write && <strong> {caps.after_write}</strong>}
+                </span>
+              </div>
+            )}
+            {busy === "restore" && caps?.after_write && (
+              <div className="mx-5 mb-4 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
+                <Spinner className="h-3.5 w-3.5" />
+                <strong>{caps.after_write}</strong>
               </div>
             )}
 
@@ -707,6 +722,9 @@ export function ProgramRadioDialog({
                     // command layer and read by nothing on this screen.
                     (program.zones_written > 0
                       ? ` · ${program.zones_written} zone${program.zones_written === 1 ? "" : "s"}`
+                      : "") +
+                    (program.banks_written > 0
+                      ? ` · ${program.banks_written} bank${program.banks_written === 1 ? "" : "s"}`
                       : "")
                   }
                   note={program.note ?? undefined}

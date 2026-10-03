@@ -153,7 +153,7 @@ const ANALOG_TAIL: [u8; 3] = [0xE4, 0xFF, 0xFF];
 /// CTCSS tones in tenths of a hertz, indexed as the radio stores them. The same
 /// 50-entry table the settings menu uses: Repeater Tone `254.1` is index 49 and
 /// TSQL `67.0` is index 0.
-const TONES_DHZ: [u16; 50] = [
+pub(crate) const TONES_DHZ: [u16; 50] = [
     670, 693, 719, 744, 770, 797, 825, 854, 885, 915, 948, 974, 1000, 1035, 1072, 1109, 1148, 1188,
     1230, 1273, 1318, 1365, 1413, 1462, 1514, 1567, 1598, 1622, 1655, 1679, 1713, 1738, 1773, 1799,
     1835, 1862, 1899, 1928, 1966, 1995, 2035, 2065, 2107, 2181, 2257, 2291, 2336, 2418, 2503, 2541,
@@ -161,7 +161,7 @@ const TONES_DHZ: [u16; 50] = [
 
 /// DTCS codes as the radio indexes them. Written in octal the way the front
 /// panel shows them, which is also how the channel database stores them.
-const DTCS_CODES: [u16; 104] = [
+pub(crate) const DTCS_CODES: [u16; 104] = [
     23, 25, 26, 31, 32, 36, 43, 47, 51, 53, 54, 65, 71, 72, 73, 74, 114, 115, 116, 122, 125, 131,
     132, 134, 143, 145, 152, 155, 156, 162, 165, 172, 174, 205, 212, 223, 225, 226, 243, 244, 245,
     246, 251, 252, 255, 261, 263, 265, 266, 271, 274, 306, 311, 315, 325, 331, 332, 343, 346, 351,
@@ -546,13 +546,13 @@ fn raster(freq_hz: u32) -> u8 {
     }
 }
 
-fn hz(mhz: f64) -> u32 {
+pub(crate) fn hz(mhz: f64) -> u32 {
     (mhz * 1_000_000.0).round().clamp(0.0, u32::MAX as f64) as u32
 }
 
 /// Nearest tone in the radio's table. A channel carrying a tone this radio does
 /// not have is better off on the closest one it does than on a wild index.
-fn tone_index(hz: f64) -> u8 {
+pub(crate) fn tone_index(hz: f64) -> u8 {
     let want = (hz * 10.0).round().clamp(0.0, u16::MAX as f64) as u16;
     TONES_DHZ
         .iter()
@@ -581,7 +581,7 @@ fn dtcs_polarity_index(polarity: &str) -> u8 {
 
 /// The stored DTCS code's index, or the radio's default `023` when the channel
 /// has none — every analog record carries a code whether or not it uses one.
-fn dtcs_index(code: Option<&str>) -> u8 {
+pub(crate) fn dtcs_index(code: Option<&str>) -> u8 {
     let Some(want) = code.and_then(|c| c.trim().parse::<u16>().ok()) else {
         return 0;
     };
@@ -596,7 +596,7 @@ fn dtcs_index(code: Option<&str>) -> u8 {
 /// Icom's call-sign packing: 8 characters at 7 bits each, most significant
 /// first, into 7 bytes. The port letter sits in the 8th column, which is why the
 /// field is padded rather than trimmed.
-fn pack_call(call: &str) -> [u8; 7] {
+pub(crate) fn pack_call(call: &str) -> [u8; 7] {
     let mut bits: u64 = 0;
     let mut chars = call.chars();
     for _ in 0..8 {
@@ -611,7 +611,7 @@ fn pack_call(call: &str) -> [u8; 7] {
 /// Write an ASCII field, space-padded to the field's width and truncated to it.
 /// Names reach here already cut to the radio's limit; this is the backstop that
 /// keeps a stray character out of the next field.
-fn ascii_field(field: &mut [u8], text: &str) {
+pub(crate) fn ascii_field(field: &mut [u8], text: &str) {
     field.fill(b' ');
     for (slot, c) in field.iter_mut().zip(text.chars()) {
         *slot = if c.is_ascii_graphic() || c == ' ' {

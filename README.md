@@ -24,6 +24,7 @@ card — or exported as CSV for tools that expect it.
 | **AnyTone AT-D890UV** | DMR + Analog | VHF / UHF | Direct USB — channels, zones, scan lists, settings, call-sign DB | 4000 channels; full DMR: zones, talkgroups, 308k-entry caller-ID database |
 | **Yaesu FT5D** | C4FM (System Fusion) + Analog | VHF / UHF TX, wideband RX | microSD — patches the radio's own backup file | 900 channels in 24 banks; channels, banks, and menu settings |
 | **Icom ID-52** | D-STAR + Analog | VHF / UHF TX, 108–174 / 225–479 MHz RX | microSD — patches the radio's own `.icf` file | 1000 memories in 100 groups; memories and menu settings restore in one operation |
+| **Icom ID-5100** | D-STAR + Analog | 2 m / 70 cm TX, 118–174 / 375–550 MHz RX | Data cable — read, write, settings | 1000 memories in 26 named banks, programmed by Icom's clone protocol over the cable; 292 menu settings including My Call Sign, TX messages and the D-PRS (APRS) position, object, item and weather setup, written in the same upload as the memories |
 | **Kenwood TH-D72** | APRS + Analog | 2 m / 70 cm TX, 118–174 / 320–524 MHz RX | Direct USB — read, write, settings | 1000 memories; 113 menu settings over the radio's own `MU` command |
 | **Kenwood TH-D75** | D-STAR + APRS + Analog | VHF / 1.25 m / UHF TX, 0.1–524 MHz RX | microSD — patches the radio's own `.d75` file | 1000 memories in 30 groups; memories and menu settings, including the APRS setup |
 | **Kenwood TM-D710** | APRS + Analog | 2 m / 70 cm TX, 118–524 MHz RX | Serial cable — read, write, settings | 1000 memories; 95 settings across **two transports** — 35 over the radio's `MU` command and 60 more, including the APRS position, status texts and station icon, out of the settings image `MU` cannot reach. Programmed live, one memory at a time over the COM port on the rear of the **operation panel** (not the main unit), so there is no image file and a backup is a transcript of the radio's own lines |
@@ -60,7 +61,6 @@ settings together, then verify on the actual radio before shipping.
 | **AnyTone AT-D578UV** | DMR + Analog mobile | [#47](https://github.com/ww8l/codeplug-magic/issues/47) |
 | **AnyTone AT-D868UV** | DMR + Analog handheld | [#51](https://github.com/ww8l/codeplug-magic/issues/51) |
 | **Icom ID-51** | D-STAR + Analog handheld | [#50](https://github.com/ww8l/codeplug-magic/issues/50) |
-| **Icom ID-5100** | D-STAR + Analog mobile | [#49](https://github.com/ww8l/codeplug-magic/issues/49) |
 | **Icom IC-9100** | HF / VHF / UHF base | [#45](https://github.com/ww8l/codeplug-magic/issues/45) |
 | **Icom IC-7610** | HF / 6 m SDR base | [#46](https://github.com/ww8l/codeplug-magic/issues/46) |
 | **Quansheng UV-K5** | Analog handheld | [#44](https://github.com/ww8l/codeplug-magic/issues/44) |

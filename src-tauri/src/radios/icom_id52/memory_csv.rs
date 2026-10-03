@@ -101,7 +101,7 @@ const HEADER: [&str; 20] = [
 /// and `8.33kHz` for airband AM, which is that band's real channel spacing.
 /// (Both third-party ID-52 converters write `12.5kHz` instead; the radio's own
 /// export says otherwise, and the radio wins.)
-pub(super) fn tune_step(ec: &ExpandedChannel) -> &'static str {
+pub(crate) fn tune_step(ec: &ExpandedChannel) -> &'static str {
     let f = ec.channel.rx_freq;
     if mode_of(ec) == "AM" && (108.0..137.0).contains(&f) {
         "8.33kHz"
@@ -286,7 +286,7 @@ pub(crate) fn render_csv(
 /// split — which this radio has no separate encoding for — comes out as a shift
 /// of the real difference. That is how the radio behaves anyway, and it is what
 /// the FT5D writer does with the same case.
-pub(super) fn duplex_and_offset(ec: &ExpandedChannel) -> (&'static str, f64) {
+pub(crate) fn duplex_and_offset(ec: &ExpandedChannel) -> (&'static str, f64) {
     let c = &ec.channel;
     let tx = match c.tx_freq {
         Some(tx) if (tx - c.rx_freq).abs() > 1e-9 => tx,
@@ -334,7 +334,7 @@ fn is_dv(ec: &ExpandedChannel) -> bool {
 
 /// `Mode`. The ID-52 spells narrow FM `FM-N`; everything it cannot do is
 /// programmed as plain FM, which is what a receive-only memory needs anyway.
-pub(super) fn mode_of(ec: &ExpandedChannel) -> &'static str {
+pub(crate) fn mode_of(ec: &ExpandedChannel) -> &'static str {
     if is_dv(ec) {
         return "DV";
     }
@@ -348,7 +348,7 @@ pub(super) fn mode_of(ec: &ExpandedChannel) -> &'static str {
 
 /// What one memory's squelch columns say: the `TONE` column and the three
 /// values it selects between.
-pub(super) struct ToneColumns {
+pub(crate) struct ToneColumns {
     /// The radio's own spelling of the squelch type (Advanced Manual pp. 15-8/
     /// 15-9). Also the key the `.icf` encoder maps to a squelch byte.
     pub tone: &'static str,
@@ -384,7 +384,7 @@ pub(super) struct ToneColumns {
 /// receive-only DTCS type), the mapping keeps whatever the TRANSMIT side needs:
 /// a channel that does not key its repeater is the failure that matters, and a
 /// squelch that is tighter than asked for is audible the moment it happens.
-pub(super) fn tone_columns(ec: &ExpandedChannel) -> ToneColumns {
+pub(crate) fn tone_columns(ec: &ExpandedChannel) -> ToneColumns {
     let c = &ec.channel;
     let up = c.ctcss_uplink;
     let down = c.ctcss_downlink;
@@ -464,7 +464,7 @@ pub(super) fn dtcs_polarity(stored: &str) -> &'static str {
 /// band convention, nor a hotspot whose RPT1 is its owner's call — but it stays,
 /// because the channel library's D-STAR repeaters come from RepeaterBook, which
 /// carries a call sign and no module letter.
-pub(super) fn call_signs(ec: &ExpandedChannel, dv: bool) -> (String, String, String) {
+pub(crate) fn call_signs(ec: &ExpandedChannel, dv: bool) -> (String, String, String) {
     let stored = |f: &Option<String>| {
         f.as_deref()
             .map(str::trim)

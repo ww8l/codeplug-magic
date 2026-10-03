@@ -128,6 +128,8 @@ mod tests {
                 write_callsign_db: false,
                 export: true,
                 diagnostics: false,
+                after_write: None,
+                settings_start_blank: false,
             }
         );
     }
