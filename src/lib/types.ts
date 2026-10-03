@@ -191,6 +191,13 @@ export interface DriverCapabilities {
   write_callsign_db: boolean;
   export: boolean;
   diagnostics: boolean;
+  /// What the operator must do at the radio after an upload (the ID-5100 asks
+  /// for its POWER button). The driver's read-back waits on it.
+  after_write: string | null;
+  /// A new profile's form must start BLANK, not seeded with schema defaults:
+  /// the program writes every value it holds into the radio's own image (the
+  /// ID-5100). The card radios' rule, declared by a cable driver.
+  settings_start_blank: boolean;
 }
 
 // One field definition inside non_channel_settings_schema (JSON).
@@ -566,6 +573,8 @@ export interface CodeplugProgramReport {
   settings_written: number | null;
   zones_written: number;
   zones_cleared: number;
+  // Named banks written (the ID-5100's A-Z); 0 on radios without them.
+  banks_written: number;
   scan_lists_written: number;
   scan_lists_cleared: number;
   contacts_written: number;

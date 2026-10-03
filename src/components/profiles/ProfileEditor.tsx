@@ -885,6 +885,12 @@ export function ProfileEditor({
     : undefined;
   // What this model's driver can actually do — gates the read-from-radio bar.
   const caps = useDriverCapabilities(model?.driver_key ?? null);
+  // The card radios' rule, for a cable radio in the same position: its program
+  // writes every value the form holds into the radio's own image, so a field
+  // the operator never set must stay blank rather than become a schema default
+  // that then overwrites their radio (the ID-5100, #49). Declared by the
+  // driver; never a per-model branch here.
+  const startBlank = isCardRadio || caps?.settings_start_blank === true;
 
   // Form state, re-seeded whenever a different profile is selected.
   const [name, setName] = useState(profile.display_name);
@@ -901,6 +907,10 @@ export function ProfileEditor({
   // `write_radio_settings` sends the SAVED row, not the form.
   const [saved, setSaved] = useState<SettingsValues>({});
   const [lastId, setLastId] = useState<number | null>(null);
+  // Whether the current seed invented defaults. The driver's capabilities load
+  // asynchronously the first time a model is opened, so a form can be seeded
+  // before `startBlank` is known; see the re-seed below.
+  const [seededDefaults, setSeededDefaults] = useState(false);
   if (profile.id !== lastId) {
     setName(profile.display_name);
     setNotes(profile.notes ?? "");
@@ -910,14 +920,24 @@ export function ProfileEditor({
     const seeded = seedValues(
       fields,
       parseSettings(profile.non_channel_settings),
-      !isCardRadio,
+      !startBlank,
     );
     setValues(seeded);
     setBaseline(seeded);
     setSaved(seeded);
+    setSeededDefaults(!startBlank);
     setLastId(profile.id);
     setTab("settings");
     setSubTab(null);
+  } else if (seededDefaults && startBlank && values === baseline) {
+    // The capability arrived after the form was seeded with defaults, and the
+    // operator has not typed into it yet (`values` is still the very object the
+    // seed produced): re-seed blank. An edited form is left exactly as it is.
+    const seeded = seedValues(fields, parseSettings(profile.non_channel_settings), false);
+    setValues(seeded);
+    setBaseline(seeded);
+    setSaved(seeded);
+    setSeededDefaults(false);
   }
 
   const setValue = (key: string, v: string | number | boolean) =>

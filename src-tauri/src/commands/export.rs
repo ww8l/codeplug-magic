@@ -790,6 +790,56 @@ pub(crate) async fn resolve_codeplug_zone_slots(
     Ok((model, ZonedCodeplug { slots, zones, warnings, refused }))
 }
 
+/// One channel list as a bank of the memories it resolved to: the unit a clone
+/// radio with NAMED banks of arbitrary memories writes (the ID-5100's A-Z, #49).
+///
+/// Contrast [`ProgrammedZone`]: there, position is membership and the resolver
+/// decides where channels land. Here the channels are already placed by the flat
+/// resolver and a bank only *names* some of them, so this is computed after
+/// [`resolve_codeplug_slots`] and never moves a slot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SlotBank {
+    pub name: String,
+    /// Memory slots in the list's own order.
+    pub slots: Vec<usize>,
+}
+
+/// Which slots each channel list owns, in codeplug list order.
+///
+/// A memory carries ONE bank on the radios this serves, so a channel in two
+/// lists belongs to the first — the same rule [`codeplug_channels`] uses to
+/// place it, and the reason the two agree. A list whose every channel was
+/// claimed earlier, or excluded for this radio, comes back empty rather than
+/// dropped, so the driver can still say which list got nothing.
+pub(crate) fn banks_for_slots(groups: &[CodeplugGroup], slots: &[SlotChannel]) -> Vec<SlotBank> {
+    let mut by_id: HashMap<i64, Vec<usize>> = HashMap::new();
+    for s in slots {
+        by_id.entry(s.channel.id).or_default().push(s.slot);
+    }
+    let mut claimed: HashSet<i64> = HashSet::new();
+    groups
+        .iter()
+        .map(|g| SlotBank {
+            name: g.list_name.clone(),
+            slots: g
+                .channels
+                .iter()
+                .filter(|c| claimed.insert(c.id))
+                .flat_map(|c| by_id.get(&c.id).cloned().unwrap_or_default())
+                .collect(),
+        })
+        .collect()
+}
+
+pub(crate) async fn resolve_codeplug_banks(
+    pool: &sqlx::SqlitePool,
+    codeplug_id: i64,
+    slots: &[SlotChannel],
+) -> Result<Vec<SlotBank>, String> {
+    let groups = resolve_codeplug_groups(pool, codeplug_id).await?;
+    Ok(banks_for_slots(&groups, slots))
+}
+
 /// A fixed-zone radio's memory geometry.
 ///
 /// `memories` is here because the last zone can be SHORT: the BT-9000 holds 960
@@ -2190,6 +2240,52 @@ mod tests {
     /// absolute TRANSMIT FREQUENCY, not a shift. Writing the magnitude there
     /// gave a 33 cm pair (927.5 RX / 902.5 TX) the row `split, 25.000000` — a
     /// memory that transmits on 25 MHz.
+    #[test]
+    fn banks_follow_list_order_and_a_shared_channel_goes_to_the_first() {
+        let ch = |id: i64| Channel {
+            id,
+            ..Default::default()
+        };
+        let groups = vec![
+            CodeplugGroup {
+                list_id: 1,
+                list_name: "Local".into(),
+                channels: vec![ch(10), ch(11), ch(12)],
+            },
+            CodeplugGroup {
+                list_id: 2,
+                list_name: "Travel".into(),
+                // 11 is shared with Local; 99 was excluded for this radio.
+                channels: vec![ch(13), ch(11), ch(99)],
+            },
+            CodeplugGroup {
+                list_id: 3,
+                list_name: "Dup".into(),
+                channels: vec![ch(12)],
+            },
+        ];
+        // What the flat resolver produces for these lists: list order, first
+        // occurrence wins, excluded channel absent.
+        let slots: Vec<SlotChannel> = [10, 11, 12, 13]
+            .iter()
+            .enumerate()
+            .map(|(slot, &id)| SlotChannel {
+                slot,
+                name: String::new(),
+                channel: ch(id),
+            })
+            .collect();
+        let banks = banks_for_slots(&groups, &slots);
+        assert_eq!(
+            banks,
+            vec![
+                SlotBank { name: "Local".into(), slots: vec![0, 1, 2] },
+                SlotBank { name: "Travel".into(), slots: vec![3] },
+                SlotBank { name: "Dup".into(), slots: vec![] },
+            ]
+        );
+    }
+
     #[test]
     fn a_chirp_split_row_carries_the_transmit_frequency() {
         let split = ExpandedChannel {

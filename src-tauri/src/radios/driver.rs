@@ -211,6 +211,32 @@ pub(crate) trait ImageProgrammer: Send + Sync {
     fn carries_profile_settings(&self) -> bool {
         false
     }
+
+    /// What the operator has to do at the radio once an upload finishes, if
+    /// anything. Shown above the Program / Restore buttons and while the write
+    /// runs, because the driver's read-back waits on it.
+    ///
+    /// The ID-5100 is why: after a clone-in it shows a message and sits there
+    /// until its POWER button is pressed, answering ID queries but stalling
+    /// any read (measured, #49). Nothing in the protocol can press it.
+    fn after_write_instruction(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// Whether a new profile's settings form must start BLANK rather than
+    /// seeded with schema defaults — the card radios' rule, for a cable radio
+    /// in the same position.
+    ///
+    /// True when the program patches the profile's settings into an image just
+    /// read off the radio (`carries_profile_settings`) and the schema carries no
+    /// defaults of its own: every value the form invented would then be WRITTEN,
+    /// replacing the operator's real setting. The ID-5100's first review found
+    /// exactly that — a profile opened and saved without "Download from radio"
+    /// would have blanked My Call Sign, unlinked every bank and zeroed Beep
+    /// Level on the next program (#49).
+    fn profile_starts_blank(&self) -> bool {
+        false
+    }
 }
 
 /// Attach the pre-write backup to an error raised DURING the write phase.
@@ -253,6 +279,11 @@ pub(crate) struct ImageProgramRequest<'a> {
     /// profile carries them. `None` writes channels + names only. Passing them
     /// makes the profile authoritative over every editable setting.
     pub settings: Option<(&'a serde_json::Value, &'a str)>,
+    /// The codeplug's channel lists as banks of the slots above, in list order
+    /// (`export::banks_for_slots`). Only radios with NAMED banks of arbitrary
+    /// memories read it (the ID-5100); a radio whose groups are positional, or
+    /// that has none, ignores it.
+    pub banks: &'a [crate::commands::export::SlotBank],
     /// Where the mandatory pre-write backup goes; the driver names the file.
     pub backup_dir: &'a Path,
     /// Codeplug name, slugged into that filename so several codeplugs for one
@@ -278,6 +309,8 @@ pub struct CodeplugProgramReport {
     pub settings_written: Option<usize>,
     pub zones_written: usize,
     pub zones_cleared: usize,
+    /// Named banks written (the ID-5100's A-Z). Zero on radios without them.
+    pub banks_written: usize,
     pub scan_lists_written: usize,
     pub scan_lists_cleared: usize,
     pub contacts_written: usize,
@@ -619,6 +652,10 @@ pub struct DriverCapabilities {
     pub write_callsign_db: bool,
     pub export: bool,
     pub diagnostics: bool,
+    /// [`ImageProgrammer::after_write_instruction`], for the Program dialog.
+    pub after_write: Option<&'static str>,
+    /// [`ImageProgrammer::profile_starts_blank`], for the profile editor.
+    pub settings_start_blank: bool,
 }
 
 impl DriverCapabilities {
@@ -639,6 +676,12 @@ impl DriverCapabilities {
             write_callsign_db: driver.as_callsign_db_writer().is_some(),
             export: driver.as_codeplug_exporter().is_some(),
             diagnostics: driver.as_diagnostics().is_some(),
+            after_write: driver
+                .as_image_programmer()
+                .and_then(ImageProgrammer::after_write_instruction),
+            settings_start_blank: driver
+                .as_image_programmer()
+                .is_some_and(ImageProgrammer::profile_starts_blank),
         }
     }
 }

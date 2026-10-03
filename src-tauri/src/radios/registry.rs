@@ -23,7 +23,7 @@ use crate::models::RadioModel;
 /// Every driver compiled into the app. Order is not significant — lookups are
 /// by `key()`, which is unique. (A static array rather than a slice literal:
 /// references to statics aren't const-promotable inside a returned temporary.)
-static DRIVERS: [&dyn RadioDriver; 9] = [
+static DRIVERS: [&dyn RadioDriver; 10] = [
     &super::baofeng_uv5r::DRIVER,
     &super::binteradio_bt9000::DRIVER,
     &super::tidradio_tdh3::DRIVER,
@@ -33,6 +33,7 @@ static DRIVERS: [&dyn RadioDriver; 9] = [
     &super::kenwood_thd75::DRIVER,
     &super::kenwood_thd72::DRIVER,
     &super::kenwood_tmd710::DRIVER,
+    &super::icom_id5100::DRIVER,
 ];
 
 pub(crate) fn all_drivers() -> &'static [&'static dyn RadioDriver] {
@@ -143,6 +144,12 @@ mod tests {
                 // every exposed range was measured there rather than read off
                 // the published sheet that was wrong about five of them.
                 "kenwood_tmd710" => (true, true),
+                // ID-5100 (#49): reads, but no standalone write. Its settings
+                // live in the clone image, so they ride out inside the codeplug
+                // program (`carries_profile_settings`) exactly like the UV-5R —
+                // a separate settings write would be the same full clone and
+                // the same press-POWER restart.
+                "icom_id5100" => (true, false),
                 _ => (true, true),
             };
             assert_eq!(
@@ -205,7 +212,11 @@ mod tests {
         for d in all_drivers() {
             let expect_image = matches!(
                 d.key(),
-                "baofeng_uv5r" | "tidradio_tdh3" | "kenwood_thd72" | "binteradio_bt9000"
+                "baofeng_uv5r"
+                    | "tidradio_tdh3"
+                    | "kenwood_thd72"
+                    | "binteradio_bt9000"
+                    | "icom_id5100"
             );
             assert_eq!(
                 d.as_image_programmer().is_some(),

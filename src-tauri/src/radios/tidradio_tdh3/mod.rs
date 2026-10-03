@@ -328,6 +328,7 @@ impl ImageProgrammer for TidradioTdh3 {
             channels: channels.into_iter().map(decoded_to_sample).collect(),
             zones_written: 0,
             zones_cleared: 0,
+            banks_written: 0,
             scan_lists_written: 0,
             scan_lists_cleared: 0,
             contacts_written: 0,

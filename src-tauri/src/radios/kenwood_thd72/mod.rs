@@ -342,6 +342,7 @@ impl ImageProgrammer for KenwoodThd72 {
             channels: program::decode_sample(&built),
             zones_written: 0,
             zones_cleared: 0,
+            banks_written: 0,
             scan_lists_written: 0,
             scan_lists_cleared: 0,
             contacts_written: 0,

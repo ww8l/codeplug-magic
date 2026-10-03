@@ -351,10 +351,21 @@ fn the_profile_form_calls_a_card_radio_by_how_it_is_programmed() {
         decl.trim()
     );
 
-    // And the flag has to still be the thing that suppresses the defaults.
+    // And the flag has to still reach the thing that suppresses the defaults.
+    // Since #49 it travels inside `startBlank`, which ORs in the driver's own
+    // `settings_start_blank` for a cable radio in the same position.
+    let start_blank = editor
+        .lines()
+        .find(|l| l.trim_start().starts_with("const startBlank"))
+        .expect("no `const startBlank` in ProfileEditor.tsx");
     assert!(
-        editor.contains("!isCardRadio"),
-        "ProfileEditor.tsx no longer passes !isCardRadio as seedValues' `defaults` argument — the \
+        start_blank.contains("isCardRadio") && start_blank.contains("settings_start_blank"),
+        "startBlank must combine isCardRadio with the driver's settings_start_blank: `{}`",
+        start_blank.trim()
+    );
+    assert!(
+        editor.contains("!startBlank"),
+        "ProfileEditor.tsx no longer passes !startBlank as seedValues' `defaults` argument — the \
          flag this test guards is not reaching the seeding decision."
     );
 }

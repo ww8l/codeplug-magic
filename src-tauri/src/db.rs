@@ -60,18 +60,19 @@ mod tests {
         // Models are reintroduced one at a time (migration 0005 trimmed the
         // original set): currently the Baofeng UV-5R, TIDRADIO TD-H3, AnyTone
         // AT-D890UV, Yaesu FT5D, Icom ID-52, Kenwood TH-D75, Kenwood TH-D72
-        // the Binteradio BT-9000 and Kenwood TM-D710. (0015 removed the Vero
-        // VR-N76 placeholder.) None of the last four has a migration of its
-        // own — seeding INSERTs new (manufacturer, model) rows, so a new model
-        // reaches existing databases on the next startup without one.
+        // the Binteradio BT-9000, Kenwood TM-D710 and Icom ID-5100. (0015
+        // removed the Vero VR-N76 placeholder.) None of the last five has a
+        // migration of its own — seeding INSERTs new (manufacturer, model)
+        // rows, so a new model reaches existing databases on the next startup
+        // without one.
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM radio_models")
             .fetch_one(&pool)
             .await
             .unwrap();
         assert_eq!(
-            count.0, 9,
-            "expected the UV-5R, TD-H3, AT-D890UV, FT5D, ID-52, TH-D75, TH-D72, BT-9000 \
-             and TM-D710 seeded models"
+            count.0, 10,
+            "expected the UV-5R, TD-H3, AT-D890UV, FT5D, ID-52, TH-D75, TH-D72, BT-9000, \
+             TM-D710 and ID-5100 seeded models"
         );
 
         let models: Vec<(String,)> =
@@ -83,8 +84,8 @@ mod tests {
         assert_eq!(
             names,
             vec![
-                "AT-D890UV", "BT-9000", "FT5D", "ID-52", "TD-H3", "TH-D72", "TH-D75", "TM-D710",
-                "UV-5R"
+                "AT-D890UV", "BT-9000", "FT5D", "ID-5100", "ID-52", "TD-H3", "TH-D72", "TH-D75",
+                "TM-D710", "UV-5R"
             ]
         );
 
@@ -94,7 +95,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(count2.0, 9, "seeding should be idempotent");
+        assert_eq!(count2.0, 10, "seeding should be idempotent");
 
         // A new database starts with NO talkgroups. The BrandMeister list used
         // to be compiled in and seeded here; it is downloaded on request now,

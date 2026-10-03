@@ -368,6 +368,7 @@ impl ImageProgrammer for BaofengUv5r {
             // ranges rather than addressed windows.
             zones_written: 0,
             zones_cleared: 0,
+            banks_written: 0,
             scan_lists_written: 0,
             scan_lists_cleared: 0,
             contacts_written: 0,

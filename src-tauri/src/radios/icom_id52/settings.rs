@@ -93,6 +93,10 @@ pub(crate) enum SK {
     },
     /// Fixed-length ASCII, space-padded.
     Text { len: u32 },
+    /// Fixed-length ASCII padded with `fill` instead of spaces. The ID-5100's
+    /// D-PRS object and item names are `0xFF`-padded: typing "AB" over a
+    /// 9-character name left `41 42 FF FF FF FF FF FF FF` (#49).
+    TextFill { len: u32, fill: u8 },
 }
 
 include!("id52_settings_table.rs");
@@ -156,6 +160,12 @@ fn decode_field(image: &[u8], f: &SF) -> Value {
                     .to_string(),
             )
         }
+        SK::TextFill { len, fill } => {
+            let end = (at + *len as usize).min(image.len());
+            let raw = &image[at..end];
+            let cut = raw.iter().position(|b| b == fill).unwrap_or(raw.len());
+            Value::String(String::from_utf8_lossy(&raw[..cut]).trim_end().to_string())
+        }
     }
 }
 
@@ -163,8 +173,15 @@ fn decode_field(image: &[u8], f: &SF) -> Value {
 /// profile form. Unknown or out-of-range enum values come back as their raw
 /// number rather than a wrong label.
 pub(crate) fn decode_settings(image: &[u8]) -> Value {
+    decode_settings_with(ID52_SETTINGS_FIELDS, image)
+}
+
+/// [`decode_settings`] against any Icom field table. The encoding rules here
+/// (big-endian integers, space-padded text, off = 0 / on = 1) are Icom's, not
+/// the ID-52's alone: the ID-5100 (#49) uses this with its own table.
+pub(crate) fn decode_settings_with(fields: &[SF], image: &[u8]) -> Value {
     let mut out = Map::new();
-    for f in ID52_SETTINGS_FIELDS {
+    for f in fields {
         if field_end(f) > image.len() {
             continue;
         }
@@ -183,7 +200,7 @@ fn field_end(f: &SF) -> usize {
         | SK::Enum { width, .. }
         | SK::IntEnum { width, .. } => *width as usize,
         SK::Bool | SK::BoolBit { .. } => 1,
-        SK::Text { len } => *len as usize,
+        SK::Text { len } | SK::TextFill { len, .. } => *len as usize,
     }
 }
 
@@ -192,8 +209,17 @@ fn field_end(f: &SF) -> usize {
 /// shape, are skipped rather than guessed at — a profile saved against an older
 /// schema must not corrupt the image.
 pub(crate) fn apply_settings(image: &mut [u8], settings: &Map<String, Value>) -> usize {
+    apply_settings_with(ID52_SETTINGS_FIELDS, image, settings)
+}
+
+/// [`apply_settings`] against any Icom field table — see [`decode_settings_with`].
+pub(crate) fn apply_settings_with(
+    fields: &[SF],
+    image: &mut [u8],
+    settings: &Map<String, Value>,
+) -> usize {
     let mut written = 0;
-    for f in ID52_SETTINGS_FIELDS {
+    for f in fields {
         let Some(v) = settings.get(f.key) else {
             continue;
         };
@@ -268,6 +294,17 @@ pub(crate) fn apply_settings(image: &mut [u8], settings: &Map<String, Value>) ->
             SK::Text { len } => match v.as_str() {
                 Some(s) => {
                     write_text(image, at, *len as usize, s);
+                    true
+                }
+                None => false,
+            },
+            SK::TextFill { len, fill } => match v.as_str() {
+                Some(s) => {
+                    write_text(image, at, *len as usize, s);
+                    // Pad with the field's own fill, not the spaces write_text
+                    // used, and keep a trailing space the operator typed.
+                    let n = s.chars().count().min(*len as usize);
+                    image[at + n..at + *len as usize].fill(*fill);
                     true
                 }
                 None => false,
@@ -718,7 +755,7 @@ mod tests {
                     .unwrap_or(label);
                 (Value::from(label), Value::from(first))
             }
-            SK::Text { len } => {
+            SK::Text { len } | SK::TextFill { len, .. } => {
                 if *len == 0 {
                     return None;
                 }
@@ -901,61 +938,16 @@ mod tests {
                     labels,
                 },
                 SK::Text { len } => SK::Text { len: *len },
+                SK::TextFill { len, fill } => SK::TextFill { len: *len, fill: *fill },
             },
         }];
         apply_table(image, &table, settings);
     }
 
     /// `apply_settings` against an arbitrary table rather than the generated
-    /// one. Kept in the test module so production code has exactly one entry
-    /// point.
+    /// one — now just the production [`apply_settings_with`], which exists
+    /// because the ID-5100 needed the same encoder with its own table.
     fn apply_table(image: &mut [u8], table: &[SF], settings: &Map<String, Value>) {
-        for f in table {
-            let Some(v) = settings.get(f.key) else {
-                continue;
-            };
-            if decode_field(image, f) == *v {
-                continue;
-            }
-            let at = f.byte as usize;
-            match &f.kind {
-                SK::Uint { width } => {
-                    if let Some(n) = v.as_u64() {
-                        write_uint(image, at, *width, n as u32)
-                    }
-                }
-                SK::Int { width } => {
-                    if let Some(n) = v.as_i64() {
-                        write_int(image, at, *width, n)
-                    }
-                }
-                SK::Bool => {
-                    if let Some(b) = v.as_bool() {
-                        image[at] = b as u8
-                    }
-                }
-                SK::BoolBit { shift } => {
-                    if let Some(b) = v.as_bool() {
-                        let mask = 1u8 << shift;
-                        image[at] = (image[at] & !mask) | if b { mask } else { 0 };
-                    }
-                }
-                SK::Enum { width, labels } => {
-                    if let Some(raw) = raw_for(labels, v) {
-                        write_uint(image, at, *width, raw)
-                    }
-                }
-                SK::IntEnum { width, labels } => {
-                    if let Some(raw) = signed_raw_for(labels, v) {
-                        write_int(image, at, *width, raw)
-                    }
-                }
-                SK::Text { len } => {
-                    if let Some(s) = v.as_str() {
-                        write_text(image, at, *len as usize, s)
-                    }
-                }
-            }
-        }
+        apply_settings_with(table, image, settings);
     }
 }

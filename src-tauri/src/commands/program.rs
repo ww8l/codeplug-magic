@@ -997,6 +997,10 @@ pub async fn program_radio(
         .flatten();
         let schema = model.non_channel_settings_schema.clone();
 
+        // The channel lists as named banks of the slots just placed. Read only
+        // by a radio whose banks name arbitrary memories (the ID-5100).
+        let banks = export::resolve_codeplug_banks(&state.pool, codeplug_id, &slots).await?;
+
         // Label the pre-write backup with the codeplug name so several
         // codeplugs for one radio stay distinguishable when restoring.
         let label: String = sqlx::query_scalar("SELECT name FROM codeplugs WHERE id = ?1")
@@ -1026,6 +1030,7 @@ pub async fn program_radio(
             let req = ImageProgramRequest {
                 model: &model,
                 channels: &slots,
+                banks: &banks,
                 settings: settings.as_ref().map(|(v, s)| (v, s.as_str())),
                 backup_dir: &backup_dir,
                 label: &label,
@@ -1075,6 +1080,7 @@ fn program_report_to_generic(r: ProgramReport) -> CodeplugProgramReport {
         settings_written: None,
         zones_written: r.zones_written,
         zones_cleared: r.zones_cleared,
+        banks_written: 0,
         scan_lists_written: r.scan_lists_written,
         scan_lists_cleared: r.scan_lists_cleared,
         contacts_written: r.contacts_written,

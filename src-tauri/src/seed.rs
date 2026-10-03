@@ -199,6 +199,17 @@ pub const BT9000_SETTINGS_SCHEMA: &str =
 /// undetermined meanings, so they are deliberately absent rather than guessed.
 pub const TMD710_SETTINGS_SCHEMA: &str = include_str!("tmd710_settings_schema.json");
 
+/// GENERATED with the Rust field table (`radios/icom_id5100/id5100_settings_table.rs`)
+/// by `scratchpad/id5100/vm/gen_table.py`, from CS-5100 measurements: every
+/// address moved by one control at a time, every option cycled and its label
+/// read off the grid. `radios/icom_id5100/settings.rs` asserts the two agree.
+pub const ID5100_SETTINGS_SCHEMA: &str = include_str!("id5100_settings_schema.json");
+
+
+#[cfg(test)]
+pub(crate) fn model_rx_bands(model: &str) -> Option<&'static str> {
+    models().into_iter().find(|m| m.model == model)?.rx_bands
+}
 
 #[cfg(test)]
 pub(crate) fn model_capability_rows() -> Vec<(&'static str, bool, &'static str)> {
@@ -1040,6 +1051,61 @@ fn models() -> Vec<ModelSeed> {
             connection_type: "Serial cable (COM port, rear of the operation panel)",
             non_channel_settings_schema: TMD710_SETTINGS_SCHEMA,
         },
+        // --------------------------------------------------------
+        // 9. Icom ID-5100 — D-STAR + analog FM dual-band MOBILE, 1000
+        //    memories in 26 named banks (A-Z), 16-char names, 50 W,
+        //    built-in GPS and D-PRS. The A model (USA). Programmed over
+        //    the data cable by Icom's clone protocol (issue #49): the
+        //    whole image is read, patched, and written back. See
+        //    radios/icom_id5100/.
+        //    NOTES:
+        //    (a) tx_bands / rx_bands are the manual's USA specification
+        //    (TX 144-148 / 430-450, RX 118-174 / 375-550). NOT yet
+        //    measured — the hardware ladder's band probe does that. The
+        //    174-375 gap is real: the receiver has no coverage there,
+        //    and a channel inside it would be a silently empty memory.
+        //    (b) aprs_capable is TRUE for D-PRS, the radio's APRS over
+        //    D-STAR, and the schema carries the D-PRS menus (Position,
+        //    Object, Item, Weather) — which
+        //    `an_aprs_radio_offers_at_least_one_aprs_setting` requires.
+        //    (c) banks are named and a memory is in at most one, so a
+        //    channel in two lists lands in the first list's bank.
+        // --------------------------------------------------------
+        ModelSeed {
+            manufacturer: "Icom",
+            model: "ID-5100",
+            driver_key: Some("icom_id5100"),
+            programming_ui: Some("generic"),
+            display_name: "Icom ID-5100",
+            analog_capable: true,
+            dmr_capable: false,
+            dstar_capable: true,
+            ysf_capable: false,
+            nxdn_capable: false,
+            p25_capable: false,
+            m17_capable: false,
+            aprs_capable: true,
+            covers_hf: false,
+            covers_vhf: true,
+            covers_uhf: true,
+            covers_220: false,
+            covers_900: false,
+            freq_min: 144.0,
+            freq_max: 450.0,
+            tx_bands: Some("[[144.0,148.0],[430.0,450.0]]"),
+            rx_bands: Some("[[118.0,174.0],[375.0,550.0]]"),
+            memory_channels: 1000,
+            zones_supported: false,
+            max_zones: None,
+            channels_per_zone: None,
+            scan_lists_supported: false,
+            max_scan_lists: None,
+            banks_supported: true,
+            max_name_length: 16,
+            export_format: "chirp_csv",
+            connection_type: "Data cable (OPC-2218LU or equivalent)",
+            non_channel_settings_schema: ID5100_SETTINGS_SCHEMA,
+        },
     ]
 }
 
@@ -1265,6 +1331,27 @@ mod tests {
         // NOAA, GMRS and 70 cm.
         for f in [118.4, 146.94, 156.8, 162.55, 462.5625, 467.7125, 446.8125] {
             assert!(hears(f), "{f} MHz is inside the ID-52A's coverage");
+        }
+    }
+
+    /// The ID-5100's receiver stops at 174 and resumes at 375 (manual, USA
+    /// specification). A 220 MHz repeater or a 300 MHz milair channel in a
+    /// codeplug must be excluded here, or it becomes a memory the radio
+    /// cannot tune — which the ID-52 showed is silently empty, not an error.
+    #[test]
+    fn the_id5100_receiver_gap_is_modelled() {
+        let m = models()
+            .into_iter()
+            .find(|m| m.model == "ID-5100")
+            .expect("the ID-5100 is seeded");
+        let rx: Vec<Vec<f64>> =
+            serde_json::from_str(m.rx_bands.expect("ID-5100 has rx_bands")).unwrap();
+        let hears = |f: f64| rx.iter().any(|b| f >= b[0] && f <= b[1]);
+        for f in [224.94, 250.0, 300.0, 374.99, 108.0, 117.99, 550.01, 902.0] {
+            assert!(!hears(f), "{f} MHz is outside the ID-5100A's coverage");
+        }
+        for f in [118.4, 146.94, 162.55, 380.0, 446.8125, 462.5625, 549.99] {
+            assert!(hears(f), "{f} MHz is inside the ID-5100A's coverage");
         }
     }
 
