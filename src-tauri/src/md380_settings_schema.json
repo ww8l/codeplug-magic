@@ -2,7 +2,8 @@
  {
   "key": "section-general",
   "label": "General",
-  "type": "section"
+  "type": "section",
+  "group": "General"
  },
  {
   "key": "general-radio-name",
@@ -21,6 +22,7 @@
   "key": "general-intro-screen",
   "label": "Intro Screen",
   "type": "select",
+  "group": "Display",
   "options": [
    "Character String",
    "Picture"
@@ -30,18 +32,21 @@
   "key": "general-intro-screen-line-1",
   "label": "Intro Screen Line 1",
   "type": "text",
+  "group": "Display",
   "max_length": 10
  },
  {
   "key": "general-intro-screen-line-2",
   "label": "Intro Screen Line 2",
   "type": "text",
+  "group": "Display",
   "max_length": 10
  },
  {
   "key": "general-save-preamble",
   "label": "Save Preamble",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Digital"
  },
  {
   "key": "general-save-mode-receive",
@@ -51,17 +56,20 @@
  {
   "key": "general-disable-all-tones",
   "label": "Disable All Tones",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Sounds"
  },
  {
   "key": "general-channel-free-indication-tone",
   "label": "Channel Free Indication Tone",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Sounds"
  },
  {
   "key": "general-talk-permit-tone",
   "label": "Talk Permit Tone",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "None",
    "Digital",
@@ -72,12 +80,14 @@
  {
   "key": "general-keypad-tones",
   "label": "Keypad Tones",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Sounds"
  },
  {
   "key": "general-call-alert-tone-duration-s",
   "label": "Call Alert Tone Duration (s)",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "Continue",
    "5",
@@ -326,6 +336,7 @@
   "key": "general-scan-digital-hang-time-ms",
   "label": "Scan Digital Hang Time (ms)",
   "type": "select",
+  "group": "Scan",
   "options": [
    "500",
    "1000",
@@ -353,6 +364,7 @@
   "key": "general-scan-analog-hang-time-ms",
   "label": "Scan Analog Hang Time (ms)",
   "type": "select",
+  "group": "Scan",
   "options": [
    "500",
    "1000",
@@ -394,6 +406,7 @@
   "key": "general-monitor-type",
   "label": "Monitor Type",
   "type": "select",
+  "group": "Transmit & Receive",
   "options": [
    "Silent",
    "Open Squelch"
@@ -403,6 +416,7 @@
   "key": "general-vox-sensitivity",
   "label": "VOX Sensitivity",
   "type": "integer",
+  "group": "Transmit & Receive",
   "min": 1,
   "max": 10
  },
@@ -410,6 +424,7 @@
   "key": "general-tx-preamble-duration-ms",
   "label": "Tx Preamble Duration (ms)",
   "type": "select",
+  "group": "Digital",
   "options": [
    "0",
    "60",
@@ -697,6 +712,7 @@
   "key": "general-backlight-time-s",
   "label": "Backlight Time (s)",
   "type": "select",
+  "group": "Display",
   "options": [
    "Always",
    "5",
@@ -718,7 +734,8 @@
  {
   "key": "general-disable-all-leds",
   "label": "Disable All LEDS",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Display"
  },
  {
   "key": "general-mode",
@@ -733,6 +750,7 @@
   "key": "general-group-call-hang-time-ms",
   "label": "Group Call Hang Time (ms)",
   "type": "select",
+  "group": "Digital",
   "options": [
    "0",
    "500",
@@ -755,6 +773,7 @@
   "key": "general-private-call-hang-time-ms",
   "label": "Private Call Hang Time (ms)",
   "type": "select",
+  "group": "Digital",
   "options": [
    "0",
    "500",
@@ -776,7 +795,8 @@
  {
   "key": "section-buttons",
   "label": "Buttons",
-  "type": "section"
+  "type": "section",
+  "group": "Keys"
  },
  {
   "key": "buttons-long-press-duration-ms",
@@ -952,7 +972,8 @@
  {
   "key": "section-menu",
   "label": "Menu",
-  "type": "section"
+  "type": "section",
+  "group": "General"
  },
  {
   "key": "menu-hang-time",

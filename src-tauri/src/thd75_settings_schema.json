@@ -2,7 +2,8 @@
  {
   "key": "section-common",
   "label": "Common",
-  "type": "section"
+  "type": "section",
+  "group": "Transmit & Receive"
  },
  {
   "key": "a-band-tx-power",
@@ -50,6 +51,7 @@
   "key": "usb-out-select-rts-detect-out-select",
   "label": "USB Out Select (RTS: \"Detect Out Select\")",
   "type": "select",
+  "group": "Connections",
   "options": [
    "Off (AF)",
    "IF",
@@ -137,6 +139,7 @@
   "key": "resume",
   "label": "Resume",
   "type": "select",
+  "group": "Scan",
   "options": [
    "Time",
    "Carrier",
@@ -147,6 +150,7 @@
   "key": "resume-digital",
   "label": "Resume (Digital)",
   "type": "select",
+  "group": "Scan",
   "options": [
    "Time",
    "Carrier",
@@ -157,6 +161,7 @@
   "key": "time-restart",
   "label": "Time Restart",
   "type": "integer",
+  "group": "Scan",
   "min": 1,
   "max": 10
  },
@@ -164,23 +169,27 @@
   "key": "carrier-restart",
   "label": "Carrier Restart",
   "type": "integer",
+  "group": "Scan",
   "min": 1,
   "max": 10
  },
  {
   "key": "priority-scan",
   "label": "Priority Scan",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Scan"
  },
  {
   "key": "auto-backlight",
   "label": "Auto Backlight",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Display"
  },
  {
   "key": "auto-wx-scan",
   "label": "Auto Wx Scan",
   "type": "select",
+  "group": "Scan",
   "options": [
    "Off",
    "15",
@@ -197,6 +206,7 @@
   "key": "call-key",
   "label": "Call Key",
   "type": "select",
+  "group": "Keys",
   "options": [
    "CALL",
    "1750 Hz"
@@ -264,22 +274,26 @@
  {
   "key": "qso-log",
   "label": "QSO Log",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "General"
  },
  {
   "key": "led-control-rx",
   "label": "LED Control — RX",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Display"
  },
  {
   "key": "led-control-fm-radio",
   "label": "LED Control — FM Radio",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Display"
  },
  {
   "key": "recall-method",
   "label": "Recall Method",
   "type": "select",
+  "group": "Memory & VFO",
   "options": [
    "All Bands",
    "Current Band"
@@ -289,6 +303,7 @@
   "key": "recording-band",
   "label": "Recording Band",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "A Band",
    "B Band"
@@ -303,6 +318,7 @@
   "key": "backlight-control",
   "label": "Backlight Control",
   "type": "select",
+  "group": "Display",
   "options": [
    "Manual",
    "On",
@@ -314,6 +330,7 @@
   "key": "backlight-timer",
   "label": "Backlight Timer",
   "type": "integer",
+  "group": "Display",
   "min": 3,
   "max": 60
  },
@@ -321,6 +338,7 @@
   "key": "lcd-brightness",
   "label": "LCD Brightness",
   "type": "select",
+  "group": "Display",
   "options": [
    "Low",
    "Medium",
@@ -331,6 +349,7 @@
   "key": "single-band-display",
   "label": "Single Band Display",
   "type": "select",
+  "group": "Display",
   "options": [
    "Off",
    "GPS (Altitude)",
@@ -343,6 +362,7 @@
   "key": "meter-type",
   "label": "Meter Type",
   "type": "select",
+  "group": "Display",
   "options": [
    "Type 1",
    "Type 2",
@@ -353,6 +373,7 @@
   "key": "background-color-rts-backlight-color",
   "label": "Background Color (RTS: \"Backlight Color\")",
   "type": "select",
+  "group": "Display",
   "options": [
    "Black",
    "White"
@@ -362,6 +383,7 @@
   "key": "info-backlight",
   "label": "Info Backlight",
   "type": "select",
+  "group": "Display",
   "options": [
    "Off",
    "LCD",
@@ -372,12 +394,14 @@
   "key": "power-on-message",
   "label": "Power On Message",
   "type": "text",
+  "group": "Display",
   "max_length": 16
  },
  {
   "key": "digital-auto-reply",
   "label": "Digital Auto Reply",
   "type": "select",
+  "group": "Digital",
   "options": [
    "Off",
    "Voice Message 1",
@@ -389,12 +413,14 @@
  {
   "key": "section-configuration",
   "label": "Configuration",
-  "type": "section"
+  "type": "section",
+  "group": "General"
  },
  {
   "key": "balance",
   "label": "Balance",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "A:100/B:0",
    "A:100/B:25",
@@ -411,22 +437,26 @@
  {
   "key": "equalizer-enables-menu-911-receive-eq",
   "label": "Equalizer enables (menu 911) — Receive EQ",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Sounds"
  },
  {
   "key": "equalizer-enables-menu-911-tx-eq-fm",
   "label": "Equalizer enables (menu 911) — Tx EQ (FM",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Sounds"
  },
  {
   "key": "equalizer-enables-menu-911-tx-eq-dv",
   "label": "Equalizer enables (menu 911) — Tx EQ (DV)",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Sounds"
  },
  {
   "key": "tx-equalizer-level-0-4-khz",
   "label": "Tx Equalizer Level — 0.4 kHz",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "-9",
    "-8",
@@ -447,6 +477,7 @@
   "key": "tx-equalizer-level-0-8-khz",
   "label": "Tx Equalizer Level — 0.8 kHz",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "-9",
    "-8",
@@ -467,6 +498,7 @@
   "key": "tx-equalizer-level-1-6-khz",
   "label": "Tx Equalizer Level — 1.6 kHz",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "-9",
    "-8",
@@ -487,6 +519,7 @@
   "key": "tx-equalizer-level-3-2-khz",
   "label": "Tx Equalizer Level — 3.2 kHz",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "-9",
    "-8",
@@ -507,6 +540,7 @@
   "key": "rx-equalizer-level-0-4-khz",
   "label": "Rx Equalizer Level — 0.4 kHz",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "-9",
    "-8",
@@ -533,6 +567,7 @@
   "key": "rx-equalizer-level-0-8-khz",
   "label": "Rx Equalizer Level — 0.8 kHz",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "-9",
    "-8",
@@ -559,6 +594,7 @@
   "key": "rx-equalizer-level-1-6-khz",
   "label": "Rx Equalizer Level — 1.6 kHz",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "-9",
    "-8",
@@ -585,6 +621,7 @@
   "key": "rx-equalizer-level-3-2-khz",
   "label": "Rx Equalizer Level — 3.2 kHz",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "-9",
    "-8",
@@ -611,6 +648,7 @@
   "key": "rx-equalizer-level-6-4-khz",
   "label": "Rx Equalizer Level — 6.4 kHz",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "-9",
    "-8",
@@ -636,12 +674,14 @@
  {
   "key": "beep-a",
   "label": "Beep (A)",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Sounds"
  },
  {
   "key": "beep-volume",
   "label": "Beep Volume",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "Volume Link",
    "Level 1",
@@ -657,6 +697,7 @@
   "key": "voice-guidance",
   "label": "Voice Guidance",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "Off",
    "Manual",
@@ -668,6 +709,7 @@
   "key": "voice-guidance-volume",
   "label": "Voice Guidance Volume",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "Volume Link",
    "Level 1",
@@ -683,6 +725,7 @@
   "key": "usb-audio-level",
   "label": "USB Audio Level",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "Level 1",
    "Level 2",
@@ -724,17 +767,20 @@
  {
   "key": "bluetooth-enable",
   "label": "Bluetooth Enable",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Connections"
  },
  {
   "key": "bluetooth-auto-connect",
   "label": "Bluetooth Auto Connect",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Connections"
  },
  {
   "key": "pf1-key",
   "label": "PF1 Key",
   "type": "select",
+  "group": "Keys",
   "options": [
    "Recording",
    "Voice Msg 1",
@@ -769,6 +815,7 @@
   "key": "pf2-key",
   "label": "PF2 Key",
   "type": "select",
+  "group": "Keys",
   "options": [
    "Recording",
    "Voice Msg 1",
@@ -803,6 +850,7 @@
   "key": "pf1-key-mic",
   "label": "PF1 Key (Mic)",
   "type": "select",
+  "group": "Keys",
   "options": [
    "Recording",
    "Voice Msg 1",
@@ -860,6 +908,7 @@
   "key": "pf2-key-mic",
   "label": "PF2 Key (Mic)",
   "type": "select",
+  "group": "Keys",
   "options": [
    "Recording",
    "Voice Msg 1",
@@ -917,6 +966,7 @@
   "key": "pf3-key-mic",
   "label": "PF3 Key (Mic)",
   "type": "select",
+  "group": "Keys",
   "options": [
    "Recording",
    "Voice Msg 1",
@@ -1007,6 +1057,7 @@
   "key": "speed-distance",
   "label": "Speed, Distance",
   "type": "select",
+  "group": "Display",
   "options": [
    "mi/h",
    "km/h",
@@ -1018,6 +1069,7 @@
   "key": "altitude-rain",
   "label": "Altitude, Rain",
   "type": "select",
+  "group": "Display",
   "options": [
    "inch",
    "mm"
@@ -1027,6 +1079,7 @@
   "key": "temperature",
   "label": "Temperature",
   "type": "select",
+  "group": "Display",
   "options": [
    "F",
    "C"
@@ -1036,6 +1089,7 @@
   "key": "latitude-longitude",
   "label": "Latitude, Longitude",
   "type": "select",
+  "group": "Display",
   "options": [
    "dd mm.mm",
    "dd mm ss.s"
@@ -1045,6 +1099,7 @@
   "key": "grid-square",
   "label": "Grid Square",
   "type": "select",
+  "group": "Display",
   "options": [
    "Maidenhead",
    "SAR",
@@ -1055,6 +1110,7 @@
   "key": "pc-output-gps",
   "label": "PC Output (GPS)",
   "type": "select",
+  "group": "Connections",
   "options": [
    "USB",
    "Bluetooth"
@@ -1064,6 +1120,7 @@
   "key": "pc-output-aprs",
   "label": "PC Output (APRS)",
   "type": "select",
+  "group": "Connections",
   "options": [
    "USB",
    "Bluetooth"
@@ -1073,6 +1130,7 @@
   "key": "kiss",
   "label": "KISS",
   "type": "select",
+  "group": "Connections",
   "options": [
    "USB",
    "Bluetooth"
@@ -1082,6 +1140,7 @@
   "key": "dv-dr",
   "label": "DV/DR",
   "type": "select",
+  "group": "Connections",
   "options": [
    "USB",
    "Bluetooth"
@@ -1091,6 +1150,7 @@
   "key": "language",
   "label": "Language",
   "type": "select",
+  "group": "Display",
   "options": [
    "English",
    "Japanese"
@@ -1100,6 +1160,7 @@
   "key": "pc-io-dv-gateway",
   "label": "PC IO (DV Gateway)",
   "type": "select",
+  "group": "Connections",
   "options": [
    "USB",
    "Bluetooth"
@@ -1114,6 +1175,7 @@
   "key": "callsign-readout",
   "label": "Callsign Readout",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "Standard",
    "Full Phonetics",
@@ -1124,6 +1186,7 @@
   "key": "voice-guidance-speed",
   "label": "Voice Guidance Speed",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "Speed 1",
    "Speed 2",
@@ -1135,12 +1198,14 @@
   "key": "bluetooth-device-name",
   "label": "Bluetooth Device Name",
   "type": "text",
+  "group": "Connections",
   "max_length": 16
  },
  {
   "key": "section-dtmf-fm",
   "label": "DTMF / FM",
-  "type": "section"
+  "type": "section",
+  "group": "DTMF & Signaling"
  },
  {
   "key": "dtmf-speed",
@@ -1174,17 +1239,20 @@
  {
   "key": "fm-radio-mode",
   "label": "FM Radio Mode",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "General"
  },
  {
   "key": "fm-auto-mute-return-time",
   "label": "FM Auto Mute Return Time",
-  "type": "integer"
+  "type": "integer",
+  "group": "General"
  },
  {
   "key": "section-gps",
   "label": "GPS",
-  "type": "section"
+  "type": "section",
+  "group": "GPS"
  },
  {
   "key": "builtin-gps",
@@ -1283,7 +1351,8 @@
  {
   "key": "section-digital",
   "label": "Digital",
-  "type": "section"
+  "type": "section",
+  "group": "Digital"
  },
  {
   "key": "direct-reply",
@@ -1496,7 +1565,8 @@
  {
   "key": "section-aprs-basic",
   "label": "APRS Basic",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "decay-algorithm-moving",
@@ -2145,7 +2215,8 @@
  {
   "key": "section-aprs-messaging",
   "label": "APRS Messaging",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "pc-output",
@@ -2739,7 +2810,8 @@
  {
   "key": "section-aprs-digipeat",
   "label": "APRS Digipeat",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "digipeat-my-callsign",
@@ -2799,7 +2871,8 @@
  {
   "key": "section-aprs-mic-e-codes",
   "label": "APRS Mic-E Codes",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "mice-k-handy-1-type",
@@ -2984,7 +3057,8 @@
  {
   "key": "section-aprs-objects",
   "label": "APRS Objects",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "selected-beacon-object",

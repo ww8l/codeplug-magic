@@ -683,3 +683,70 @@ fn every_settings_schema_uses_only_field_types_the_form_can_render() {
     }
     assert!(checked > 100, "only {checked} fields checked — this would pass vacuously");
 }
+
+/// ★ Every settings schema lands on the same tabs as every other radio (#131).
+///
+/// The form splits each radio into the shared `SETTINGS_GROUPS` tabs — General,
+/// Display, Sounds, APRS and the rest — by the `group` each section names. A
+/// section with no group, or a group the list does not know, still renders: it
+/// quietly falls to General, which is exactly how the editors drifted apart in
+/// the first place. A field ahead of the first heading has no section to take a
+/// group from at all.
+///
+/// The list is read out of `src/lib/profiles.ts`, so adding a tab there is the
+/// whole change and this guard follows it.
+#[test]
+fn every_settings_section_names_a_tab_the_form_draws() {
+    let profiles = read(&manifest_dir().join("../src/lib/profiles.ts"));
+    let decl = profiles
+        .split("export const SETTINGS_GROUPS = [")
+        .nth(1)
+        .and_then(|s| s.split(']').next())
+        .expect("SETTINGS_GROUPS is declared in src/lib/profiles.ts");
+    let groups: Vec<&str> = decl
+        .split(',')
+        .map(|s| s.trim().trim_matches('"'))
+        .filter(|s| !s.is_empty())
+        .collect();
+    assert!(
+        groups.contains(&"General") && groups.contains(&"APRS") && groups.len() >= 8,
+        "the list did not parse as expected: {groups:?}"
+    );
+
+    let mut sections = 0;
+    for (name, _, schema_json) in crate::seed::model_capability_rows() {
+        if schema_json.trim() == "[]" {
+            continue;
+        }
+        let schema: Vec<serde_json::Value> =
+            serde_json::from_str(schema_json).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(
+            schema.first().map(|f| &f["type"]),
+            Some(&serde_json::json!("section")),
+            "{name}: the schema must open with a section heading, or its first fields \
+             have no group to take a tab from"
+        );
+        for f in &schema {
+            let key = f["key"].as_str().unwrap_or_default();
+            let group = f.get("group").and_then(|g| g.as_str());
+            if f["type"] == "section" {
+                sections += 1;
+                let group = group.unwrap_or_else(|| {
+                    panic!("{name}: section {key:?} names no `group` — one of {groups:?}")
+                });
+                assert!(
+                    groups.contains(&group),
+                    "{name}: section {key:?} is grouped {group:?}, which is not a tab the \
+                     form draws. The form knows {groups:?}."
+                );
+            } else if let Some(group) = group {
+                assert!(
+                    groups.contains(&group),
+                    "{name}: field {key:?} is grouped {group:?}, which is not a tab the \
+                     form draws. The form knows {groups:?}."
+                );
+            }
+        }
+    }
+    assert!(sections > 50, "only {sections} sections checked — this would pass vacuously");
+}

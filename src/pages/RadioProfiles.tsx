@@ -73,7 +73,7 @@ export function RadioProfiles() {
     <>
       <PageHeader
         icon={<HandheldRadio size={18} />}
-        title="Radios"
+        title="Radio Profiles"
         subtitle={`Your instances of radio models · ${profiles.length} ${
           profiles.length === 1 ? "profile" : "profiles"
         }`}

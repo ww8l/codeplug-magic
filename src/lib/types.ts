@@ -209,6 +209,10 @@ export interface SettingField {
   // "section" is a full-width heading used to group the fields that follow it;
   // it carries no value and is skipped when seeding/saving settings.
   type: "text" | "integer" | "select" | "boolean" | "section";
+  // Which settings tab this lands on — one of SETTINGS_GROUPS in profiles.ts.
+  // Every section names one; a field names its own only when it belongs on a
+  // different tab from the rest of its OEM section (#131).
+  group?: string;
   min?: number;
   max?: number;
   max_length?: number;

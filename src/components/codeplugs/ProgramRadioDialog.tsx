@@ -471,7 +471,7 @@ export function ProgramRadioDialog({
                     <>
                       {" "}
                       This radio’s settings are written separately — open the
-                      profile under <strong>Radios</strong> and use{" "}
+                      profile under <strong>Radio Profiles</strong> and use{" "}
                       <strong>Write to radio</strong>.
                     </>
                   )}

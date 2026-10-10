@@ -2,12 +2,14 @@
  {
   "key": "section-set-mode",
   "label": "Set Mode",
-  "type": "section"
+  "type": "section",
+  "group": "General"
  },
  {
   "key": "set-mode-squelch-att-select",
   "label": "Squelch/ATT Select",
   "type": "select",
+  "group": "Transmit & Receive",
   "options": [
    "OFF",
    "S-Meter Squelch",
@@ -18,6 +20,7 @@
   "key": "set-mode-squelch-delay",
   "label": "Squelch Delay",
   "type": "select",
+  "group": "Transmit & Receive",
   "options": [
    "Short",
    "Long"
@@ -54,22 +57,26 @@
  {
   "key": "set-mode-one-touch-ptt-remote-mic",
   "label": "One-Touch PTT (Remote MIC)",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Transmit & Receive"
  },
  {
   "key": "set-mode-ptt-lock",
   "label": "PTT Lock",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Transmit & Receive"
  },
  {
   "key": "set-mode-busy-lockout",
   "label": "Busy Lockout",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Transmit & Receive"
  },
  {
   "key": "set-mode-time-out-timer",
   "label": "Time-Out Timer",
   "type": "select",
+  "group": "Transmit & Receive",
   "options": [
    "OFF",
    "1min",
@@ -93,6 +100,7 @@
   "key": "set-mode-mic-gain",
   "label": "MIC Gain",
   "type": "select",
+  "group": "Transmit & Receive",
   "options": [
    "1",
    "2",
@@ -104,6 +112,7 @@
   "key": "set-mode-touch-operation-sub",
   "label": "Touch Operation (Sub)",
   "type": "select",
+  "group": "Display",
   "options": [
    "Main Select",
    "Function Select"
@@ -113,6 +122,7 @@
   "key": "set-mode-keyboard-type",
   "label": "Keyboard Type",
   "type": "select",
+  "group": "Display",
   "options": [
    "Ten-Key",
    "Full Keyboard"
@@ -122,6 +132,7 @@
   "key": "set-mode-data-speed",
   "label": "Data Speed",
   "type": "select",
+  "group": "Connections",
   "options": [
    "4800bps",
    "9600bps"
@@ -136,6 +147,7 @@
   "key": "set-mode-auto-repeater",
   "label": "Auto Repeater",
   "type": "select",
+  "group": "Transmit & Receive",
   "options": [
    "OFF",
    "ON (DUP)",
@@ -145,7 +157,8 @@
  {
   "key": "section-remote-mic-key",
   "label": "Remote MIC Key",
-  "type": "section"
+  "type": "section",
+  "group": "Keys"
  },
  {
   "key": "remote-mic-key-during-rx-standby-f-1",
@@ -228,7 +241,8 @@
  {
   "key": "section-up-down-mic-key",
   "label": "Up/Down MIC Key",
-  "type": "section"
+  "type": "section",
+  "group": "Keys"
  },
  {
   "key": "up-down-mic-key-during-rx-standby-up",
@@ -329,7 +343,8 @@
  {
   "key": "section-bluetooth",
   "label": "Bluetooth",
-  "type": "section"
+  "type": "section",
+  "group": "Connections"
  },
  {
   "key": "bluetooth-bluetooth",
@@ -344,7 +359,8 @@
  {
   "key": "section-bluetooth-headset-set",
   "label": "Bluetooth - Headset Set",
-  "type": "section"
+  "type": "section",
+  "group": "Connections"
  },
  {
   "key": "bluetooth-headset-set-af-output",
@@ -419,7 +435,8 @@
  {
   "key": "section-bluetooth-icom-headset",
   "label": "Bluetooth - Icom Headset",
-  "type": "section"
+  "type": "section",
+  "group": "Connections"
  },
  {
   "key": "bluetooth-icom-headset-power-save",
@@ -555,7 +572,8 @@
  {
   "key": "section-bluetooth-data-device",
   "label": "Bluetooth - Data Device",
-  "type": "section"
+  "type": "section",
+  "group": "Connections"
  },
  {
   "key": "bluetooth-data-device-serialport-function",
@@ -570,7 +588,8 @@
  {
   "key": "section-ci-v",
   "label": "CI-V",
-  "type": "section"
+  "type": "section",
+  "group": "Connections"
  },
  {
   "key": "ci-v-ci-v-baud-rate",
@@ -1052,7 +1071,8 @@
  {
   "key": "section-display",
   "label": "Display",
-  "type": "section"
+  "type": "section",
+  "group": "Display"
  },
  {
   "key": "display-backlight",
@@ -1209,7 +1229,8 @@
  {
   "key": "section-display-backlight-night-time-setting",
   "label": "Display - Backlight Night Time Setting",
-  "type": "section"
+  "type": "section",
+  "group": "Display"
  },
  {
   "key": "display-backlight-night-time-setting-night-time-setting",
@@ -1262,7 +1283,8 @@
  {
   "key": "section-display-auto-dimmer-setting",
   "label": "Display - Auto Dimmer Setting",
-  "type": "section"
+  "type": "section",
+  "group": "Display"
  },
  {
   "key": "display-auto-dimmer-setting-auto-dimmer",
@@ -1311,7 +1333,8 @@
  {
   "key": "section-display-dv",
   "label": "Display (DV)",
-  "type": "section"
+  "type": "section",
+  "group": "Display"
  },
  {
   "key": "display-dv-rx-call-sign-display",
@@ -1387,7 +1410,8 @@
  {
   "key": "section-sounds",
   "label": "Sounds",
-  "type": "section"
+  "type": "section",
+  "group": "Sounds"
  },
  {
   "key": "sounds-key-touch-beep",
@@ -1450,7 +1474,8 @@
  {
   "key": "section-sounds-dv",
   "label": "Sounds (DV)",
-  "type": "section"
+  "type": "section",
+  "group": "Sounds"
  },
  {
   "key": "sounds-dv-standby-beep",
@@ -1506,7 +1531,8 @@
  {
   "key": "section-speech",
   "label": "SPEECH",
-  "type": "section"
+  "type": "section",
+  "group": "Sounds"
  },
  {
   "key": "speech-rx-call-sign-speech",
@@ -1580,7 +1606,8 @@
  {
   "key": "section-qso-recorder-recorder",
   "label": "QSO Recorder - Recorder",
-  "type": "section"
+  "type": "section",
+  "group": "Sounds"
  },
  {
   "key": "qso-recorder-recorder-rec-mode",
@@ -1613,7 +1640,8 @@
  {
   "key": "section-qso-recorder-player",
   "label": "QSO Recorder - Player",
-  "type": "section"
+  "type": "section",
+  "group": "Sounds"
  },
  {
   "key": "qso-recorder-player-skip-time",
@@ -1629,7 +1657,8 @@
  {
   "key": "section-voice-tx",
   "label": "Voice TX",
-  "type": "section"
+  "type": "section",
+  "group": "Sounds"
  },
  {
   "key": "voice-tx-repeat-time",
@@ -1670,7 +1699,8 @@
  {
   "key": "section-qso-rx-history-log",
   "label": "QSO/RX History Log",
-  "type": "section"
+  "type": "section",
+  "group": "General"
  },
  {
   "key": "qso-rx-history-log-qso-log",
@@ -1685,7 +1715,8 @@
  {
   "key": "section-qso-rx-history-log-csv-format",
   "label": "QSO/RX History Log - CSV Format",
-  "type": "section"
+  "type": "section",
+  "group": "General"
  },
  {
   "key": "qso-rx-history-log-csv-format-separator-decimal",
@@ -1710,7 +1741,8 @@
  {
   "key": "section-save",
   "label": "Save",
-  "type": "section"
+  "type": "section",
+  "group": "General"
  },
  {
   "key": "save-save-form",
@@ -1725,7 +1757,8 @@
  {
   "key": "section-import-export-csv-format",
   "label": "Import/Export - CSV Format",
-  "type": "section"
+  "type": "section",
+  "group": "General"
  },
  {
   "key": "import-export-csv-format-separator-decimal",
@@ -1750,7 +1783,8 @@
  {
   "key": "section-others",
   "label": "Others",
-  "type": "section"
+  "type": "section",
+  "group": "Transmit & Receive"
  },
  {
   "key": "others-rf-power-vhf",
@@ -1812,7 +1846,8 @@
  {
   "key": "section-scan",
   "label": "Scan",
-  "type": "section"
+  "type": "section",
+  "group": "Scan"
  },
  {
   "key": "scan-pause-timer-a",
@@ -1911,7 +1946,8 @@
  {
   "key": "section-scan-bank-link-a-band",
   "label": "Scan > Bank Link (A band)",
-  "type": "section"
+  "type": "section",
+  "group": "Scan"
  },
  {
   "key": "scan-bank-link-a-a",
@@ -2046,7 +2082,8 @@
  {
   "key": "section-scan-bank-link-b-band",
   "label": "Scan > Bank Link (B band)",
-  "type": "section"
+  "type": "section",
+  "group": "Scan"
  },
  {
   "key": "scan-bank-link-b-a",
@@ -2181,7 +2218,8 @@
  {
   "key": "section-gps",
   "label": "GPS",
-  "type": "section"
+  "type": "section",
+  "group": "GPS"
  },
  {
   "key": "gps-gps-select",
@@ -2231,7 +2269,8 @@
  {
   "key": "section-gps-alarm",
   "label": "GPS Alarm",
-  "type": "section"
+  "type": "section",
+  "group": "GPS"
  },
  {
   "key": "gps-alarm-alarm-area-rx-memory",
@@ -2246,7 +2285,8 @@
  {
   "key": "section-gps-tx",
   "label": "GPS TX",
-  "type": "section"
+  "type": "section",
+  "group": "GPS"
  },
  {
   "key": "gps-tx-gps-tx-mode",
@@ -2277,7 +2317,8 @@
  {
   "key": "section-gps-tx-nmea",
   "label": "GPS TX (NMEA)",
-  "type": "section"
+  "type": "section",
+  "group": "GPS"
  },
  {
   "key": "gps-tx-nmea-gps-message",
@@ -2288,7 +2329,8 @@
  {
   "key": "section-gps-tx-nmea-sentences-at-most-4",
   "label": "GPS TX (NMEA) sentences — at most 4",
-  "type": "section"
+  "type": "section",
+  "group": "GPS"
  },
  {
   "key": "gps-tx-nmea-sentence-rmc",
@@ -2323,7 +2365,8 @@
  {
   "key": "section-gps-logger",
   "label": "GPS Logger",
-  "type": "section"
+  "type": "section",
+  "group": "GPS"
  },
  {
   "key": "gps-logger-gps-logger",
@@ -2345,7 +2388,8 @@
  {
   "key": "section-gps-logger-record-sentences-at-least-1",
   "label": "GPS Logger record sentences — at least 1",
-  "type": "section"
+  "type": "section",
+  "group": "GPS"
  },
  {
   "key": "gps-logger-record-sentence-rmc",
@@ -2370,7 +2414,8 @@
  {
   "key": "section-gps-manual-position",
   "label": "GPS Manual Position",
-  "type": "section"
+  "type": "section",
+  "group": "GPS"
  },
  {
   "key": "gps-manual-position-latitude",
@@ -2396,7 +2441,8 @@
  {
   "key": "section-d-prs-aprs",
   "label": "D-PRS (APRS)",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "d-prs-tx-format",
@@ -2418,7 +2464,8 @@
  {
   "key": "section-d-prs-position-aprs",
   "label": "D-PRS Position (APRS)",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "d-prs-position-ssid",
@@ -2624,7 +2671,8 @@
  {
   "key": "section-d-prs-object-aprs",
   "label": "D-PRS Object (APRS)",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "d-prs-object-data-type",
@@ -2806,7 +2854,8 @@
  {
   "key": "section-d-prs-object-position-aprs",
   "label": "D-PRS Object position (APRS)",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "d-prs-object-position-latitude",
@@ -2832,7 +2881,8 @@
  {
   "key": "section-d-prs-item-aprs",
   "label": "D-PRS Item (APRS)",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "d-prs-item-data-type",
@@ -3005,7 +3055,8 @@
  {
   "key": "section-d-prs-item-position-aprs",
   "label": "D-PRS Item position (APRS)",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "d-prs-item-position-latitude",
@@ -3031,7 +3082,8 @@
  {
   "key": "section-d-prs-weather-aprs",
   "label": "D-PRS Weather (APRS)",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "d-prs-weather-ssid",
@@ -3108,7 +3160,8 @@
  {
   "key": "section-tone-control",
   "label": "Tone Control",
-  "type": "section"
+  "type": "section",
+  "group": "Sounds"
  },
  {
   "key": "tone-control-rx-bass",
@@ -3158,7 +3211,8 @@
  {
   "key": "section-dv-set-mode",
   "label": "DV Set Mode",
-  "type": "section"
+  "type": "section",
+  "group": "Digital"
  },
  {
   "key": "dv-set-mode-auto-reply",
@@ -3245,7 +3299,8 @@
  {
   "key": "section-my-station",
   "label": "My Station",
-  "type": "section"
+  "type": "section",
+  "group": "Digital"
  },
  {
   "key": "my-station-my-call-sign-m01",
@@ -3377,7 +3432,8 @@
  {
   "key": "section-dtmf",
   "label": "DTMF",
-  "type": "section"
+  "type": "section",
+  "group": "DTMF & Signaling"
  },
  {
   "key": "dtmf-dtmf-speed",
@@ -3393,7 +3449,8 @@
  {
   "key": "section-time-set",
   "label": "Time Set",
-  "type": "section"
+  "type": "section",
+  "group": "General"
  },
  {
   "key": "time-set-utc-offset",
@@ -3742,6 +3799,7 @@
  {
   "key": "my-station-tx-message",
   "label": "TX Message",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Digital"
  }
 ]

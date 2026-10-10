@@ -13,7 +13,7 @@ import { Button, Spinner, Select } from "../ui";
 /**
  * TD-H3 Phase C: apply a saved radio profile's settings straight to the radio
  * (channels untouched). Reading the radio's settings and saving them into a
- * profile is done in the profile editor under Radios (the same flow as the
+ * profile is done in the profile editor under Radio Profiles (the same flow as the
  * UV-5R), so this tab is just the "push a profile to the radio" direction.
  * Every apply downloads + backs up the full image first, patches only the
  * settings bits, uploads, then reads back to verify.
@@ -93,9 +93,9 @@ export function Tdh3RadioOptions({
           <UserCog size={12} /> Apply a saved radio profile
         </div>
         <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
-          Write the settings from a profile you configured under <strong>Radios</strong>{" "}
+          Write the settings from a profile you configured under <strong>Radio Profiles</strong>{" "}
           straight to the radio. Channels are left untouched. To capture the radio's
-          current settings into a profile, open the profile under <strong>Radios</strong>{" "}
+          current settings into a profile, open the profile under <strong>Radio Profiles</strong>{" "}
           and use <strong>Download from radio</strong>.
         </p>
         <div className="flex flex-wrap items-end gap-2">

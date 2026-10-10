@@ -4,7 +4,7 @@ import type { SVGProps } from "react";
  * Handheld transceiver (HT / "walkie-talkie") icon, drawn in the Lucide style
  * (24x24 viewBox, currentColor stroke, 2px round strokes) so it sits cleanly
  * next to the other lucide-react nav icons. Lucide has no HT/walkie-talkie
- * glyph, so this fills that gap for the "Radios" section.
+ * glyph, so this fills that gap for the "Radio Profiles" section.
  *
  * Silhouette: stubby antenna + volume/channel knob on top, a display window,
  * speaker grille, and a PTT button on the rounded body.

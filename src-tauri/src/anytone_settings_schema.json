@@ -2,7 +2,8 @@
   {
     "key": "__sec_radio_id",
     "label": "Radio ID",
-    "type": "section"
+    "type": "section",
+    "group": "General"
   },
   {
     "key": "dmr-id",
@@ -20,7 +21,8 @@
   {
     "key": "__sec_1",
     "label": "Power-On & Boot",
-    "type": "section"
+    "type": "section",
+    "group": "General"
   },
   {
     "key": "boot-display",
@@ -91,6 +93,20 @@
     "max": 255
   },
   {
+    "key": "boot-zone-vfo-a",
+    "label": "Boot zone VFO A",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "boot-zoot-vfo-b",
+    "label": "Boot zoot VFO B",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
     "key": "enable-default-boot-channel",
     "label": "Enable default boot channel",
     "type": "boolean"
@@ -110,9 +126,123 @@
     "max": 255
   },
   {
+    "key": "section-power-and-locks",
+    "label": "Power & Locks",
+    "type": "section",
+    "group": "General"
+  },
+  {
+    "key": "power-save-mode",
+    "label": "Power save mode",
+    "type": "select",
+    "options": [
+      "Off",
+      "1:1 (50%)",
+      "1:2 (66%)"
+    ]
+  },
+  {
+    "key": "auto-shutoff-delay",
+    "label": "Auto-shutoff delay",
+    "type": "select",
+    "options": [
+      "Off",
+      "10 min",
+      "30 min",
+      "60 min",
+      "120 min"
+    ]
+  },
+  {
+    "key": "enable-automatic-key-lock",
+    "label": "Enable automatic key lock",
+    "type": "boolean"
+  },
+  {
+    "key": "folk",
+    "label": "Forced lock",
+    "type": "boolean"
+  },
+  {
+    "key": "sklk",
+    "label": "Side key lock",
+    "type": "boolean"
+  },
+  {
+    "key": "kblk",
+    "label": "Enable keyboard lock",
+    "type": "boolean"
+  },
+  {
+    "key": "knlk",
+    "label": "Enable knob lock",
+    "type": "boolean"
+  },
+  {
+    "key": "enable-mcu-reset",
+    "label": "Enable MCU reset",
+    "type": "boolean"
+  },
+  {
+    "key": "section-fm-broadcast-and-noaa",
+    "label": "FM Broadcast & NOAA",
+    "type": "section",
+    "group": "General"
+  },
+  {
+    "key": "enable-fm-broadcast-monitor",
+    "label": "Enable FM broadcast monitor",
+    "type": "boolean"
+  },
+  {
+    "key": "fm-broadcast-mode",
+    "label": "FM broadcast mode",
+    "type": "select",
+    "options": [
+      "Channel",
+      "VFO"
+    ]
+  },
+  {
+    "key": "fm-broadcast-channel-index",
+    "label": "FM broadcast channel index",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "noaa-channel",
+    "label": "NOAA Channel",
+    "type": "integer",
+    "min": 0,
+    "max": 9
+  },
+  {
+    "key": "noaa-monitor",
+    "label": "NOAA Monitor",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "noaa-scan",
+    "label": "NOAA Scan",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "noaa-alert",
+    "label": "NOAA Alert",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
     "key": "__sec_2",
     "label": "Display",
-    "type": "section"
+    "type": "section",
+    "group": "Display"
   },
   {
     "key": "language",
@@ -175,11 +305,855 @@
     ]
   },
   {
+    "key": "backlight-duration-tx",
+    "label": "Backlight duration TX",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "backlight-duration-rx",
+    "label": "Backlight duration RX",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
     "key": "display-brightness",
     "label": "Display Brightness",
     "type": "integer",
     "min": 0,
     "max": 255
+  },
+  {
+    "key": "menu-exit-time",
+    "label": "Menu exit time",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "show-menu-separator",
+    "label": "Show menu separator",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "show-clock",
+    "label": "Show Clock",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "show-volume-bar",
+    "label": "Show volume bar",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "standby-text-color",
+    "label": "Standby text color",
+    "type": "select",
+    "options": [
+      "White",
+      "Black",
+      "Orange",
+      "Red",
+      "Yellow",
+      "Green",
+      "Turquoise",
+      "Blue"
+    ]
+  },
+  {
+    "key": "standby-background-image",
+    "label": "Standby background image",
+    "type": "select",
+    "options": [
+      "Default",
+      "Custom 1",
+      "Custom 2"
+    ]
+  },
+  {
+    "key": "channel-a-name-color",
+    "label": "Channel A name color",
+    "type": "select",
+    "options": [
+      "Orange",
+      "Red",
+      "Yellow",
+      "Green",
+      "Turquoise",
+      "Blue",
+      "White"
+    ]
+  },
+  {
+    "key": "call-sign-color",
+    "label": "Call sign color",
+    "type": "select",
+    "options": [
+      "Orange",
+      "Red",
+      "Yellow",
+      "Green",
+      "Turquoise",
+      "Blue",
+      "White"
+    ]
+  },
+  {
+    "key": "call-display-mode",
+    "label": "Call display mode",
+    "type": "select",
+    "options": [
+      "Off",
+      "Call",
+      "Name"
+    ]
+  },
+  {
+    "key": "show-last-caller",
+    "label": "Show last caller",
+    "type": "select",
+    "options": [
+      "Off",
+      "DMR ID",
+      "Callsign",
+      "Both"
+    ]
+  },
+  {
+    "key": "show-last-caller-on-boot",
+    "label": "Show last caller on boot",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "keep-last-caller",
+    "label": "Keep last caller",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "enable-show-current-contact",
+    "label": "Enable show current contact",
+    "type": "boolean"
+  },
+  {
+    "key": "__sec_5",
+    "label": "Audio & Alerts",
+    "type": "section",
+    "group": "Sounds"
+  },
+  {
+    "key": "max-speaker-volume",
+    "label": "Max speaker volume",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "max-head-phone-volume",
+    "label": "Max head-phone volume",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "speaker-on-tx",
+    "label": "Speaker On TX",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "enable-key-tone",
+    "label": "Enable key tone",
+    "type": "boolean"
+  },
+  {
+    "key": "key-tone-volume",
+    "label": "Key tone volume",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "talk-permit-tone",
+    "label": "Talk permit tone",
+    "type": "select",
+    "options": [
+      "None",
+      "DMR",
+      "FM",
+      "Both"
+    ]
+  },
+  {
+    "key": "enable-sms-alert",
+    "label": "Enable SMS Alert",
+    "type": "boolean"
+  },
+  {
+    "key": "enable-call-alert",
+    "label": "Enable Call Alert",
+    "type": "boolean"
+  },
+  {
+    "key": "dmr-channel-free-tone",
+    "label": "DMR channel free tone",
+    "type": "select",
+    "options": [
+      "Off",
+      "Type 1",
+      "Type 2",
+      "Type 3"
+    ]
+  },
+  {
+    "key": "enable-dmr-call-reset-tone",
+    "label": "Enable DMR call reset tone",
+    "type": "boolean"
+  },
+  {
+    "key": "analog-idle-tone",
+    "label": "Analog Idle Tone",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "enable-enhanced-audio",
+    "label": "Enable enhanced audio",
+    "type": "boolean"
+  },
+  {
+    "key": "dynamic-range-control",
+    "label": "Dynamic Range Control",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "mute-duration",
+    "label": "Mute duration",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "enable-recording",
+    "label": "Enable Recording",
+    "type": "boolean"
+  },
+  {
+    "key": "enable-plug-in-recording-tone",
+    "label": "Enable plug-in recording tone",
+    "type": "boolean"
+  },
+  {
+    "key": "section-call-permit-melody",
+    "label": "Call Permit Melody",
+    "type": "section",
+    "group": "Sounds"
+  },
+  {
+    "key": "call-permit-melody-tones.frequency.0",
+    "label": "Tone 1 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-permit-melody-durations.duration.0",
+    "label": "Tone 1 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-permit-melody-tones.frequency.1",
+    "label": "Tone 2 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-permit-melody-durations.duration.1",
+    "label": "Tone 2 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-permit-melody-tones.frequency.2",
+    "label": "Tone 3 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-permit-melody-durations.duration.2",
+    "label": "Tone 3 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-permit-melody-tones.frequency.3",
+    "label": "Tone 4 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-permit-melody-durations.duration.3",
+    "label": "Tone 4 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-permit-melody-tones.frequency.4",
+    "label": "Tone 5 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-permit-melody-durations.duration.4",
+    "label": "Tone 5 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "section-match-end-melody",
+    "label": "Match End Melody",
+    "type": "section",
+    "group": "Sounds"
+  },
+  {
+    "key": "match-end-melody-tones.frequency.0",
+    "label": "Tone 1 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "match-end-melody-durations.duration.0",
+    "label": "Tone 1 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "match-end-melody-tones.frequency.1",
+    "label": "Tone 2 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "match-end-melody-durations.duration.1",
+    "label": "Tone 2 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "match-end-melody-tones.frequency.2",
+    "label": "Tone 3 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "match-end-melody-durations.duration.2",
+    "label": "Tone 3 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "match-end-melody-tones.frequency.3",
+    "label": "Tone 4 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "match-end-melody-durations.duration.3",
+    "label": "Tone 4 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "match-end-melody-tones.frequency.4",
+    "label": "Tone 5 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "match-end-melody-durations.duration.4",
+    "label": "Tone 5 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "section-unmatch-end-melody",
+    "label": "Unmatch End Melody",
+    "type": "section",
+    "group": "Sounds"
+  },
+  {
+    "key": "unmatch-end-melody-tones.frequency.0",
+    "label": "Tone 1 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "unmatch-end-melody-durations.duration.0",
+    "label": "Tone 1 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "unmatch-end-melody-tones.frequency.1",
+    "label": "Tone 2 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "unmatch-end-melody-durations.duration.1",
+    "label": "Tone 2 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "unmatch-end-melody-tones.frequency.2",
+    "label": "Tone 3 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "unmatch-end-melody-durations.duration.2",
+    "label": "Tone 3 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "unmatch-end-melody-tones.frequency.3",
+    "label": "Tone 4 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "unmatch-end-melody-durations.duration.3",
+    "label": "Tone 4 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "unmatch-end-melody-tones.frequency.4",
+    "label": "Tone 5 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "unmatch-end-melody-durations.duration.4",
+    "label": "Tone 5 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "section-call-reset-melody",
+    "label": "Call Reset Melody",
+    "type": "section",
+    "group": "Sounds"
+  },
+  {
+    "key": "call-reset-melody-tones.frequency.0",
+    "label": "Tone 1 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-reset-melody-durations.duration.0",
+    "label": "Tone 1 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-reset-melody-tones.frequency.1",
+    "label": "Tone 2 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-reset-melody-durations.duration.1",
+    "label": "Tone 2 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-reset-melody-tones.frequency.2",
+    "label": "Tone 3 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-reset-melody-durations.duration.2",
+    "label": "Tone 3 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-reset-melody-tones.frequency.3",
+    "label": "Tone 4 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-reset-melody-durations.duration.3",
+    "label": "Tone 4 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-reset-melody-tones.frequency.4",
+    "label": "Tone 5 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "call-reset-melody-durations.duration.4",
+    "label": "Tone 5 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "section-all-call-end-melody",
+    "label": "All Call End Melody",
+    "type": "section",
+    "group": "Sounds"
+  },
+  {
+    "key": "all-call-end-melody-tones.frequency.0",
+    "label": "Tone 1 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "all-call-end-melody-durations.duration.0",
+    "label": "Tone 1 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "all-call-end-melody-tones.frequency.1",
+    "label": "Tone 2 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "all-call-end-melody-durations.duration.1",
+    "label": "Tone 2 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "all-call-end-melody-tones.frequency.2",
+    "label": "Tone 3 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "all-call-end-melody-durations.duration.2",
+    "label": "Tone 3 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "all-call-end-melody-tones.frequency.3",
+    "label": "Tone 4 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "all-call-end-melody-durations.duration.3",
+    "label": "Tone 4 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "all-call-end-melody-tones.frequency.4",
+    "label": "Tone 5 frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "all-call-end-melody-durations.duration.4",
+    "label": "Tone 5 duration",
+    "type": "integer",
+    "min": 0,
+    "max": 65535
+  },
+  {
+    "key": "__sec_4",
+    "label": "Transmit",
+    "type": "section",
+    "group": "Transmit & Receive"
+  },
+  {
+    "key": "tot",
+    "label": "Transmit Timeout",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "tot-predict",
+    "label": "TOT Predict",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "tx-power-control",
+    "label": "TX Power Control",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "squelch-level-vfo-a",
+    "label": "Squelch Level VFO A",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "squelch-level-vfo-b",
+    "label": "Squelch Level VFO B",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "analog-mic-gain",
+    "label": "Analog Mic Gain",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "dmr-mic-gain",
+    "label": "DMR mic gain",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "nx-mic-gain",
+    "label": "NX Mic gain",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "rx-noise-reduction",
+    "label": "RX Noise Reduction",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "tx-noise-reduction",
+    "label": "TX Noise Reduction",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "tbst",
+    "label": "TBST",
+    "type": "select",
+    "options": [
+      "1000 Hz",
+      "1450 Hz",
+      "1750 Hz",
+      "2100 Hz"
+    ]
+  },
+  {
+    "key": "ste-type",
+    "label": "STE type",
+    "type": "select",
+    "options": [
+      "Off",
+      "Silent",
+      "120 deg",
+      "180 deg",
+      "240 deg"
+    ]
+  },
+  {
+    "key": "ste-frequency",
+    "label": "STE Frequency",
+    "type": "select",
+    "options": [
+      "Off",
+      "55.2 Hz",
+      "259.2 Hz"
+    ]
+  },
+  {
+    "key": "section-vox",
+    "label": "VOX",
+    "type": "section",
+    "group": "Transmit & Receive"
+  },
+  {
+    "key": "vox-sensitivity",
+    "label": "VOX sensitivity",
+    "type": "select",
+    "options": [
+      "Off",
+      "1",
+      "2",
+      "3"
+    ]
+  },
+  {
+    "key": "vox-delay",
+    "label": "VOX Delay",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "vox-source",
+    "label": "VOX Source",
+    "type": "select",
+    "options": [
+      "Internal",
+      "External",
+      "Both"
+    ]
+  },
+  {
+    "key": "section-auto-repeater",
+    "label": "Auto-Repeater",
+    "type": "section",
+    "group": "Transmit & Receive"
+  },
+  {
+    "key": "auto-repeater-a-direction",
+    "label": "Auto-repeater A direction",
+    "type": "select",
+    "options": [
+      "Off",
+      "Positive",
+      "Negative"
+    ]
+  },
+  {
+    "key": "auto-repeater-b-direction",
+    "label": "Auto-repeater B direction",
+    "type": "select",
+    "options": [
+      "Off",
+      "Positive",
+      "Negative"
+    ]
+  },
+  {
+    "key": "vhf-auto-repeater-1-offset-frequency-index",
+    "label": "VHF Auto-repeater 1 offset frequency index.",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "uhf-auto-repeater-offset-frequency-1-index",
+    "label": "UHF Auto-repeater offset frequency 1 index",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "vhf-auto-repeater-1-min-frequency",
+    "label": "VHF auto-repeater 1 min frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295
+  },
+  {
+    "key": "vhf-auto-repeater-1-max-frequency",
+    "label": "VHF auto-repeater 1 max frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295
+  },
+  {
+    "key": "uhf-auto-repeater-1-min-frequency",
+    "label": "UHF auto-repeater 1 min frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295
+  },
+  {
+    "key": "uhf-auto-repeater-1-max-frequency",
+    "label": "UHF auto-repeater 1 max frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295
+  },
+  {
+    "key": "section-memory-and-vfo",
+    "label": "Memory & VFO",
+    "type": "section",
+    "group": "Memory & VFO"
   },
   {
     "key": "main-vfo",
@@ -188,15 +1162,6 @@
     "options": [
       "A",
       "B"
-    ]
-  },
-  {
-    "key": "channel-number-mode",
-    "label": "Channel number mode",
-    "type": "select",
-    "options": [
-      "Total",
-      "Within Zone"
     ]
   },
   {
@@ -218,27 +1183,129 @@
     ]
   },
   {
-    "key": "menu-exit-time",
-    "label": "Menu exit time",
+    "key": "channel-number-mode",
+    "label": "Channel number mode",
+    "type": "select",
+    "options": [
+      "Total",
+      "Within Zone"
+    ]
+  },
+  {
+    "key": "frequency-step-size",
+    "label": "Frequency step size",
+    "type": "select",
+    "options": [
+      "2.5 kHz",
+      "5 kHz",
+      "6.25 kHz",
+      "8.33 kHz",
+      "10 kHz",
+      "12.5 kHz",
+      "20 kHz",
+      "25 kHz",
+      "30 kHz",
+      "50 kHz"
+    ]
+  },
+  {
+    "key": "enable-subchannel",
+    "label": "Enable Subchannel",
+    "type": "boolean"
+  },
+  {
+    "key": "priority-zone-index-a",
+    "label": "Priority zone index A",
     "type": "integer",
     "min": 0,
     "max": 255
   },
   {
-    "key": "show-last-caller",
-    "label": "Show last caller",
+    "key": "priority-zone-index-b",
+    "label": "Priority zone index B",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "section-scan",
+    "label": "VFO Scan",
+    "type": "section",
+    "group": "Scan"
+  },
+  {
+    "key": "vfo-scan-type",
+    "label": "VFO Scan Type",
     "type": "select",
     "options": [
-      "Off",
-      "DMR ID",
-      "Callsign",
-      "Both"
+      "Fixed Time",
+      "Carrier",
+      "Stop"
     ]
+  },
+  {
+    "key": "vfo-scan-vhf-min-frequency",
+    "label": "VFO Scan VHF min Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295
+  },
+  {
+    "key": "vfo-scan-vhf-max-frequency",
+    "label": "VFO Scan VHF max Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295
+  },
+  {
+    "key": "vfo-scan-uhf-min-frequency",
+    "label": "VFO Scan UHF min Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295
+  },
+  {
+    "key": "vfo-scan-uhf-max-frequency",
+    "label": "VFO Scan UHF max Frequency",
+    "type": "integer",
+    "min": 0,
+    "max": 4294967295
+  },
+  {
+    "key": "section-signaling",
+    "label": "Analog Signaling",
+    "type": "section",
+    "group": "DTMF & Signaling"
+  },
+  {
+    "key": "send-fm-own-id",
+    "label": "Send FM own ID",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "fm-call-hold-time",
+    "label": "FM Call hold time",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "enable-remote-stun-kill",
+    "label": "Enable remote stun & kill",
+    "type": "boolean"
+  },
+  {
+    "key": "enable-remote-monitor",
+    "label": "Enable remote monitor",
+    "type": "boolean"
   },
   {
     "key": "__sec_3",
     "label": "Programmable Keys",
-    "type": "section"
+    "type": "section",
+    "group": "Keys"
   },
   {
     "key": "pf1-short-press-function",
@@ -902,171 +1969,10 @@
     "max": 255
   },
   {
-    "key": "show-volume-bar",
-    "label": "Show volume bar",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "__sec_4",
-    "label": "Transmit",
-    "type": "section"
-  },
-  {
-    "key": "tot",
-    "label": "Transmit Timeout",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "tot-predict",
-    "label": "TOT Predict",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "tx-power-control",
-    "label": "TX Power Control",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "squelch-level-vfo-a",
-    "label": "Squelch Level VFO A",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "squelch-level-vfo-b",
-    "label": "Squelch Level VFO B",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "frequency-step-size",
-    "label": "Frequency step size",
-    "type": "select",
-    "options": [
-      "2.5 kHz",
-      "5 kHz",
-      "6.25 kHz",
-      "8.33 kHz",
-      "10 kHz",
-      "12.5 kHz",
-      "20 kHz",
-      "25 kHz",
-      "30 kHz",
-      "50 kHz"
-    ]
-  },
-  {
-    "key": "analog-mic-gain",
-    "label": "Analog Mic Gain",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "dmr-mic-gain",
-    "label": "DMR mic gain",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "__sec_5",
-    "label": "Audio & Alerts",
-    "type": "section"
-  },
-  {
-    "key": "max-speaker-volume",
-    "label": "Max speaker volume",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "max-head-phone-volume",
-    "label": "Max head-phone volume",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "enable-key-tone",
-    "label": "Enable key tone",
-    "type": "boolean"
-  },
-  {
-    "key": "key-tone-volume",
-    "label": "Key tone volume",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "talk-permit-tone",
-    "label": "Talk permit tone",
-    "type": "select",
-    "options": [
-      "None",
-      "DMR",
-      "FM",
-      "Both"
-    ]
-  },
-  {
-    "key": "tbst",
-    "label": "TBST",
-    "type": "select",
-    "options": [
-      "1000 Hz",
-      "1450 Hz",
-      "1750 Hz",
-      "2100 Hz"
-    ]
-  },
-  {
-    "key": "enable-sms-alert",
-    "label": "Enable SMS Alert",
-    "type": "boolean"
-  },
-  {
-    "key": "enable-call-alert",
-    "label": "Enable Call Alert",
-    "type": "boolean"
-  },
-  {
-    "key": "dmr-channel-free-tone",
-    "label": "DMR channel free tone",
-    "type": "select",
-    "options": [
-      "Off",
-      "Type 1",
-      "Type 2",
-      "Type 3"
-    ]
-  },
-  {
-    "key": "enable-dmr-call-reset-tone",
-    "label": "Enable DMR call reset tone",
-    "type": "boolean"
-  },
-  {
-    "key": "enable-enhanced-audio",
-    "label": "Enable enhanced audio",
-    "type": "boolean"
-  },
-  {
     "key": "__sec_6",
     "label": "DMR",
-    "type": "section"
+    "type": "section",
+    "group": "Digital"
   },
   {
     "key": "group-call-hang-time",
@@ -1151,89 +2057,119 @@
     "max": 255
   },
   {
+    "key": "voice-header-repetitions",
+    "label": "Voice Header Repetitions",
+    "type": "integer",
+    "min": 2,
+    "max": 10
+  },
+  {
     "key": "enable-answer-sub-channel",
     "label": "Enable answer sub channel",
     "type": "boolean"
   },
   {
-    "key": "__sec_7",
-    "label": "VOX, Scan & Power Save",
-    "type": "section"
-  },
-  {
-    "key": "vox-sensitivity",
-    "label": "VOX sensitivity",
+    "key": "sms-standard",
+    "label": "SMS standard",
     "type": "select",
     "options": [
-      "Off",
-      "1",
-      "2",
-      "3"
+      "Motorola",
+      "Hytera",
+      "ETSI DMR"
     ]
   },
   {
-    "key": "vox-delay",
-    "label": "VOX Delay",
+    "key": "reset-digital-protocol",
+    "label": "Reset Digital Protocol",
+    "type": "select",
+    "options": [
+      "Off",
+      "DMR",
+      "NXDN"
+    ]
+  },
+  {
+    "key": "section-roaming",
+    "label": "Roaming & Repeater Check",
+    "type": "section",
+    "group": "Digital"
+  },
+  {
+    "key": "enable-auto-roamin",
+    "label": "Enable auto roamin",
+    "type": "boolean"
+  },
+  {
+    "key": "auto-roaming-start-condition",
+    "label": "Auto-roaming start condition",
+    "type": "select",
+    "options": [
+      "Periodic",
+      "Out-of-range"
+    ]
+  },
+  {
+    "key": "auto-roaming-period",
+    "label": "Auto-roaming period",
     "type": "integer",
     "min": 0,
     "max": 255
   },
   {
-    "key": "vox-source",
-    "label": "VOX Source",
-    "type": "select",
-    "options": [
-      "Internal",
-      "External",
-      "Both"
-    ]
+    "key": "roaming-delay",
+    "label": "Roaming delay",
+    "type": "integer",
+    "min": 0,
+    "max": 255
   },
   {
-    "key": "vfo-scan-type",
-    "label": "VFO Scan Type",
-    "type": "select",
-    "options": [
-      "Fixed Time",
-      "Carrier",
-      "Stop"
-    ]
+    "key": "roaming-zone-index",
+    "label": "Roaming zone index",
+    "type": "integer",
+    "min": 0,
+    "max": 255
   },
   {
-    "key": "power-save-mode",
-    "label": "Power save mode",
+    "key": "enable-repeater-check",
+    "label": "Enable repeater check",
+    "type": "boolean"
+  },
+  {
+    "key": "repeater-check-interval",
+    "label": "Repeater check interval",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "repeater-check-retry-count",
+    "label": "Repeater check retry count",
+    "type": "integer",
+    "min": 0,
+    "max": 255
+  },
+  {
+    "key": "repeater-check-oor-notification",
+    "label": "Repeater check OOR notification",
     "type": "select",
     "options": [
       "Off",
-      "1:1 (50%)",
-      "1:2 (66%)"
+      "Tone",
+      "Voice"
     ]
   },
   {
-    "key": "ste-type",
-    "label": "STE type",
-    "type": "select",
-    "options": [
-      "Off",
-      "Silent",
-      "120 deg",
-      "180 deg",
-      "240 deg"
-    ]
-  },
-  {
-    "key": "ste-frequency",
-    "label": "STE Frequency",
-    "type": "select",
-    "options": [
-      "Off",
-      "55.2 Hz",
-      "259.2 Hz"
-    ]
+    "key": "repeater-check-oor-notification-count",
+    "label": "Repeater check OOR notification count",
+    "type": "integer",
+    "min": 0,
+    "max": 255
   },
   {
     "key": "__sec_8",
     "label": "GPS & Ranging",
-    "type": "section"
+    "type": "section",
+    "group": "GPS"
   },
   {
     "key": "enable-gps",
@@ -1281,110 +2217,15 @@
     "max": 8
   },
   {
-    "key": "noaa-alert",
-    "label": "NOAA Alert",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "__sec_9",
-    "label": "Other settings",
-    "type": "section"
-  },
-  {
-    "key": "enable-automatic-key-lock",
-    "label": "Enable automatic key lock",
-    "type": "boolean"
-  },
-  {
-    "key": "auto-shutoff-delay",
-    "label": "Auto-shutoff delay",
-    "type": "select",
-    "options": [
-      "Off",
-      "10 min",
-      "30 min",
-      "60 min",
-      "120 min"
-    ]
-  },
-  {
-    "key": "voice-header-repetitions",
-    "label": "Voice Header Repetitions",
-    "type": "integer",
-    "min": 2,
-    "max": 10
-  },
-  {
-    "key": "fm-broadcast-channel-index",
-    "label": "FM broadcast channel index",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "fm-broadcast-mode",
-    "label": "FM broadcast mode",
-    "type": "select",
-    "options": [
-      "Channel",
-      "VFO"
-    ]
-  },
-  {
-    "key": "enable-recording",
-    "label": "Enable Recording",
-    "type": "boolean"
-  },
-  {
-    "key": "enable-fm-broadcast-monitor",
-    "label": "Enable FM broadcast monitor",
-    "type": "boolean"
-  },
-  {
-    "key": "enable-subchannel",
-    "label": "Enable Subchannel",
-    "type": "boolean"
-  },
-  {
-    "key": "enable-remote-stun-kill",
-    "label": "Enable remote stun & kill",
-    "type": "boolean"
-  },
-  {
-    "key": "enable-remote-monitor",
-    "label": "Enable remote monitor",
-    "type": "boolean"
+    "key": "section-dmr-aprs",
+    "label": "DMR APRS",
+    "type": "section",
+    "group": "APRS"
   },
   {
     "key": "enable-rx-dmr-aprs-positions",
     "label": "Enable RX DMR APRS Positions",
     "type": "boolean"
-  },
-  {
-    "key": "auto-repeater-a-direction",
-    "label": "Auto-repeater A direction",
-    "type": "select",
-    "options": [
-      "Off",
-      "Positive",
-      "Negative"
-    ]
-  },
-  {
-    "key": "fm-call-hold-time",
-    "label": "FM Call hold time",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "show-clock",
-    "label": "Show Clock",
-    "type": "integer",
-    "min": 0,
-    "max": 255
   },
   {
     "key": "sent-dmr-aprs-message",
@@ -1394,280 +2235,10 @@
     "max": 255
   },
   {
-    "key": "vfo-scan-uhf-min-frequency",
-    "label": "VFO Scan UHF min Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 4294967295
-  },
-  {
-    "key": "vfo-scan-uhf-max-frequency",
-    "label": "VFO Scan UHF max Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 4294967295
-  },
-  {
-    "key": "vfo-scan-vhf-min-frequency",
-    "label": "VFO Scan VHF min Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 4294967295
-  },
-  {
-    "key": "vfo-scan-vhf-max-frequency",
-    "label": "VFO Scan VHF max Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 4294967295
-  },
-  {
-    "key": "uhf-auto-repeater-offset-frequency-1-index",
-    "label": "UHF Auto-repeater offset frequency 1 index",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "vhf-auto-repeater-1-offset-frequency-index",
-    "label": "VHF Auto-repeater 1 offset frequency index.",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "priority-zone-index-a",
-    "label": "Priority zone index A",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "priority-zone-index-b",
-    "label": "Priority zone index B",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "call-permit-melody-tones.frequency.0",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-permit-melody-tones.frequency.1",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-permit-melody-tones.frequency.2",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-permit-melody-tones.frequency.3",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-permit-melody-tones.frequency.4",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-permit-melody-durations.duration.0",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-permit-melody-durations.duration.1",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-permit-melody-durations.duration.2",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-permit-melody-durations.duration.3",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-permit-melody-durations.duration.4",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "match-end-melody-tones.frequency.0",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "match-end-melody-tones.frequency.1",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "match-end-melody-tones.frequency.2",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "match-end-melody-tones.frequency.3",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "match-end-melody-tones.frequency.4",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "match-end-melody-durations.duration.0",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "match-end-melody-durations.duration.1",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "match-end-melody-durations.duration.2",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "match-end-melody-durations.duration.3",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "match-end-melody-durations.duration.4",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-reset-melody-tones.frequency.0",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-reset-melody-tones.frequency.1",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-reset-melody-tones.frequency.2",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-reset-melody-tones.frequency.3",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-reset-melody-tones.frequency.4",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-reset-melody-durations.duration.0",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-reset-melody-durations.duration.1",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-reset-melody-durations.duration.2",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-reset-melody-durations.duration.3",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-reset-melody-durations.duration.4",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "call-display-mode",
-    "label": "Call display mode",
-    "type": "select",
-    "options": [
-      "Off",
-      "Call",
-      "Name"
-    ]
+    "key": "section-bluetooth",
+    "label": "Bluetooth",
+    "type": "section",
+    "group": "Connections"
   },
   {
     "key": "enable-blue-tooth",
@@ -1689,11 +2260,6 @@
     "max": 255
   },
   {
-    "key": "enable-plug-in-recording-tone",
-    "label": "Enable plug-in recording tone",
-    "type": "boolean"
-  },
-  {
     "key": "blue-tooth-mic-gain",
     "label": "Blue tooth mic gain",
     "type": "integer",
@@ -1706,271 +2272,6 @@
     "type": "integer",
     "min": 0,
     "max": 255
-  },
-  {
-    "key": "enable-show-current-contact",
-    "label": "Enable show current contact",
-    "type": "boolean"
-  },
-  {
-    "key": "auto-roaming-period",
-    "label": "Auto-roaming period",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "call-sign-color",
-    "label": "Call sign color",
-    "type": "select",
-    "options": [
-      "Orange",
-      "Red",
-      "Yellow",
-      "Green",
-      "Turquoise",
-      "Blue",
-      "White"
-    ]
-  },
-  {
-    "key": "folk",
-    "label": "Forced lock",
-    "type": "boolean"
-  },
-  {
-    "key": "sklk",
-    "label": "Side key lock",
-    "type": "boolean"
-  },
-  {
-    "key": "kblk",
-    "label": "Enable keyboard lock",
-    "type": "boolean"
-  },
-  {
-    "key": "knlk",
-    "label": "Enable knob lock",
-    "type": "boolean"
-  },
-  {
-    "key": "roaming-delay",
-    "label": "Roaming delay",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "standby-text-color",
-    "label": "Standby text color",
-    "type": "select",
-    "options": [
-      "White",
-      "Black",
-      "Orange",
-      "Red",
-      "Yellow",
-      "Green",
-      "Turquoise",
-      "Blue"
-    ]
-  },
-  {
-    "key": "standby-background-image",
-    "label": "Standby background image",
-    "type": "select",
-    "options": [
-      "Default",
-      "Custom 1",
-      "Custom 2"
-    ]
-  },
-  {
-    "key": "show-last-caller-on-boot",
-    "label": "Show last caller on boot",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "sms-standard",
-    "label": "SMS standard",
-    "type": "select",
-    "options": [
-      "Motorola",
-      "Hytera",
-      "ETSI DMR"
-    ]
-  },
-  {
-    "key": "vhf-auto-repeater-1-min-frequency",
-    "label": "VHF auto-repeater 1 min frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 4294967295
-  },
-  {
-    "key": "vhf-auto-repeater-1-max-frequency",
-    "label": "VHF auto-repeater 1 max frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 4294967295
-  },
-  {
-    "key": "uhf-auto-repeater-1-min-frequency",
-    "label": "UHF auto-repeater 1 min frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 4294967295
-  },
-  {
-    "key": "uhf-auto-repeater-1-max-frequency",
-    "label": "UHF auto-repeater 1 max frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 4294967295
-  },
-  {
-    "key": "auto-repeater-b-direction",
-    "label": "Auto-repeater B direction",
-    "type": "select",
-    "options": [
-      "Off",
-      "Positive",
-      "Negative"
-    ]
-  },
-  {
-    "key": "send-fm-own-id",
-    "label": "Send FM own ID",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "boot-zone-vfo-a",
-    "label": "Boot zone VFO A",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "boot-zoot-vfo-b",
-    "label": "Boot zoot VFO B",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "roaming-zone-index",
-    "label": "Roaming zone index",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "enable-repeater-check",
-    "label": "Enable repeater check",
-    "type": "boolean"
-  },
-  {
-    "key": "repeater-check-interval",
-    "label": "Repeater check interval",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "repeater-check-retry-count",
-    "label": "Repeater check retry count",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "auto-roaming-start-condition",
-    "label": "Auto-roaming start condition",
-    "type": "select",
-    "options": [
-      "Periodic",
-      "Out-of-range"
-    ]
-  },
-  {
-    "key": "backlight-duration-tx",
-    "label": "Backlight duration TX",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "show-menu-separator",
-    "label": "Show menu separator",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "keep-last-caller",
-    "label": "Keep last caller",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "channel-a-name-color",
-    "label": "Channel A name color",
-    "type": "select",
-    "options": [
-      "Orange",
-      "Red",
-      "Yellow",
-      "Green",
-      "Turquoise",
-      "Blue",
-      "White"
-    ]
-  },
-  {
-    "key": "repeater-check-oor-notification",
-    "label": "Repeater check OOR notification",
-    "type": "select",
-    "options": [
-      "Off",
-      "Tone",
-      "Voice"
-    ]
-  },
-  {
-    "key": "backlight-duration-rx",
-    "label": "Backlight duration RX",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "enable-auto-roamin",
-    "label": "Enable auto roamin",
-    "type": "boolean"
-  },
-  {
-    "key": "mute-duration",
-    "label": "Mute duration",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "repeater-check-oor-notification-count",
-    "label": "Repeater check OOR notification count",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "enable-mcu-reset",
-    "label": "Enable MCU reset",
-    "type": "boolean"
   },
   {
     "key": "blue-tooth-hold-duration",
@@ -2015,219 +2316,6 @@
   {
     "key": "blue-tooth-rx-delay",
     "label": "Blue tooth RX delay",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "analog-idle-tone",
-    "label": "Analog Idle Tone",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "unmatch-end-melody-tones.frequency.0",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "unmatch-end-melody-tones.frequency.1",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "unmatch-end-melody-tones.frequency.2",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "unmatch-end-melody-tones.frequency.3",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "unmatch-end-melody-tones.frequency.4",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "unmatch-end-melody-durations.duration.0",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "unmatch-end-melody-durations.duration.1",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "unmatch-end-melody-durations.duration.2",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "unmatch-end-melody-durations.duration.3",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "unmatch-end-melody-durations.duration.4",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "all-call-end-melody-tones.frequency.0",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "all-call-end-melody-tones.frequency.1",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "all-call-end-melody-tones.frequency.2",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "all-call-end-melody-tones.frequency.3",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "all-call-end-melody-tones.frequency.4",
-    "label": "Frequency",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "all-call-end-melody-durations.duration.0",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "all-call-end-melody-durations.duration.1",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "all-call-end-melody-durations.duration.2",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "all-call-end-melody-durations.duration.3",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "all-call-end-melody-durations.duration.4",
-    "label": "Duration",
-    "type": "integer",
-    "min": 0,
-    "max": 65535
-  },
-  {
-    "key": "noaa-channel",
-    "label": "NOAA Channel",
-    "type": "integer",
-    "min": 0,
-    "max": 9
-  },
-  {
-    "key": "dynamic-range-control",
-    "label": "Dynamic Range Control",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "rx-noise-reduction",
-    "label": "RX Noise Reduction",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "tx-noise-reduction",
-    "label": "TX Noise Reduction",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "nx-mic-gain",
-    "label": "NX Mic gain",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "reset-digital-protocol",
-    "label": "Reset Digital Protocol",
-    "type": "select",
-    "options": [
-      "Off",
-      "DMR",
-      "NXDN"
-    ]
-  },
-  {
-    "key": "noaa-monitor",
-    "label": "NOAA Monitor",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "noaa-scan",
-    "label": "NOAA Scan",
-    "type": "integer",
-    "min": 0,
-    "max": 255
-  },
-  {
-    "key": "speaker-on-tx",
-    "label": "Speaker On TX",
     "type": "integer",
     "min": 0,
     "max": 255

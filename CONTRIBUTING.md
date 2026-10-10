@@ -180,7 +180,9 @@ working.
 6. **Settings**, if the radio has them: put `SettingsReader`/`SettingsWriter` in
    `radios/<driver_key>/settings.rs`, and describe the fields in the model's
    `non_channel_settings_schema` JSON. That schema drives both the generic settings form and the
-   schema-driven write path — the fields do not need bespoke UI or a bespoke command.
+   schema-driven write path — the fields do not need bespoke UI or a bespoke command. Open the
+   schema with a `"section"` entry and give every section a `group` from `SETTINGS_GROUPS` in
+   `src/lib/profiles.ts`; that is the tab it is drawn on, the same tabs for every radio.
 
 7. **Frontend: usually nothing.** With `programming_ui: 'generic'`, the capability-driven dialog
    already offers identify, backup download, program, and verify. Only a radio needing genuinely
