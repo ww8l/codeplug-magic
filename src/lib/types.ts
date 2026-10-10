@@ -194,6 +194,13 @@ export interface DriverCapabilities {
   /// explicitly-acknowledged write and leaves the radio's own alone.
   programs_settings: boolean;
   write_callsign_db: boolean;
+  /// What the radio needs before a call-sign DB write can work (the MD-380's
+  /// patched firmware), said up front in the Program dialog.
+  callsign_db_requirement: string | null;
+  /// How many contacts the codeplug holds, when a program can fill its spare
+  /// ones with DMR users from the library (the caller-ID list a stock MD-380
+  /// has); null for every other radio.
+  codeplug_contact_capacity: number | null;
   export: boolean;
   diagnostics: boolean;
   /// What the operator must do at the radio after an upload (the ID-5100 asks
@@ -748,6 +755,9 @@ export interface CallsignDbReport {
   entries_written: number;
   windows_written: string[];
   note: string;
+  /// The driver read the database back (the MD-380); the AnyTone's is
+  /// checked on the radio's own screen.
+  verified: boolean;
 }
 
 // Newest program image pair on disk, so Verify/Restore stay reachable even if

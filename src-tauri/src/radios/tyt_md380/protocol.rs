@@ -438,6 +438,90 @@ pub(crate) fn write_sectors(l: &mut dyn Link, image: &[u8], sectors: &[u32]) -> 
     wait_idle(l)
 }
 
+// --- md380tools' SPI-flash commands (patched firmware only) ---------------
+//
+// The patched firmware hooks DFU block 1 for its own commands (`tooldfu.h`):
+// a DNLOAD to wValue 1 carrying a command byte and little-endian u32 args,
+// then status, then — for a read — an UPLOAD from wValue 1. Stock firmware has
+// none of this, which is why the caller gates on the patched firmware's USB
+// strings first. Every address is bounds-checked HERE, below the callers, so
+// nothing in this module can erase or write the codeplug (0x0-0x3FFFF) or the
+// patched firmware's settings (0xF0000-0xFFFFF).
+
+const TOOL_BLOCK: u16 = 1;
+/// Lowest address a tool erase or write may touch: md380tools' user database.
+const TOOL_FLOOR: u32 = 0x10_0000;
+const TOOL_CEILING: u32 = 0x100_0000;
+
+fn tool_command(l: &mut dyn Link, data: &[u8]) -> Result<(), String> {
+    l.ctl_out(DNLOAD, TOOL_BLOCK, data)?;
+    wait_dnload_idle(l)
+}
+
+/// The SPI flash's JEDEC id (`ef 40 18` = the 16 MB W25Q128).
+pub(crate) fn spi_flash_id(l: &mut dyn Link) -> Result<[u8; 3], String> {
+    tool_command(l, &[0x05])?;
+    let id = l.ctl_in(UPLOAD, TOOL_BLOCK, 4)?;
+    id.get(..3)
+        .and_then(|b| b.try_into().ok())
+        .ok_or_else(|| "the radio did not report its flash chip".to_string())
+}
+
+/// 1 KiB of SPI flash at `addr`.
+pub(crate) fn spi_read(l: &mut dyn Link, addr: u32) -> Result<Vec<u8>, String> {
+    let a = addr.to_le_bytes();
+    tool_command(l, &[0x01, a[0], a[1], a[2], a[3]])?;
+    let data = l.ctl_in(UPLOAD, TOOL_BLOCK, 1024)?;
+    if data.len() != 1024 {
+        return Err(format!("the radio returned {} bytes of flash at {addr:#x}", data.len()));
+    }
+    Ok(data)
+}
+
+/// Erase the 64 KiB block at `addr`. Returns before the chip has finished.
+pub(crate) fn spi_erase_64k(l: &mut dyn Link, addr: u32) -> Result<(), String> {
+    assert!(
+        addr >= TOOL_FLOOR && addr.is_multiple_of(0x1_0000) && addr < TOOL_CEILING,
+        "refusing to erase {addr:#x}: outside the user-database region"
+    );
+    let a = addr.to_le_bytes();
+    tool_command(l, &[0x03, a[0], a[1], a[2], a[3]])
+}
+
+/// Program `data` (at most 1 KiB, 256-byte pages) at `addr`.
+pub(crate) fn spi_write(l: &mut dyn Link, addr: u32, data: &[u8]) -> Result<(), String> {
+    assert!(
+        addr >= TOOL_FLOOR
+            && addr.is_multiple_of(256)
+            && data.len() <= 1024
+            && addr as usize + data.len() <= TOOL_CEILING as usize,
+        "refusing to write {addr:#x}: outside the user-database region"
+    );
+    let mut msg = vec![0x04];
+    msg.extend_from_slice(&addr.to_le_bytes());
+    msg.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    msg.extend_from_slice(data);
+    tool_command(l, &msg)
+}
+
+/// Whether the radio on the bus runs md380tools' patched firmware, from its
+/// USB strings alone ("Patched MD380" / "Travis Goodspeed KK4VCZ") — before
+/// anything is sent to block 1, which stock firmware does not implement.
+pub(crate) fn patched_firmware() -> Result<bool, String> {
+    #[cfg(windows)]
+    if super::stt::present() {
+        // TYT's driver does not hand us the USB strings without opening the
+        // device, so the firmware cannot be confirmed — and an unconfirmed
+        // radio gets nothing on block 1.
+        return Err("Writing the user database needs the radio's USB name, which TYT's Windows \
+                    driver does not expose. Use the app on macOS or Linux for this step."
+            .into());
+    }
+    let info = find_usb()?;
+    Ok(info.product_string().is_some_and(|p| p.trim() == "Patched MD380")
+        || info.manufacturer_string().is_some_and(|m| m.trim() == "Travis Goodspeed KK4VCZ"))
+}
+
 /// Wait for the radio to come back on the bus after [`reboot`]. Measured s136:
 /// it re-enumerates on its own within a few seconds, on the Mac and on Windows.
 pub(crate) fn wait_for_radio() -> Result<(), String> {
@@ -481,6 +565,15 @@ pub(crate) mod fake {
         last_cmd: Vec<u8>,
         /// (wValue, data, busy seen)
         pending: Option<(u16, Vec<u8>, bool)>,
+        /// md380tools' SPI flash (16 MB), created on first use. The codeplug is
+        /// its first 256 KiB on a real radio; it is kept apart here so a stray
+        /// erase of it shows up as a changed `image`.
+        pub flash: Option<Vec<u8>>,
+        pub flash_id: [u8; 3],
+        /// Erases the fake drops, once each — what the real firmware does with
+        /// an erase that arrives while the chip is still busy.
+        pub ignore_erase: Vec<usize>,
+        tool_reply: Vec<u8>,
     }
 
     /// Tim's MD-380's ident reply, as measured s136.
@@ -501,10 +594,50 @@ pub(crate) mod fake {
                 addr_block: None,
                 last_cmd: vec![],
                 pending: None,
+                flash: None,
+                flash_id: [0xEF, 0x40, 0x18],
+                ignore_erase: vec![],
+                tool_reply: vec![],
             }
         }
 
+        fn tool(&mut self, data: &[u8]) -> Result<(), String> {
+            let flash = self.flash.get_or_insert_with(|| vec![0xA5; 0x100_0000]);
+            let u32le = |b: &[u8]| u32::from_le_bytes(b.try_into().unwrap()) as usize;
+            match data {
+                [0x05] => self.tool_reply = self.flash_id.to_vec(),
+                [0x01, a @ ..] => {
+                    let at = u32le(a);
+                    self.tool_reply = flash[at..at + 1024].to_vec();
+                }
+                [0x03, a @ ..] => {
+                    let at = u32le(a) & !0xFFFF;
+                    if let Some(i) = self.ignore_erase.iter().position(|&x| x == at) {
+                        self.ignore_erase.remove(i);
+                        self.log.push(format!("erase {at:#x} ignored"));
+                        return Ok(());
+                    }
+                    if at < 0x4_0000 {
+                        let end = (at + 0x1_0000).min(IMAGE_LEN);
+                        self.image[at..end].fill(0xFF);
+                    }
+                    flash[at..at + 0x1_0000].fill(0xFF);
+                    self.log.push(format!("erase {at:#x}"));
+                }
+                [0x04, rest @ ..] => {
+                    let (at, n) = (u32le(&rest[..4]), u32le(&rest[4..8]));
+                    flash[at..at + n].copy_from_slice(&rest[8..8 + n]);
+                    self.log.push(format!("spi write {at:#x}"));
+                }
+                other => return Err(format!("unexpected tool command {other:02x?}")),
+            }
+            Ok(())
+        }
+
         fn commit(&mut self, value: u16, data: Vec<u8>) -> Result<(), String> {
+            if value == TOOL_BLOCK {
+                return self.tool(&data);
+            }
             if value == 0 {
                 self.log.push(format!("cmd {}", hex(&data)));
                 match data.as_slice() {
@@ -574,6 +707,9 @@ pub(crate) mod fake {
                         }
                     }
                     Ok(vec![0, 5, 0, 0, self.state, 0])
+                }
+                UPLOAD if value == TOOL_BLOCK => {
+                    Ok(self.tool_reply[..(len as usize).min(self.tool_reply.len())].to_vec())
                 }
                 UPLOAD if value == 0 && self.last_cmd == [0xA2, 0x01] => {
                     self.state = STATE_UPLOAD_IDLE;

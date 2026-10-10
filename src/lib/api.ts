@@ -376,16 +376,20 @@ export const api = {
     invoke<SettingsWriteReport>("write_radio_settings", { port, profileId }),
   // One program command for every radio (3.6e). Dispatches on capability:
   // DB-driven full replace (AnyTone) or clone-image patch (UV-5R, TD-H3).
-  programRadio: (codeplugId: number, port: string) =>
-    invoke<CodeplugProgramReport>("program_radio", { codeplugId, port }),
+  programRadio: (
+    codeplugId: number,
+    port: string,
+    // Fill the codeplug's spare contacts with library users (the MD-380).
+    userContacts: { max_count: number | null; priority_countries: string[] } | null = null,
+  ) => invoke<CodeplugProgramReport>("program_radio", { codeplugId, port, userContacts }),
   writeCallsignDb: (
-    profileId: number,
+    codeplugId: number,
     port: string,
     maxCount: number | null,
     priorityCountries: string[],
   ) =>
     invoke<CallsignDbReport>("write_callsign_db", {
-      profileId,
+      codeplugId,
       port,
       maxCount,
       priorityCountries,

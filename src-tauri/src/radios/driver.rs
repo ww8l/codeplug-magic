@@ -438,6 +438,11 @@ pub(crate) struct CodeplugPayload<'a> {
     /// Explicit per-channel scan-list assignments (`codeplug_channel_scan_lists`).
     /// A list named here is *manually managed* — see `scan-list-per-channel-field`.
     pub scan_list_overrides: &'a [ChannelScanListOverride],
+    /// DMR users from the local library to fill the codeplug's spare contact
+    /// slots with, already prioritized — so a stock radio names a caller from
+    /// its own contact list. Empty unless the operator asked for it, and read
+    /// only by a driver with a [`CodeplugProgrammer::user_contact_capacity`].
+    pub contact_users: &'a [CallsignRecord],
 }
 
 /// A channel that could not be programmed, and why. Surfaced in the preview so
@@ -521,6 +526,13 @@ pub(crate) trait CodeplugProgrammer: Send + Sync {
         payload: &CodeplugPayload,
         backup_dir: &Path,
     ) -> Result<ProgramReport, String>;
+
+    /// How many contacts the codeplug holds, when [`CodeplugPayload::contact_users`]
+    /// reaches the radio: its contact list doubles as a caller-ID list (the
+    /// MD-380's 1000). `None` for a radio that ignores them.
+    fn user_contact_capacity(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// Radios programmed by targeted per-channel/bank writes rather than a full
@@ -536,6 +548,10 @@ pub(crate) trait ChannelWriter {
     ) -> Result<usize, String>;
 }
 
+/// What every DMR-user write says when the library selection is empty.
+pub(crate) const NO_DMR_USERS: &str = "No DMR users to write — open DMR Contacts and Refresh \
+     the library first (or widen the country selection).";
+
 /// Outcome of a committed call-sign DB write.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CallsignDbReport {
@@ -546,6 +562,9 @@ pub struct CallsignDbReport {
     /// How to verify — this region has no golden image to byte-diff, so
     /// verification is functional (the radio's own caller-ID screen).
     pub note: String,
+    /// Whether the driver read the database back and found it as written.
+    /// The AnyTone's is checked on the radio's screen instead, so `false`.
+    pub verified: bool,
 }
 
 /// Radios that can take one of their own backups and put it back.
@@ -585,6 +604,12 @@ pub(crate) trait CallsignDbWriter: Send + Sync {
         port: &str,
         records: &[CallsignRecord],
     ) -> Result<CallsignDbReport, String>;
+
+    /// What the radio needs before this write can work, for the Program
+    /// dialog to say up front (the MD-380's patched firmware).
+    fn requirement(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// Everything an exporter gets to write a codeplug file. The file-side twin of
@@ -689,6 +714,11 @@ pub struct DriverCapabilities {
     /// third of a second against four minutes.)
     pub programs_settings: bool,
     pub write_callsign_db: bool,
+    /// [`CallsignDbWriter::requirement`].
+    pub callsign_db_requirement: Option<&'static str>,
+    /// [`CodeplugProgrammer::user_contact_capacity`]: a program can fill the
+    /// codeplug's spare contacts with DMR users, up to this many contacts.
+    pub codeplug_contact_capacity: Option<usize>,
     pub export: bool,
     pub diagnostics: bool,
     /// [`ImageProgrammer::after_write_instruction`], for the Program dialog.
@@ -717,6 +747,12 @@ impl DriverCapabilities {
                 .as_image_programmer()
                 .is_some_and(ImageProgrammer::carries_profile_settings),
             write_callsign_db: driver.as_callsign_db_writer().is_some(),
+            callsign_db_requirement: driver
+                .as_callsign_db_writer()
+                .and_then(CallsignDbWriter::requirement),
+            codeplug_contact_capacity: driver
+                .as_codeplug_programmer()
+                .and_then(|p| p.user_contact_capacity()),
             export: driver.as_codeplug_exporter().is_some(),
             diagnostics: driver.as_diagnostics().is_some(),
             after_write: driver
