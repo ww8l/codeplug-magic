@@ -212,8 +212,8 @@ pub async fn download_image(
 ) -> Result<DownloadResult, String> {
     let driver = driver(&driver_key)?;
     let imager = driver
-        .as_image_programmer()
-        .ok_or_else(|| format!("{} is not programmed as a memory image", driver.display_name()))?;
+        .as_image_reader()
+        .ok_or_else(|| format!("{} cannot download a memory image", driver.display_name()))?;
 
     // Resolve the backup directory on the main thread (AppHandle path API).
     let backup_dir = app
@@ -1085,13 +1085,13 @@ fn program_report_to_generic(r: ProgramReport) -> CodeplugProgramReport {
         scan_lists_cleared: r.scan_lists_cleared,
         contacts_written: r.contacts_written,
         contacts_cleared: r.contacts_cleared,
-        verified: None,
+        verified: r.verified,
         note: Some(r.note),
         backup_path: r.backup_path,
         expected_path: Some(r.expected_path),
         windows_written: r.windows_written,
-        channels: Vec::new(),
-        skipped: Vec::new(),
+        channels: r.channels,
+        skipped: r.skipped,
         warnings: r.warnings,
     }
 }

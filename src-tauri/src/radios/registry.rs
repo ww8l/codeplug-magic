@@ -23,7 +23,7 @@ use crate::models::RadioModel;
 /// Every driver compiled into the app. Order is not significant — lookups are
 /// by `key()`, which is unique. (A static array rather than a slice literal:
 /// references to statics aren't const-promotable inside a returned temporary.)
-static DRIVERS: [&dyn RadioDriver; 10] = [
+static DRIVERS: [&dyn RadioDriver; 11] = [
     &super::baofeng_uv5r::DRIVER,
     &super::binteradio_bt9000::DRIVER,
     &super::tidradio_tdh3::DRIVER,
@@ -34,6 +34,7 @@ static DRIVERS: [&dyn RadioDriver; 10] = [
     &super::kenwood_thd72::DRIVER,
     &super::kenwood_tmd710::DRIVER,
     &super::icom_id5100::DRIVER,
+    &super::tyt_md380::DRIVER,
 ];
 
 pub(crate) fn all_drivers() -> &'static [&'static dyn RadioDriver] {
@@ -150,6 +151,10 @@ mod tests {
                 // a separate settings write would be the same full clone and
                 // the same press-POWER restart.
                 "icom_id5100" => (true, false),
+                // MD-380 (#42): both. Settings live in the codeplug image, and
+                // a codeplug program carries the radio's own through untouched,
+                // so the profile's are a separate write — the AnyTone's shape.
+                "tyt_md380" => (true, true),
                 _ => (true, true),
             };
             assert_eq!(
@@ -222,6 +227,14 @@ mod tests {
                 d.as_image_programmer().is_some(),
                 expect_image,
                 "{} image-programmer capability",
+                d.key()
+            );
+            // Every image programmer downloads; the MD-380 downloads its image
+            // for a backup but is programmed from the codeplug, not as one.
+            assert_eq!(
+                d.as_image_reader().is_some(),
+                expect_image || d.key() == "tyt_md380",
+                "{} image-download capability",
                 d.key()
             );
         }

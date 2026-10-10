@@ -44,6 +44,14 @@ export function driverKeyOf(model: RadioModel | null): string {
   return model?.driver_key ?? "";
 }
 
+/// The "port" a radio that IS its own USB device is addressed by (the
+/// MD-380): the driver ignores it and finds the radio by its USB id, but every
+/// dialog must pass the SAME token, because it also keys the backend's
+/// one-operation-at-a-time lock.
+export function usbPortFor(driverKey: string): string {
+  return `usb:${driverKey}`;
+}
+
 /// Can this model be programmed over a cable at all? False for export-only
 /// models (NULL `driver_key`), which is what the generic dialog gates on.
 export function isProgrammable(model: RadioModel | null): boolean {

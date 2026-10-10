@@ -182,6 +182,7 @@ mod tests {
         assert_eq!(
             caps,
             DriverCapabilities {
+                download_image: false,
                 program_image: false,
                 restore_image: false,
                 read_settings: false,
@@ -194,6 +195,7 @@ mod tests {
                 diagnostics: false,
                 after_write: None,
                 settings_start_blank: false,
+                usb_direct: false,
             }
         );
     }

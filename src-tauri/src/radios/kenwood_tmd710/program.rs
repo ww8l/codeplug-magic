@@ -268,6 +268,9 @@ impl CodeplugProgrammer for super::KenwoodTmD710 {
                 "Every memory was read back and matched, and every cleared slot was read back \
                  empty. {channels_written} memories written, {slots_cleared} cleared."
             ),
+            verified: None,
+            channels: Vec::new(),
+            skipped: Vec::new(),
         })
     }
 }

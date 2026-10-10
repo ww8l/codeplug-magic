@@ -205,6 +205,11 @@ pub const TMD710_SETTINGS_SCHEMA: &str = include_str!("tmd710_settings_schema.js
 /// read off the grid. `radios/icom_id5100/settings.rs` asserts the two agree.
 pub const ID5100_SETTINGS_SCHEMA: &str = include_str!("id5100_settings_schema.json");
 
+/// GENERATED with the Rust field table (`radios/tyt_md380/md380_settings_table.rs`)
+/// by `scratchpad/tyt_md380/gen_md380_settings.py` from that folder's
+/// `MEASURED.md`. `radios/tyt_md380/settings.rs` asserts the two agree.
+pub const MD380_SETTINGS_SCHEMA: &str = include_str!("md380_settings_schema.json");
+
 
 #[cfg(test)]
 pub(crate) fn model_rx_bands(model: &str) -> Option<&'static str> {
@@ -1106,7 +1111,107 @@ fn models() -> Vec<ModelSeed> {
             connection_type: "Data cable (OPC-2218LU or equivalent)",
             non_channel_settings_schema: ID5100_SETTINGS_SCHEMA,
         },
+        // --------------------------------------------------------
+        // 10. TYT MD-380 — DMR Tier II + analog FM UHF handheld, 1000
+        //     channels in up to 250 zones of 16, 1000 contacts, 250 scan
+        //     lists of 31, 16-char names. No serial port: the radio itself
+        //     enumerates as an STM32 DFU device and the 256 KiB codeplug
+        //     moves over USB (issue #42). See radios/tyt_md380/.
+        //     NOTES:
+        //     (a) UHF only. The model is sold in four bands (136-174,
+        //     350-400, 400-480, 450-520) with one memory layout; this row is
+        //     the 400-480 unit Tim owns, and the radio REPORTS its band in
+        //     its ident (measured s136), which the driver checks.
+        //     (b) tx_bands = rx_bands = 400-480 from the ident. Band probe
+        //     (s136): 400.000 and 480.000 display and select, 446.000
+        //     transmits — and 399.990, 480.010 and 146.520 ALSO display, and
+        //     PTT lights the TX LED even at 146.520: the radio validates
+        //     nothing, so this filter is the only guard. A 2 m test channel
+        //     (145.115/144.515, T100) did NOT bring up the repeater, so 2 m
+        //     channels are dropped for this model, not programmed RX-only.
+        //     (c) 59 settings — General Settings, the four side-key slots and
+        //     the menu switches — from editcp's field map; the passwords are
+        //     left out on purpose (see radios/tyt_md380/settings.rs).
+        // --------------------------------------------------------
+        ModelSeed {
+            manufacturer: "TYT",
+            model: "MD-380",
+            driver_key: Some("tyt_md380"),
+            programming_ui: Some("generic"),
+            display_name: "TYT MD-380",
+            analog_capable: true,
+            dmr_capable: true,
+            dstar_capable: false,
+            ysf_capable: false,
+            nxdn_capable: false,
+            p25_capable: false,
+            m17_capable: false,
+            aprs_capable: false,
+            covers_hf: false,
+            covers_vhf: false,
+            covers_uhf: true,
+            covers_220: false,
+            covers_900: false,
+            freq_min: 400.0,
+            freq_max: 480.0,
+            tx_bands: Some("[[400.0,480.0]]"),
+            rx_bands: Some("[[400.0,480.0]]"),
+            memory_channels: 1000,
+            zones_supported: true,
+            max_zones: Some(250),
+            channels_per_zone: Some(16),
+            scan_lists_supported: true,
+            max_scan_lists: Some(250),
+            banks_supported: false,
+            max_name_length: 16,
+            export_format: "chirp_csv",
+            connection_type: "USB programming cable (no driver needed on macOS)",
+            non_channel_settings_schema: MD380_SETTINGS_SCHEMA,
+        },
     ]
+}
+
+/// A seeded model as the database would hand it back, for driver tests that
+/// need a real row without a pool.
+#[cfg(test)]
+pub(crate) fn test_model(model: &str) -> crate::models::RadioModel {
+    let m = models().into_iter().find(|m| m.model == model).expect("seeded model");
+    crate::models::RadioModel {
+        manufacturer: m.manufacturer.into(),
+        model: m.model.into(),
+        display_name: m.display_name.into(),
+        analog_capable: m.analog_capable,
+        dmr_capable: m.dmr_capable,
+        dstar_capable: m.dstar_capable,
+        ysf_capable: m.ysf_capable,
+        nxdn_capable: m.nxdn_capable,
+        p25_capable: m.p25_capable,
+        m17_capable: m.m17_capable,
+        aprs_capable: m.aprs_capable,
+        covers_hf: m.covers_hf,
+        covers_vhf: m.covers_vhf,
+        covers_uhf: m.covers_uhf,
+        covers_220: m.covers_220,
+        covers_900: m.covers_900,
+        freq_min: Some(m.freq_min),
+        freq_max: Some(m.freq_max),
+        tx_bands: m.tx_bands.map(Into::into),
+        rx_bands: m.rx_bands.map(Into::into),
+        memory_channels: Some(m.memory_channels),
+        zones_supported: m.zones_supported,
+        max_zones: m.max_zones,
+        channels_per_zone: m.channels_per_zone,
+        scan_lists_supported: m.scan_lists_supported,
+        max_scan_lists: m.max_scan_lists,
+        banks_supported: m.banks_supported,
+        max_name_length: Some(m.max_name_length),
+        export_format: Some(m.export_format.into()),
+        connection_type: Some(m.connection_type.into()),
+        driver_key: m.driver_key.map(Into::into),
+        programming_ui: m.programming_ui.map(Into::into),
+        non_channel_settings_schema: Some(m.non_channel_settings_schema.into()),
+        ..Default::default()
+    }
 }
 
 #[cfg(test)]

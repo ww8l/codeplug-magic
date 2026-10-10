@@ -17,6 +17,7 @@ import { api, withToast } from "../../lib/api";
 import {
   mediaWriteForFormat,
   useDriverCapabilities,
+  usbPortFor,
 } from "../../lib/radioProgramming";
 import type {
   AnytoneDownloadResult,
@@ -39,6 +40,7 @@ import {
   type SettingsValues,
 } from "../../lib/profiles";
 import { Button, TextInput, Select, Badge, Spinner } from "../ui";
+import { PortSelect, usePortChoice } from "../radioPort";
 
 /**
  * Pull the radio's current non-channel settings into the profile form. The
@@ -52,30 +54,17 @@ function RadioSyncBar({
   modelLabel,
   read,
   onLoaded,
+  usbPort,
 }: {
   profileId: number;
   modelLabel: string;
   read: (port: string, profileId: number) => Promise<RadioSettingsRead>;
   onLoaded: (settings: SettingsValues) => void;
+  usbPort: string | null;
 }) {
-  const [ports, setPorts] = useState<PortInfo[]>([]);
-  const [port, setPort] = useState("");
+  const choice = usePortChoice(usbPort);
+  const { port } = choice;
   const [busy, setBusy] = useState(false);
-
-  const refresh = async () => {
-    try {
-      const list = await api.listSerialPorts();
-      setPorts(list);
-      const usb = list.find((p) => p.kind === "usb");
-      setPort((cur) => cur || usb?.name || list[0]?.name || "");
-    } catch {
-      /* surfaced on download */
-    }
-  };
-
-  useEffect(() => {
-    refresh();
-  }, []);
 
   const download = async () => {
     if (!port) return;
@@ -99,25 +88,7 @@ function RadioSyncBar({
         <span className="mb-1 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
           Read current settings from a connected {modelLabel}
         </span>
-        <div className="flex items-center gap-2">
-          <Select
-            className="min-w-0 flex-1"
-            value={port}
-            onChange={(e) => setPort(e.target.value)}
-          >
-            {ports.length === 0 && <option value="">No ports found</option>}
-            {ports.map((p) => (
-              <option key={p.name} value={p.name}>
-                {p.name}
-                {p.kind === "usb" ? "  ·  USB" : ""}
-                {p.product ? `  ·  ${p.product}` : ""}
-              </option>
-            ))}
-          </Select>
-          <Button variant="ghost" onClick={refresh} title="Rescan ports">
-            <RefreshCw size={14} />
-          </Button>
-        </div>
+        <PortSelect usbPort={usbPort} modelLabel={modelLabel} choice={choice} />
       </div>
       <Button variant="primary" onClick={download} disabled={!port || busy}>
         {busy ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
@@ -149,6 +120,7 @@ function WriteToRadioBar({
   modelLabel,
   dirty,
   neverSaved,
+  usbPort,
 }: {
   profileId: number;
   modelLabel: string;
@@ -157,26 +129,12 @@ function WriteToRadioBar({
   /// the command would only error. Treated like `dirty`: same button, same
   /// instruction.
   neverSaved: boolean;
+  usbPort: string | null;
 }) {
-  const [ports, setPorts] = useState<PortInfo[]>([]);
-  const [port, setPort] = useState("");
+  const choice = usePortChoice(usbPort);
+  const { port } = choice;
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
-
-  const refresh = async () => {
-    try {
-      const list = await api.listSerialPorts();
-      setPorts(list);
-      const usb = list.find((p) => p.kind === "usb");
-      setPort((cur) => cur || usb?.name || list[0]?.name || "");
-    } catch {
-      /* surfaced on write */
-    }
-  };
-
-  useEffect(() => {
-    refresh();
-  }, []);
 
   const upload = async () => {
     if (!port) return;
@@ -216,25 +174,7 @@ function WriteToRadioBar({
           <span className="mb-1 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
             Write these settings to a connected {modelLabel}
           </span>
-          <div className="flex items-center gap-2">
-            <Select
-              className="min-w-0 flex-1"
-              value={port}
-              onChange={(e) => setPort(e.target.value)}
-            >
-              {ports.length === 0 && <option value="">No ports found</option>}
-              {ports.map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.name}
-                  {p.kind === "usb" ? "  ·  USB" : ""}
-                  {p.product ? `  ·  ${p.product}` : ""}
-                </option>
-              ))}
-            </Select>
-            <Button variant="ghost" onClick={refresh} title="Rescan ports">
-              <RefreshCw size={14} />
-            </Button>
-          </div>
+          <PortSelect usbPort={usbPort} modelLabel={modelLabel} choice={choice} />
         </div>
         <Button
           variant="primary"
@@ -885,6 +825,8 @@ export function ProfileEditor({
     : undefined;
   // What this model's driver can actually do — gates the read-from-radio bar.
   const caps = useDriverCapabilities(model?.driver_key ?? null);
+  const usbPort =
+    caps?.usb_direct && model?.driver_key ? usbPortFor(model.driver_key) : null;
   // The card radios' rule, for a cable radio in the same position: its program
   // writes every value the form holds into the radio's own image, so a field
   // the operator never set must stay blank rather than become a schema default
@@ -1097,6 +1039,7 @@ export function ProfileEditor({
                 modelLabel={model.display_name}
                 read={api.readRadioSettings}
                 onLoaded={loadFromRadio}
+                usbPort={usbPort}
               />
             )}
             {/* The inverse, gated on the driver's write capability for the same
@@ -1116,6 +1059,7 @@ export function ProfileEditor({
                   modelLabel={model.display_name}
                   dirty={dirty}
                   neverSaved={!profile.non_channel_settings}
+                  usbPort={usbPort}
                 />
               )}
             {/* A card radio's settings come off its microSD rather than a

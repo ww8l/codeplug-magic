@@ -116,6 +116,14 @@ pub(crate) trait RadioDriver: Send + Sync {
     /// not as a memory image), yet still handshakes.
     fn identify(&self, port: &str) -> Result<RadioIdentity, String>;
 
+    /// Whether the radio is found on the USB bus by its own id rather than
+    /// through a serial port the operator picks. The MD-380 has no serial port
+    /// at all — the radio itself is the USB device — so its dialog shows no
+    /// port picker and its methods ignore the `port` they are handed.
+    fn usb_direct(&self) -> bool {
+        false
+    }
+
     // --- Capability accessors -------------------------------------------------
     // Default `None`; a driver overrides the ones it supports. The derived
     // `DriverCapabilities` (below) reads these, so a capability is advertised to
@@ -123,6 +131,11 @@ pub(crate) trait RadioDriver: Send + Sync {
 
     fn as_image_programmer(&self) -> Option<&dyn ImageProgrammer> {
         None
+    }
+    /// Every image programmer can download its image; a radio that only
+    /// backs one up overrides this alone.
+    fn as_image_reader(&self) -> Option<&dyn ImageReader> {
+        self.as_image_programmer().map(|p| p as &dyn ImageReader)
     }
     fn as_image_restorer(&self) -> Option<&dyn ImageRestorer> {
         None
@@ -150,11 +163,12 @@ pub(crate) trait RadioDriver: Send + Sync {
     }
 }
 
-/// Clone-mode radios: the whole memory image is read, patched, and written back
-/// as one blob (Baofeng UV-5R, TIDRADIO TD-H3).
-/// `Send + Sync` because the command layer resolves the driver on the async
-/// side and then moves the `&'static dyn` reference into `spawn_blocking`.
-pub(crate) trait ImageProgrammer: Send + Sync {
+/// Radios whose whole memory image can be read off for a backup — every clone
+/// radio, and the MD-380, which is programmed through [`CodeplugProgrammer`]
+/// but still downloads one image. Split from [`ImageProgrammer`] so a radio
+/// that backs up an image without being programmed AS one does not have to
+/// claim (and stub) the programming half.
+pub(crate) trait ImageReader: Send + Sync {
     /// Read the radio's full memory image (raw codeplug bytes), returning the
     /// handshake identity alongside it.
     ///
@@ -167,7 +181,13 @@ pub(crate) trait ImageProgrammer: Send + Sync {
     /// Decode the programmed channels out of an image for the download sanity
     /// sample. Pure — no radio required, so it's unit-testable.
     fn decode_sample(&self, image: &[u8]) -> Vec<DecodedChannelSample>;
+}
 
+/// Clone-mode radios: the whole memory image is read, patched, and written back
+/// as one blob (Baofeng UV-5R, TIDRADIO TD-H3).
+/// `Send + Sync` because the command layer resolves the driver on the async
+/// side and then moves the `&'static dyn` reference into `spawn_blocking`.
+pub(crate) trait ImageProgrammer: ImageReader {
     /// Write a prepared memory image back to the radio.
     fn upload_image(&self, port: &str, image: &[u8]) -> Result<(), String>;
 
@@ -478,6 +498,14 @@ pub struct ProgramReport {
     pub expected_path: String,
     pub warnings: Vec<String>,
     pub note: String,
+    /// Whether an in-session read-back matched the expected image. `None` on
+    /// radios that cannot read back in the session that wrote (the AnyTone
+    /// reboots on commit); the MD-380 can, and fills it.
+    pub verified: Option<bool>,
+    /// The channels read back after the write, on drivers that read back.
+    pub channels: Vec<DecodedChannelSample>,
+    /// Channels the plan left out, and why.
+    pub skipped: Vec<SkippedChannel>,
 }
 
 /// Radios programmed as a whole codeplug — channels *plus* zones, scan lists,
@@ -635,9 +663,11 @@ pub(crate) trait DriverDiagnostics {
 /// impls) rather than a hand-maintained list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct DriverCapabilities {
+    /// Can read its whole image off for a backup ([`ImageReader`]).
+    pub download_image: bool,
     pub program_image: bool,
     /// Can put one of its own backups back on the radio — NOT implied by
-    /// `program_image`, which only means a backup can be taken.
+    /// `program_image`.
     pub restore_image: bool,
     pub read_settings: bool,
     pub write_settings: bool,
@@ -656,6 +686,8 @@ pub struct DriverCapabilities {
     pub after_write: Option<&'static str>,
     /// [`ImageProgrammer::profile_starts_blank`], for the profile editor.
     pub settings_start_blank: bool,
+    /// [`RadioDriver::usb_direct`]: no port picker; the radio is found by id.
+    pub usb_direct: bool,
 }
 
 impl DriverCapabilities {
@@ -664,6 +696,7 @@ impl DriverCapabilities {
     /// boundary as a command result, but `RadioDriver` never leaves the crate.
     pub(crate) fn of(driver: &dyn RadioDriver) -> Self {
         Self {
+            download_image: driver.as_image_reader().is_some(),
             program_image: driver.as_image_programmer().is_some(),
             restore_image: driver.as_image_restorer().is_some(),
             read_settings: driver.as_settings_reader().is_some(),
@@ -682,6 +715,7 @@ impl DriverCapabilities {
             settings_start_blank: driver
                 .as_image_programmer()
                 .is_some_and(ImageProgrammer::profile_starts_blank),
+            usb_direct: driver.usb_direct(),
         }
     }
 }

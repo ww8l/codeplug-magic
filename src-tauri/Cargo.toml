@@ -38,6 +38,10 @@ chrono = { version = "0.4", features = ["serde"] }
 csv = "1"
 thiserror = "2"
 serialport = "4"
+# The TYT MD-380 has no serial port: the radio itself enumerates as an STM32
+# DFU device and is programmed with USB control transfers. Pure Rust, so there
+# is no libusb to bundle or find at runtime.
+nusb = "0.2"
 # `stream` is what lets the radioid.net download be capped as it arrives
 # rather than buffered whole and measured afterwards.
 # 0.13 moved `RequestBuilder::query` behind its own feature; it was implicit
@@ -51,3 +55,15 @@ md-5 = "0.11"
 # over `reqwest`'s `bytes_stream()`. reqwest already depends on it, so naming it
 # here adds no new code to the build.
 futures-util = { version = "0.3", default-features = false }
+
+# TYT MD-380 on Windows: TYT's CPS installs ST's STTub30 driver for the radio,
+# which nusb cannot open, so the DFU requests go through it by DeviceIoControl.
+# nusb already pulls in this windows-sys on Windows with these features, so
+# naming it adds no new code to the build.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+] }
