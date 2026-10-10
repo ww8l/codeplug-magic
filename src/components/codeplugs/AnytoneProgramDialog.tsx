@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   RefreshCw,
   Upload,
@@ -10,9 +10,6 @@ import {
   Users,
   Settings2,
   Undo2,
-  ArrowUp,
-  ArrowDown,
-  X,
 } from "lucide-react";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "../../lib/api";
@@ -24,11 +21,11 @@ import type {
   AnytoneLatestProgram,
   AnytonePatchWriteResult,
   AnytoneVerifyResult,
-  DmrExportPreview,
   PortInfo,
 } from "../../lib/types";
 import { FooterClose, Modal } from "../overlays";
-import { Button, Spinner, Select, TextInput } from "../ui";
+import { DmrUserPicker, useDmrUserPick } from "./DmrUserPicker";
+import { Button, Spinner, Select } from "../ui";
 import type { ProgramDialogProps } from "../../lib/radioProgramming";
 
 type Payload = "channels" | "userdb" | "profile";
@@ -80,20 +77,9 @@ export function AnytoneProgramDialog({
   const [verify, setVerify] = useState<AnytoneVerifyResult | null>(null);
   const [restored, setRestored] = useState<AnytonePatchWriteResult | null>(null);
   const [callsignResult, setCallsignResult] = useState<CallsignDbReport | null>(null);
+  const dbPick = useDmrUserPick(open, payload === "userdb");
+  const dbPreview = dbPick.preview;
 
-  // UserDB (Call-sign Database) batch selection — mirrors the DMR-export dialog.
-  const [dbCountries, setDbCountries] = useState<string[]>([]);
-  const [dbContinents, setDbContinents] = useState<string[]>([]);
-  const [dbPriority, setDbPriority] = useState<string[]>([]);
-  const [dbAddChoice, setDbAddChoice] = useState("");
-  const [dbMaxText, setDbMaxText] = useState("");
-  const [dbPreview, setDbPreview] = useState<DmrExportPreview | null>(null);
-  const [dbPreviewing, setDbPreviewing] = useState(false);
-
-  const dbMaxCount = useMemo(() => {
-    const n = parseInt(dbMaxText, 10);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  }, [dbMaxText]);
 
   // Verify/Restore target the in-memory result when we have it, else the newest
   // image on disk — so they stay reachable even when a program's result never
@@ -147,14 +133,8 @@ export function AnytoneProgramDialog({
     setVerify(null);
     setRestored(null);
     setCallsignResult(null);
-    setDbPriority([]);
-    setDbAddChoice("");
-    setDbMaxText("");
-    setDbPreview(null);
     refreshPorts();
     api.latestAnytoneProgram().then(setLatest).catch(() => {});
-    api.listDmrUserCountries().then(setDbCountries).catch(() => {});
-    api.listDmrContinents().then(setDbContinents).catch(() => {});
     api
       .programAnytonePreview(codeplugId)
       .then(setPreview)
@@ -162,44 +142,6 @@ export function AnytoneProgramDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Debounced Call-sign DB preview (how many contacts, by country) whenever the
-  // UserDB payload is active and its selection changes.
-  useEffect(() => {
-    if (!open || payload !== "userdb") return;
-    setDbPreviewing(true);
-    const t = setTimeout(() => {
-      api
-        .previewDmrExport(dbMaxCount, dbPriority)
-        .then(setDbPreview)
-        .catch(() => setDbPreview(null))
-        .finally(() => setDbPreviewing(false));
-    }, 200);
-    return () => clearTimeout(t);
-  }, [open, payload, dbMaxCount, dbPriority]);
-
-  const dbAvailableToAdd = useMemo(() => {
-    const chosen = new Set(dbPriority.map((p) => p.toLowerCase()));
-    return {
-      continents: dbContinents.filter((c) => !chosen.has(c.toLowerCase())),
-      countries: dbCountries.filter((c) => !chosen.has(c.toLowerCase())),
-    };
-  }, [dbContinents, dbCountries, dbPriority]);
-
-  const addDbPriority = () => {
-    if (!dbAddChoice) return;
-    setDbPriority((p) => [...p, dbAddChoice]);
-    setDbAddChoice("");
-  };
-  const removeDbPriority = (i: number) =>
-    setDbPriority((p) => p.filter((_, idx) => idx !== i));
-  const moveDbPriority = (i: number, dir: -1 | 1) =>
-    setDbPriority((p) => {
-      const j = i + dir;
-      if (j < 0 || j >= p.length) return p;
-      const next = [...p];
-      [next[i], next[j]] = [next[j], next[i]];
-      return next;
-    });
 
   const run = async (kind: Exclude<Busy, null>, fn: () => Promise<void>) => {
     setError(null);
@@ -229,19 +171,17 @@ export function AnytoneProgramDialog({
     setSettingsResult(null);
     setCallsignResult(null);
     try {
-      if (payload === "profile" || payload === "userdb") {
+      if (payload === "profile") {
         if (profileId == null) {
           throw new Error(
             "This codeplug has no radio profile — attach one under Codeplugs first.",
           );
         }
-        if (payload === "profile") {
-          setSettingsResult(await api.writeRadioSettings(port, profileId));
-        } else {
-          setCallsignResult(
-            await api.writeCallsignDb(profileId, port, dbMaxCount, dbPriority),
-          );
-        }
+        setSettingsResult(await api.writeRadioSettings(port, profileId));
+      } else if (payload === "userdb") {
+        setCallsignResult(
+          await api.writeCallsignDb(codeplugId, port, dbPick.maxCount, dbPick.priority),
+        );
       } else {
         setResult(await api.programRadio(codeplugId, port));
       }
@@ -526,116 +466,7 @@ export function AnytoneProgramDialog({
                 </div>
               </div>
 
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Max contacts (blank = no limit)
-                </span>
-                <TextInput
-                  inputMode="numeric"
-                  placeholder="e.g. 50000 — large batches take longer to write over USB"
-                  value={dbMaxText}
-                  onChange={(e) => setDbMaxText(e.target.value.replace(/[^0-9]/g, ""))}
-                />
-              </label>
-
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Priority order (matched first; everyone else fills any remaining space)
-                </span>
-                <div className="flex gap-1.5">
-                  <Select
-                    className="flex-1"
-                    value={dbAddChoice}
-                    onChange={(e) => setDbAddChoice(e.target.value)}
-                  >
-                    <option value="">Add a country or continent…</option>
-                    {dbAvailableToAdd.continents.length > 0 && (
-                      <optgroup label="Continents">
-                        {dbAvailableToAdd.continents.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {dbAvailableToAdd.countries.length > 0 && (
-                      <optgroup label="Countries">
-                        {dbAvailableToAdd.countries.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </Select>
-                  <Button onClick={addDbPriority} disabled={!dbAddChoice}>
-                    Add
-                  </Button>
-                </div>
-                {dbPriority.length > 0 && (
-                  <ul className="flex flex-col gap-1 rounded-md border border-slate-200 p-1.5 dark:border-slate-700">
-                    {dbPriority.map((p, i) => (
-                      <li
-                        key={p}
-                        className="flex items-center justify-between gap-2 rounded bg-slate-50 px-2 py-1 text-xs dark:bg-slate-800"
-                      >
-                        <span className="text-slate-500 tabular-nums">{i + 1}.</span>
-                        <span className="flex-1 text-slate-700 dark:text-slate-200">{p}</span>
-                        <div className="flex gap-1">
-                          <button
-                            className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 disabled:opacity-30 dark:hover:bg-slate-700"
-                            onClick={() => moveDbPriority(i, -1)}
-                            disabled={i === 0}
-                            title="Move up"
-                          >
-                            <ArrowUp size={12} />
-                          </button>
-                          <button
-                            className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 disabled:opacity-30 dark:hover:bg-slate-700"
-                            onClick={() => moveDbPriority(i, 1)}
-                            disabled={i === dbPriority.length - 1}
-                            title="Move down"
-                          >
-                            <ArrowDown size={12} />
-                          </button>
-                          <button
-                            className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-rose-600 dark:hover:bg-slate-700"
-                            onClick={() => removeDbPriority(i)}
-                            title="Remove"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-700 dark:bg-slate-800/60">
-                {dbPreviewing || !dbPreview ? (
-                  <div className="flex items-center gap-2 text-slate-400">
-                    <Spinner className="h-3.5 w-3.5" /> Calculating…
-                  </div>
-                ) : (
-                  <>
-                    <div className="font-medium text-slate-700 dark:text-slate-200">
-                      {dbPreview.will_export.toLocaleString()} of{" "}
-                      {dbPreview.total_available.toLocaleString()} contacts will be written
-                    </div>
-                    {dbPreview.by_country.length > 0 && (
-                      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-slate-500">
-                        {dbPreview.by_country.slice(0, 8).map((b) => (
-                          <span key={b.country}>
-                            {b.country}: {b.count.toLocaleString()}
-                          </span>
-                        ))}
-                        {dbPreview.by_country.length > 8 && <span>…</span>}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
+              <DmrUserPicker pick={dbPick} />
             </div>
           )}
           {payload === "channels" && previewError && (

@@ -191,6 +191,8 @@ mod tests {
                 program_codeplug: false,
                 programs_settings: false,
                 write_callsign_db: false,
+                callsign_db_requirement: None,
+                codeplug_contact_capacity: None,
                 export: true,
                 diagnostics: false,
                 after_write: None,

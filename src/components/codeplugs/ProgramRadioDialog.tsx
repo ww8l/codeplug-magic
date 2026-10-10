@@ -14,6 +14,7 @@ import {
   Ear,
   ListChecks,
   Settings2,
+  Users,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import type {
@@ -23,11 +24,13 @@ import type {
   CodeplugProgramReport,
   RadioIdent,
   SettingsWriteReport,
+  CallsignDbReport,
 } from "../../lib/types";
 import { FooterClose, Modal } from "../overlays";
 import { PortSelect, usePortChoice } from "../radioPort";
 import { WarningList } from "./ReportWarnings";
 import { Button, Spinner } from "../ui";
+import { DmrUserPicker, useDmrUserPick } from "./DmrUserPicker";
 import {
   driverKeyOf,
   isProgrammable,
@@ -105,19 +108,51 @@ export function ProgramRadioDialog({
   const canWriteOverCable = showCable && cableCapable;
   // The Profile payload: the driver writes settings on its own (SettingsWriter).
   const canWriteProfile = showCable && caps?.write_settings === true;
+  // The User DB payload: the radio keeps a caller-ID database of its own,
+  // written from the DMR Contacts library (the MD-380 on md380tools firmware).
+  const canWriteUserDb = showCable && caps?.write_callsign_db === true;
   // Cable or card — anything at all that ends with a codeplug on the radio.
   const canWriteAnything = canWriteOverCable || media != null;
   const [preview, setPreview] = useState<ExportPreview | null>(null);
   const [busy, setBusy] = useState<
-    null | "identify" | "download" | "program" | "restore" | "media" | "settings"
+    null | "identify" | "download" | "program" | "restore" | "media" | "settings" | "userdb"
   >(null);
   // What the write sends: the codeplug's channels, or the profile's settings.
   // The same choice the AnyTone dialog offers, for every radio whose driver
   // can write settings on its own — so no radio's settings live only in the
   // profile editor while its channels live here.
-  const [payload, setPayload] = useState<"channels" | "profile">("channels");
+  const [payload, setPayload] = useState<"channels" | "userdb" | "profile">("channels");
   const [settingsResult, setSettingsResult] = useState<SettingsWriteReport | null>(null);
+  const [callsignResult, setCallsignResult] = useState<CallsignDbReport | null>(null);
   const profileMode = canWriteProfile && payload === "profile";
+  const userDbMode = canWriteUserDb && payload === "userdb";
+  const channelsMode = !profileMode && !userDbMode;
+  const dbPick = useDmrUserPick(open, userDbMode);
+  // Channel set: also fill the codeplug's spare contacts with library users —
+  // on a stock MD-380 its contact list is the only caller ID there is. Capped
+  // at the radio's 1000; the talkgroups come first and the planner drops (and
+  // reports) whatever does not fit after them.
+  const contactCapacity = showCable ? (caps?.codeplug_contact_capacity ?? null) : null;
+  const canFillContacts = contactCapacity != null;
+  const [fillContacts, setFillContacts] = useState(false);
+  // The contacts the codeplug's own talkgroups take, from the programmer's
+  // preview, so the cap and the confirm quote the users that will really fit.
+  const [talkgroupContacts, setTalkgroupContacts] = useState<number | null>(null);
+  useEffect(() => {
+    if (!open || !canFillContacts) return;
+    setTalkgroupContacts(null);
+    api
+      .programAnytonePreview(codeplugId)
+      .then((p) => setTalkgroupContacts(p.contacts))
+      .catch(() => setTalkgroupContacts(0));
+  }, [open, canFillContacts, codeplugId]);
+  const contactRoom =
+    contactCapacity == null ? 0 : Math.max(0, contactCapacity - (talkgroupContacts ?? 0));
+  const fillPick = useDmrUserPick(
+    open,
+    canFillContacts && channelsMode && fillContacts && talkgroupContacts != null,
+    contactRoom,
+  );
   // The Profile payload writes the SAVED profile, so the profile page's rule
   // applies here too (`profileWriteBlocked`): a never-saved or empty profile
   // has nothing to send, and must not open a radio session to change nothing.
@@ -170,6 +205,8 @@ export function ProgramRadioDialog({
     setProgram(null);
     setPayload("channels");
     setSettingsResult(null);
+    setCallsignResult(null);
+    setFillContacts(false);
     setConfirming(false);
     setMediaWritten(null);
     setError(null);
@@ -189,7 +226,7 @@ export function ProgramRadioDialog({
   }, [open]);
 
   const run = async (
-    kind: "identify" | "download" | "program" | "restore" | "media" | "settings",
+    kind: "identify" | "download" | "program" | "restore" | "media" | "settings" | "userdb",
     fn: () => Promise<void>,
   ) => {
     setError(null);
@@ -197,6 +234,7 @@ export function ProgramRadioDialog({
     // other action leaves it stale — and a green "verified ✓" above a failed
     // program is the worst kind of stale — so every other run clears it.
     if (kind !== "settings") setSettingsResult(null);
+    if (kind !== "userdb") setCallsignResult(null);
     setBusy(kind);
     try {
       await fn();
@@ -232,12 +270,30 @@ export function ProgramRadioDialog({
       setSettingsResult(await api.writeRadioSettings(port, profileId));
     });
 
+  const doWriteUserDb = () =>
+    run("userdb", async () => {
+      setConfirming(false);
+      setDownload(null);
+      setIdent(null);
+      setProgram(null);
+      setCallsignResult(
+        await api.writeCallsignDb(codeplugId, port, dbPick.maxCount, dbPick.priority),
+      );
+    });
+
+  const filling = canFillContacts && fillContacts;
   const doProgram = () =>
     run("program", async () => {
       setConfirming(false);
       setDownload(null);
       setIdent(null);
-      setProgram(await api.programRadio(codeplugId, port));
+      setProgram(
+        await api.programRadio(
+          codeplugId,
+          port,
+          filling ? { max_count: fillPick.maxCount, priority_countries: fillPick.priority } : null,
+        ),
+      );
     });
 
   /// Patch the codeplug into the file the radio reads off its own memory card.
@@ -342,6 +398,32 @@ export function ProgramRadioDialog({
         // TH-D72. The buttons an operator must reach at any moment, and the
         // confirm that answers them, belong in the footer.
         <>
+              {/* Confirm a user DB write (the User DB payload) */}
+              {confirming && userDbMode && (
+                <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/40">
+                  <div className="mb-2 flex items-center gap-1.5 font-semibold text-amber-800 dark:text-amber-300">
+                    <AlertTriangle size={14} /> Confirm user database write to {modelName}
+                  </div>
+                  <p className="text-amber-800 dark:text-amber-200">
+                    This replaces the radio&rsquo;s caller-ID database with{" "}
+                    <strong>{(dbPick.preview?.will_export ?? 0).toLocaleString()}</strong>{" "}
+                    users from your DMR Contacts library, then reads it back to check it.
+                    Channels, contacts and settings are not touched. No backup is taken:
+                    the database is rebuilt from the library, so there is nothing in it
+                    to lose. A large database takes several minutes — keep the radio
+                    connected until it finishes.
+                  </p>
+                  <div className="mt-3 flex justify-end gap-2">
+                    <Button variant="ghost" onClick={() => setConfirming(false)}>
+                      Cancel
+                    </Button>
+                    <Button variant="primary" onClick={doWriteUserDb}>
+                      <Upload size={14} /> Write user DB
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Confirm a settings write (the Profile payload) */}
               {confirming && profileMode && (
                 <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/40">
@@ -366,7 +448,7 @@ export function ProgramRadioDialog({
               )}
 
               {/* Confirm write */}
-              {confirming && !profileMode && (
+              {confirming && channelsMode && (
                 <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/40">
                   <div className="mb-2 flex items-center gap-1.5 font-semibold text-amber-800 dark:text-amber-300">
                     <AlertTriangle size={14} /> Confirm write to {modelName}
@@ -386,6 +468,15 @@ export function ProgramRadioDialog({
                     {clearCount === 1 ? "y" : "ies"} so the radio matches “
                     {codeplugName}”. A full backup is saved first.
                   </p>
+
+                  {filling && (
+                    <p className="mt-2 text-amber-800 dark:text-amber-200">
+                      The spare contacts are filled with up to{" "}
+                      <strong>{(fillPick.preview?.will_export ?? 0).toLocaleString()}</strong>{" "}
+                      DMR users after this codeplug&rsquo;s talkgroups, replacing the
+                      contacts the radio has now.
+                    </p>
+                  )}
 
                   {(skipped.length > 0 || receiveOnly.length > 0) && (
                     <p className="mt-2 text-amber-800 dark:text-amber-200">
@@ -513,11 +604,33 @@ export function ProgramRadioDialog({
                       Write settings
                     </Button>
                   )}
-                  {canWriteOverCable && !profileMode && (
+                  {userDbMode && (
                     <Button
                       variant="primary"
                       onClick={() => setConfirming(true)}
-                      disabled={!port || busy !== null || writeCount === 0}
+                      disabled={
+                        !port || busy !== null || !dbPick.preview || dbPick.preview.will_export === 0
+                      }
+                      title={
+                        dbPick.preview?.will_export === 0
+                          ? "No DMR users to write — refresh the DMR Contacts library"
+                          : undefined
+                      }
+                    >
+                      {busy === "userdb" ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
+                      Write user DB
+                    </Button>
+                  )}
+                  {canWriteOverCable && channelsMode && (
+                    <Button
+                      variant="primary"
+                      onClick={() => setConfirming(true)}
+                      disabled={
+                        !port ||
+                        busy !== null ||
+                        writeCount === 0 ||
+                        (filling && (!fillPick.preview || fillPick.preview.will_export === 0))
+                      }
                       title={writeCount === 0 ? "This codeplug has no channels to program" : undefined}
                     >
                       {busy === "program" ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
@@ -553,7 +666,7 @@ export function ProgramRadioDialog({
             {/* Safety banner. Gated on the WRITE capability, not on
                 `showCable`: promising a backup-then-write-then-verify run for a
                 radio that cannot be written is worse than saying nothing. */}
-            {canWriteOverCable && !profileMode && (
+            {canWriteOverCable && channelsMode && (
               <div className="flex items-start gap-2 border-b border-sky-200 bg-sky-50 px-5 py-2.5 text-xs text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/40 dark:text-sky-300">
                 <ShieldCheck size={15} className="mt-px shrink-0" />
                 <span>
@@ -602,9 +715,11 @@ export function ProgramRadioDialog({
             )}
 
             {/* Payload picker — the AnyTone dialog's cards, for any radio whose
-                driver writes settings on its own. */}
-            {canWriteProfile && (
-              <div className="grid grid-cols-2 gap-2 px-5 pt-4">
+                driver writes settings, or a caller-ID database, on its own. */}
+            {(canWriteProfile || canWriteUserDb) && (
+              <div
+                className={`grid gap-2 px-5 pt-4 ${canWriteProfile && canWriteUserDb ? "grid-cols-3" : "grid-cols-2"}`}
+              >
                 {(
                   [
                     {
@@ -614,43 +729,113 @@ export function ProgramRadioDialog({
                       detail: caps?.programs_settings
                         ? "This codeplug's channels, with the profile's settings — full replace."
                         : "This codeplug's channels — full replace; the radio's settings are left alone.",
+                      show: true,
+                    },
+                    {
+                      id: "userdb",
+                      icon: Users,
+                      label: "User DB",
+                      detail: "Caller-ID database from your DMR Contacts library — channels untouched.",
+                      show: canWriteUserDb,
                     },
                     {
                       id: "profile",
                       icon: Settings2,
                       label: "Profile",
                       detail: "Radio menu settings from the profile — channels untouched.",
+                      show: canWriteProfile,
                     },
                   ] as const
-                ).map((p) => {
-                  const Icon = p.icon;
-                  const selected = payload === p.id;
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      disabled={busy !== null}
-                      onClick={() => {
-                        setPayload(p.id);
-                        setConfirming(false);
-                      }}
-                      title={p.detail}
-                      className={
-                        selected
-                          ? "rounded-md border-2 border-sky-500 bg-sky-50 p-3 text-left dark:border-sky-400 dark:bg-sky-950/40"
-                          : "rounded-md border border-slate-200 p-3 text-left hover:border-sky-300 dark:border-slate-700 dark:hover:border-sky-700"
-                      }
-                    >
-                      <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                        <Icon size={14} className={selected ? "text-sky-600 dark:text-sky-400" : ""} />
-                        {p.label}
-                      </div>
-                      <div className="text-[10px] leading-snug text-slate-500 dark:text-slate-400">
-                        {p.detail}
-                      </div>
-                    </button>
-                  );
-                })}
+                )
+                  .filter((p) => p.show)
+                  .map((p) => {
+                    const Icon = p.icon;
+                    const selected = payload === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => {
+                          setPayload(p.id);
+                          setConfirming(false);
+                        }}
+                        title={p.detail}
+                        className={
+                          selected
+                            ? "rounded-md border-2 border-sky-500 bg-sky-50 p-3 text-left dark:border-sky-400 dark:bg-sky-950/40"
+                            : "rounded-md border border-slate-200 p-3 text-left hover:border-sky-300 dark:border-slate-700 dark:hover:border-sky-700"
+                        }
+                      >
+                        <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                          <Icon size={14} className={selected ? "text-sky-600 dark:text-sky-400" : ""} />
+                          {p.label}
+                        </div>
+                        <div className="text-[10px] leading-snug text-slate-500 dark:text-slate-400">
+                          {p.detail}
+                        </div>
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
+
+            {userDbMode && (
+              <div className="mx-5 mt-3 flex flex-col gap-3">
+                <div className="rounded-md border border-slate-200 p-3 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                  Writes a caller-ID database from your local{" "}
+                  <strong>DMR Contacts</strong> library to the {modelName}, so an
+                  incoming call shows the operator&rsquo;s callsign, name and location.
+                  Choose a size cap and a country/continent priority — the
+                  highest-priority users fill the space first. Refresh the library from
+                  the DMR Contacts page if it looks empty.
+                  {caps?.callsign_db_requirement && (
+                    <span className="mt-1 block text-amber-700 dark:text-amber-400">
+                      {caps.callsign_db_requirement}
+                    </span>
+                  )}
+                </div>
+                <DmrUserPicker
+                  pick={dbPick}
+                  maxLabel="Max users (blank = as many as fit)"
+                  maxPlaceholder="e.g. 50000 — a full database takes several minutes to write"
+                  noun="users"
+                />
+              </div>
+            )}
+
+            {canFillContacts && channelsMode && (
+              <div className="mx-5 mt-3 flex flex-col gap-3 rounded-md border border-slate-200 p-3 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={fillContacts}
+                    disabled={busy !== null}
+                    onChange={(e) => {
+                      setFillContacts(e.target.checked);
+                      setConfirming(false);
+                    }}
+                  />
+                  <span>
+                    <strong>Fill spare contacts with DMR users</strong> — the {modelName}
+                    &rsquo;s contact list is its caller ID on stock firmware: a private
+                    call from a user in it shows their name. This codeplug&rsquo;s
+                    talkgroups come first; up to {contactCapacity?.toLocaleString()} contacts
+                    in all
+                    {talkgroupContacts != null &&
+                      `, so room for ${contactRoom.toLocaleString()} users`}
+                    .
+                  </span>
+                </label>
+                {fillContacts && (
+                  <DmrUserPicker
+                    pick={fillPick}
+                    maxLabel="Max users (blank = fill the list)"
+                    maxPlaceholder={`up to ${contactRoom.toLocaleString()}`}
+                    noun="users"
+                  />
+                )}
               </div>
             )}
 
@@ -694,7 +879,7 @@ export function ProgramRadioDialog({
                 writes as soon as you click, so a "3 DMR channels are being
                 dropped" warning that only appears in the cable confirmation
                 never reaches half the radios. */}
-            {preview && !profileMode && (
+            {preview && channelsMode && (
               <div className={`space-y-2 px-5 ${showCable ? "" : "pt-4"}`}>
                 <div className="text-xs text-slate-600 dark:text-slate-300">
                   {/* The breakdown below is worth showing even for a radio
@@ -884,6 +1069,18 @@ export function ProgramRadioDialog({
                 />
               )}
 
+              {callsignResult && (
+                <div className="flex flex-col gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300">
+                  <div className="flex items-center gap-2 font-medium">
+                    <CheckCircle2 size={14} className="shrink-0" />
+                    Wrote {callsignResult.entries_written.toLocaleString()} user
+                    {callsignResult.entries_written === 1 ? "" : "s"}
+                    {callsignResult.verified && " · verified ✓"}
+                  </div>
+                  <div className="pl-6 text-emerald-800 dark:text-emerald-200">{callsignResult.note}</div>
+                </div>
+              )}
+
               {program && (
                 <ResultBlock
                   ok={program.verified === true}
@@ -903,6 +1100,9 @@ export function ProgramRadioDialog({
                       : "") +
                     (program.banks_written > 0
                       ? ` · ${program.banks_written} bank${program.banks_written === 1 ? "" : "s"}`
+                      : "") +
+                    (program.contacts_written > 0
+                      ? ` · ${program.contacts_written} contact${program.contacts_written === 1 ? "" : "s"}`
                       : "")
                   }
                   note={program.note ?? undefined}

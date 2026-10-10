@@ -353,6 +353,40 @@ pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<Plan, String> {
         ));
     }
 
+    // ---- spare contacts: DMR users, so stock firmware names a private caller
+    // from its own list. After the talkgroups, which own the low indexes the
+    // channels point at; in the library's priority order, so a full list keeps
+    // the operator's chosen countries. A user whose ID is already a private
+    // contact (a talkgroup row marked Private) is that contact already.
+    let mut users = 0usize;
+    let mut left_out = 0usize;
+    for u in payload.contact_users.iter().filter(|u| !u.group_call) {
+        if !(1..=0xFF_FFFF).contains(&u.dmr_id) || contact_of.contains_key(&(u.dmr_id as i64, true)) {
+            continue;
+        }
+        if contacts.len() >= CONTACT_COUNT {
+            left_out += 1;
+            continue;
+        }
+        contact_of.insert((u.dmr_id as i64, true), contacts.len() as u16 + 1);
+        let first = u.name.split_whitespace().next().unwrap_or("");
+        let label = format!("{} {first}", u.callsign.trim());
+        contacts.push(Contact {
+            id: u.dmr_id,
+            call_type: CallType::Private,
+            name: truncate(label.trim(), NAME_UNITS),
+            flags: Contact::UNUSED[3] & !3,
+        });
+        users += 1;
+    }
+    if left_out > 0 {
+        warnings.push(format!(
+            "{users} DMR users added as contacts; {left_out} more did not fit — the MD-380 holds \
+             {CONTACT_COUNT} contacts and the talkgroups use {}",
+            contacts.len() - users
+        ));
+    }
+
     // ---- zones: one per channel list, split into 16s
     let mut zones = Vec::new();
     for g in payload.groups {
@@ -496,6 +530,89 @@ mod tests {
         }
     }
 
+    fn user(id: u32, call: &str, name: &str) -> crate::radios::driver::CallsignRecord {
+        crate::radios::driver::CallsignRecord {
+            dmr_id: id,
+            group_call: false,
+            callsign: call.into(),
+            name: name.into(),
+            city: None,
+            state: None,
+            country: None,
+            comment: None,
+        }
+    }
+
+    /// Users follow the talkgroups — whose indexes the channels point at — as
+    /// Private contacts named "CALL First", in the order given; a group record,
+    /// an ID that is no DMR ID, and a repeat are left out.
+    #[test]
+    fn library_users_fill_the_contacts_after_the_talkgroups() {
+        let m = model();
+        let mut rpt = chan(1, "RMH700", 445.2, "DMR");
+        rpt.dmr_color_code = Some(7);
+        let rows = vec![row(rpt.clone(), Some((3108, "CO", 1))), row(rpt, Some((91, "WW", 1)))];
+        let mut tg = user(3108, "", "Colorado");
+        tg.group_call = true;
+        let users = vec![
+            user(3108176, "WW8L", "Tim Annable"),
+            tg,
+            user(0, "BAD", "No Id"),
+            user(1023001, "K0ABC", "Jose Ruiz Garcia"),
+            user(3108176, "WW8L", "Tim Annable"),
+            user(3100001, "KD0LONGCALL", "Maximiliano"),
+        ];
+        let p = plan_program(&CodeplugPayload {
+            model: &m,
+            groups: &[],
+            channels: &rows,
+            scan_lists: &[],
+            scan_list_overrides: &[],
+            contact_users: &users,
+        })
+        .unwrap();
+        assert_eq!((p.channels[0].contact, p.channels[1].contact), (1, 2));
+        let got: Vec<_> = p.contacts.iter().map(|c| (c.id, c.call_type, c.name.as_str())).collect();
+        assert_eq!(
+            got,
+            [
+                (3108, CallType::Group, "CO"),
+                (91, CallType::Group, "WW"),
+                (3108176, CallType::Private, "WW8L Tim"),
+                (1023001, CallType::Private, "K0ABC Jose"),
+                (3100001, CallType::Private, "KD0LONGCALL Maxi"),
+            ]
+        );
+        assert!(p.warnings.is_empty(), "{:?}", p.warnings);
+    }
+
+    /// A full list keeps the talkgroups and the first users, and says how many
+    /// users it dropped.
+    #[test]
+    fn users_past_the_thousandth_contact_are_dropped_with_a_warning() {
+        let m = model();
+        let rpt = chan(1, "RMH700", 445.2, "DMR");
+        let rows = vec![row(rpt.clone(), Some((3108, "CO", 1))), row(rpt, Some((91, "WW", 1)))];
+        let users: Vec<_> = (0..1005).map(|i| user(3_000_000 + i, "N0CALL", "Op")).collect();
+        let p = plan_program(&CodeplugPayload {
+            model: &m,
+            groups: &[],
+            channels: &rows,
+            scan_lists: &[],
+            scan_list_overrides: &[],
+            contact_users: &users,
+        })
+        .unwrap();
+        assert_eq!(p.contacts.len(), CONTACT_COUNT);
+        assert_eq!(p.contacts[2].id, 3_000_000);
+        assert_eq!(p.contacts[CONTACT_COUNT - 1].id, 3_000_000 + 997);
+        assert!(p.warnings.iter().any(|w| w.contains("998 DMR users") && w.contains("7 more")), "{:?}", p.warnings);
+        // and the image the plan writes holds all 1000
+        let base = vec![0xFFu8; IMAGE_LEN];
+        let img = p.apply(&base).unwrap();
+        assert_eq!(count_used(&img).contacts, CONTACT_COUNT);
+    }
+
     #[test]
     fn a_repeater_with_two_talkgroups_is_two_channels_sharing_contacts_and_one_zone() {
         let m = model();
@@ -520,6 +637,7 @@ mod tests {
             channels: &rows,
             scan_lists: &[],
             scan_list_overrides: &[],
+            contact_users: &[],
         })
         .unwrap();
         assert_eq!(p.channels.len(), 3);
@@ -564,6 +682,7 @@ mod tests {
             channels: &rows,
             scan_lists: &[],
             scan_list_overrides: &[],
+            contact_users: &[],
         })
         .unwrap();
         assert_eq!(p.zones.len(), 2);
@@ -587,6 +706,7 @@ mod tests {
             channels: &rows,
             scan_lists: &[],
             scan_list_overrides: &[],
+            contact_users: &[],
         })
         .unwrap();
         let mut base = vec![0u8; IMAGE_LEN];
@@ -631,6 +751,7 @@ mod tests {
             channels: &rows,
             scan_lists: &sl,
             scan_list_overrides: &[],
+            contact_users: &[],
         })
         .unwrap();
         let mut base = vec![0xA5u8; IMAGE_LEN];

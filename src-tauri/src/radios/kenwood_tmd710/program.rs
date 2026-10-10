@@ -361,6 +361,7 @@ mod tests {
             channels: chans,
             scan_lists: &[],
             scan_list_overrides: &[],
+            contact_users: &[],
         }
     }
 

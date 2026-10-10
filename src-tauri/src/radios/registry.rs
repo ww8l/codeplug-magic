@@ -172,15 +172,30 @@ mod tests {
         }
     }
 
-    /// Only the AnyTone carries an on-board call-sign DB, so `write_callsign_db`
-    /// must reject the others by name rather than opening their port.
+    /// Only the AnyTone and the MD-380 (md380tools' user DB) carry an on-board
+    /// call-sign DB, so `write_callsign_db` must reject the others by name
+    /// rather than opening their port.
     #[test]
-    fn only_the_anytone_writes_a_callsign_db() {
+    fn only_the_anytone_and_md380_write_a_callsign_db() {
         for d in all_drivers() {
             assert_eq!(
                 d.as_callsign_db_writer().is_some(),
-                d.key() == "anytone_atd890uv",
+                matches!(d.key(), "anytone_atd890uv" | "tyt_md380"),
                 "{} call-sign DB capability",
+                d.key()
+            );
+        }
+    }
+
+    /// Only the MD-380's codeplug contacts double as its caller-ID list, so
+    /// only its program takes a fill of DMR users.
+    #[test]
+    fn only_the_md380_fills_codeplug_contacts_with_users() {
+        for d in all_drivers() {
+            assert_eq!(
+                d.as_codeplug_programmer().and_then(|p| p.user_contact_capacity()),
+                (d.key() == "tyt_md380").then_some(1000),
+                "{} codeplug user contacts",
                 d.key()
             );
         }

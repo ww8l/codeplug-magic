@@ -322,6 +322,7 @@ impl CallsignDbWriter for AnytoneAtd890uv {
             entries_written,
             windows_written: result.windows_written,
             note: result.note,
+            verified: false,
         })
     }
 }

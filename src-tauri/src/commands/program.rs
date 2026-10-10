@@ -856,42 +856,28 @@ pub async fn write_card_settings(
 /// the local `dmr_users` library and hand it to the driver, which owns the
 /// on-flash layout and the write discipline.
 ///
-/// Radio-wide rather than codeplug-scoped, but profile-anchored like the other
-/// settings commands so the driver resolves the same way. Verification is
-/// FUNCTIONAL (the radio's own caller-ID screen) — this region has no golden
-/// image to byte-diff. Brick-capable; UI-gated.
+/// Radio-wide rather than codeplug-scoped: the codeplug only names the radio.
+/// Verification is the driver's — the AnyTone's is FUNCTIONAL (the radio's own
+/// caller-ID screen), the MD-380 reads its database back (`verified`).
+/// Brick-capable; UI-gated.
 ///
 /// Registry-dispatched (Chunk 3.6d) — replaces `program_anytone_callsign_db`.
 #[tauri::command]
 pub async fn write_callsign_db(
     state: State<'_, AppState>,
-    profile_id: i64,
+    codeplug_id: i64,
     port: String,
     max_count: Option<i64>,
     priority_countries: Vec<String>,
 ) -> Result<CallsignDbReport, String> {
-    let target = profile_target(&state.pool, profile_id).await?;
-    let db_writer = target.driver.as_callsign_db_writer().ok_or_else(|| {
-        format!(
-            "{} has no on-board call-sign database",
-            target.driver.display_name()
-        )
-    })?;
+    // The radio comes from the codeplug's model, as for `program_radio`: the
+    // database is the library's, so a profile has nothing to add to it.
+    let model = export::codeplug_model(&state.pool, codeplug_id).await?;
+    let db_writer = registry::driver_for_model(&model)
+        .and_then(|d| d.as_callsign_db_writer())
+        .ok_or_else(|| format!("{} has no on-board call-sign database", model.display_name))?;
 
-    let users = select_prioritized_dmr_users(&state.pool, max_count, &priority_countries).await?;
-    let mut records: Vec<CallsignRecord> = users
-        .into_iter()
-        .map(|u| CallsignRecord {
-            dmr_id: u.dmr_id as u32,
-            group_call: false,
-            name: u.display_name(),
-            callsign: u.callsign,
-            city: u.city,
-            state: u.state,
-            country: u.country,
-            comment: u.remarks,
-        })
-        .collect();
+    let mut records = user_records(&state.pool, max_count, &priority_countries).await?;
 
     // Append the talkgroup library as GROUP-call entries (issue #30). The
     // caller-ID DB is what the radio's TX screen resolves a talkgroup ID
@@ -932,11 +918,7 @@ pub async fn write_callsign_db(
     // talkgroups but no downloaded user library is still worth writing — it is
     // exactly what gives the TX screen its names.
     if records.is_empty() {
-        return Err(
-            "No DMR contacts or talkgroups to write — open DMR Contacts and Refresh the \
-             library first (or widen the country selection)."
-                .to_string(),
-        );
+        return Err(crate::radios::driver::NO_DMR_USERS.to_string());
     }
 
     tauri::async_runtime::spawn_blocking(move || {
@@ -947,6 +929,36 @@ pub async fn write_callsign_db(
     })
     .await
     .estr()?
+}
+
+/// The library's DMR users, capped and prioritized, as call-sign records.
+async fn user_records(
+    pool: &sqlx::SqlitePool,
+    max_count: Option<i64>,
+    priority_countries: &[String],
+) -> Result<Vec<CallsignRecord>, String> {
+    let users = select_prioritized_dmr_users(pool, max_count, priority_countries).await?;
+    Ok(users
+        .into_iter()
+        .map(|u| CallsignRecord {
+            dmr_id: u.dmr_id as u32,
+            group_call: false,
+            name: u.display_name(),
+            callsign: u.callsign,
+            city: u.city,
+            state: u.state,
+            country: u.country,
+            comment: u.remarks,
+        })
+        .collect())
+}
+
+/// Which library users a program puts in the codeplug's spare contacts — the
+/// same cap and priority the call-sign DB write takes.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct UserContactFill {
+    pub max_count: Option<i64>,
+    pub priority_countries: Vec<String>,
 }
 
 // ============================================================
@@ -976,6 +988,7 @@ pub async fn program_radio(
     state: State<'_, AppState>,
     codeplug_id: i64,
     port: String,
+    user_contacts: Option<UserContactFill>,
 ) -> Result<CodeplugProgramReport, String> {
     let model = export::codeplug_model(&state.pool, codeplug_id).await?;
     let driver = registry::driver_for_model(&model).ok_or_else(|| {
@@ -985,13 +998,34 @@ pub async fn program_radio(
         )
     })?;
 
+    // Refused for every other driver, not ignored: a fill the operator chose
+    // must not silently become a program without it.
+    let capacity = driver.as_codeplug_programmer().and_then(|p| p.user_contact_capacity());
+    if user_contacts.is_some() && capacity.is_none() {
+        return Err(format!(
+            "{} has no codeplug contact list to fill with DMR users",
+            model.display_name
+        ));
+    }
+
     let backup_dir = app.path().app_data_dir().estr()?.join("radio-backups");
     std::fs::create_dir_all(&backup_dir).estr()?;
 
     let report = if let Some(programmer) = driver.as_codeplug_programmer() {
         // `resolved` owns every row the planner needs, so it moves into the
         // blocking task wholesale — the payload borrows from it in there.
-        let resolved = export::resolve_codeplug_payload(&state.pool, codeplug_id).await?;
+        let mut resolved = export::resolve_codeplug_payload(&state.pool, codeplug_id).await?;
+        if let (Some(fill), Some(cap)) = (&user_contacts, capacity) {
+            // Never more than the radio can hold, whatever the request says:
+            // the planner keeps at most `cap`, so the rest is only memory.
+            let cap = cap as i64;
+            let max = fill.max_count.map_or(cap, |m| m.min(cap));
+            resolved.contact_users =
+                user_records(&state.pool, Some(max), &fill.priority_countries).await?;
+            if resolved.contact_users.is_empty() {
+                return Err(crate::radios::driver::NO_DMR_USERS.to_string());
+            }
+        }
         let report = tauri::async_runtime::spawn_blocking(move || {
             // One radio operation per port: this guard lives for the whole
             // blocking session and releases on the way out, panic included. (#67)

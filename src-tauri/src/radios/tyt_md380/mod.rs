@@ -9,6 +9,7 @@
 //! - `memory`   — channel / zone / contact / RX group / scan list records.
 //! - `program`  — the codeplug build: a database codeplug into a read image.
 //! - `settings` — General Settings, side buttons and menu switches.
+//! - `userdb`   — md380tools' caller-ID database in SPI flash (patched firmware).
 //! - `stt`      — Windows: the same requests through ST's STTub30 driver.
 //! - `protocol` — the DFU session. Read measured on Tim's radio; write is
 //!   dmrconfig's sequence against a fake, NOT yet run on hardware.
@@ -22,6 +23,7 @@ pub(crate) mod memory;
 pub(crate) mod program;
 pub(crate) mod protocol;
 pub(crate) mod settings;
+pub(crate) mod userdb;
 #[cfg(windows)]
 mod stt;
 #[cfg(test)]
@@ -99,6 +101,73 @@ impl RadioDriver for TytMd380 {
 
     fn as_settings_writer(&self) -> Option<&dyn crate::radios::driver::SettingsWriter> {
         Some(self)
+    }
+
+    /// md380tools' caller-ID database — patched firmware only, checked by USB
+    /// name before anything is sent (`userdb.rs`).
+    fn as_callsign_db_writer(&self) -> Option<&dyn crate::radios::driver::CallsignDbWriter> {
+        Some(self)
+    }
+}
+
+impl crate::radios::driver::CallsignDbWriter for TytMd380 {
+    fn requirement(&self) -> Option<&'static str> {
+        Some(
+            "Needs md380tools' patched firmware on the radio, and macOS or Linux — on \
+             TYT's own firmware, choose Channel set and fill the spare contacts with DMR \
+             users instead.",
+        )
+    }
+
+    /// Build md380tools' linear user database from the records and write it to
+    /// SPI flash at 0x100000, then read it all back.
+    ///
+    /// No backup is taken, as on the AnyTone: the region is self-contained and
+    /// regenerable from the DMR Contacts library, and nothing else lives in it
+    /// — every erase and write is bounds-checked to it in `protocol.rs`.
+    fn write_callsign_db(
+        &self,
+        _port: &str,
+        records: &[crate::radios::driver::CallsignRecord],
+    ) -> Result<crate::radios::driver::CallsignDbReport, String> {
+        // ⚠ Before ANY tool command: stock firmware never sees one.
+        if !protocol::patched_firmware()? {
+            return Err("This MD-380 runs TYT's stock firmware, which has no caller-ID \
+                        database — that needs md380tools' patched firmware. On stock firmware \
+                        caller names come from the codeplug's own contact list: program the \
+                        codeplug with \"Fill spare contacts with DMR users\" instead."
+                .into());
+        }
+        let userdb::Built { image, users, left_out } = userdb::build(records);
+        if users == 0 {
+            return Err(crate::radios::driver::NO_DMR_USERS.into());
+        }
+        let blocks = userdb::blocks_for(image.len());
+        // No band check: the database is the same on every band, and a VHF
+        // unit on md380tools takes it as readily as Tim's UHF one.
+        session(|link, _id| userdb::write(link, &image))?;
+        Ok(crate::radios::driver::CallsignDbReport {
+            entries_written: users,
+            windows_written: vec![format!(
+                "0x{:06X}-0x{:06X}",
+                blocks[0],
+                blocks[blocks.len() - 1] + 0xFFFF
+            )],
+            note: format!(
+                "{users} users written to the radio's flash and read back. The radio shows them \
+                 only when md380tools' menu is set to: Utilities > MD380Tools > Display Setup > \
+                 Show Calls > User DB (or TA & UserDB).{}",
+                if left_out > 0 {
+                    format!(
+                        " {left_out} lower-priority users did not fit in the 15 MB the \
+                         firmware reads and were left out."
+                    )
+                } else {
+                    String::new()
+                }
+            ),
+            verified: true,
+        })
     }
 }
 
@@ -271,6 +340,12 @@ impl ImageRestorer for TytMd380 {
 impl CodeplugProgrammer for TytMd380 {
     fn preview(&self, payload: &CodeplugPayload) -> Result<CodeplugPreview, String> {
         Ok(program::plan_program(payload)?.preview())
+    }
+
+    /// Stock firmware names a private caller only from the codeplug's own
+    /// contacts, so its 1000 slots are the caller-ID list a stock radio has.
+    fn user_contact_capacity(&self) -> Option<usize> {
+        Some(layout::CONTACT_COUNT)
     }
 
     fn program(

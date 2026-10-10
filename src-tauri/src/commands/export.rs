@@ -248,6 +248,9 @@ pub(crate) struct ResolvedCodeplug {
     pub channels: Vec<ExpandedChannel>,
     pub scan_lists: Vec<CodeplugScanList>,
     pub scan_list_overrides: Vec<ChannelScanListOverride>,
+    /// See [`CodeplugPayload::contact_users`](crate::radios::driver::CodeplugPayload);
+    /// empty here, filled by `program_radio` when the operator asks.
+    pub contact_users: Vec<crate::radios::driver::CallsignRecord>,
 }
 
 impl ResolvedCodeplug {
@@ -259,6 +262,7 @@ impl ResolvedCodeplug {
             channels: &self.channels,
             scan_lists: &self.scan_lists,
             scan_list_overrides: &self.scan_list_overrides,
+            contact_users: &self.contact_users,
         }
     }
 }
@@ -367,6 +371,7 @@ pub(crate) async fn resolve_codeplug_payload(
         channels,
         scan_lists,
         scan_list_overrides,
+        contact_users: Vec::new(),
     })
 }
 
