@@ -306,68 +306,108 @@ fn every_card_format_is_wired_into_the_frontend() {
     }
 }
 
-/// The profile form must decide "is this a card radio?" from how the radio is
-/// PROGRAMMED, never from whether a settings reader happens to be wired yet.
+/// A profile form must never seed a field the profile has not saved — for ANY
+/// radio, card or cable.
 ///
-/// That flag is what passes `defaults=false` into `seedValues`, which is the
-/// single thing standing between a card radio and a form full of this app's
-/// guesses — and the guess gets patched into the file the radio itself wrote.
-///
-/// The test above deliberately `continue`s past a driver with no
-/// `decode_settings`, because a card radio whose settings are unmeasured
-/// legitimately has no reader. That is exactly the state this one covers: it is
-/// the normal intermediate state of every new-radio branch, and while
-/// `isCardRadio` was keyed on `CARD_SETTINGS_READERS` it was also the state that
-/// seeded ~300 defaults. Keying on the media-write map instead makes the flag
-/// true from the moment the radio is programmed from a card, reader or not.
+/// Every settings writer patches the profile's values over bytes it has just
+/// read off the radio (or out of the radio's own file) and skips a key that is
+/// absent. A schema default the form invented is not absent: it gets written,
+/// replacing the operator's real setting. That shipped three times, each time
+/// behind a narrower flag than the rule — card radios keyed on the wrong map
+/// (#90), the ID-5100 behind a per-driver opt-in (#49), and every other cable
+/// radio not covered at all (#128). So the guard is on the rule itself: the
+/// seeding helper has no defaults path, and the editor cannot ask for one.
 ///
 /// Read as text for the same reason as its neighbour — there is no test runner
-/// on the frontend. (#90)
+/// on the frontend.
 #[test]
-fn the_profile_form_calls_a_card_radio_by_how_it_is_programmed() {
+fn the_profile_form_never_seeds_a_schema_default() {
     let root = manifest_dir().join("..");
-    let editor = read(&root.join("src/components/profiles/ProfileEditor.tsx"));
+    let profiles = read(&root.join("src/lib/profiles.ts"));
 
-    let decl = editor
-        .lines()
-        .find(|l| l.trim_start().starts_with("const isCardRadio"))
-        .unwrap_or_else(|| {
-            panic!(
-                "no `const isCardRadio` in ProfileEditor.tsx. It is what passes defaults=false \
-                 into seedValues — if it was renamed, repoint this guard rather than deleting it."
-            )
-        });
-    assert!(
-        decl.contains("mediaWriteForFormat"),
-        "isCardRadio is derived from `{}`. It must come from mediaWriteForFormat (how the radio \
-         is programmed), not from CARD_SETTINGS_READERS (whether a decoder is wired yet) — \
-         otherwise a card radio with a settings schema and no decoder seeds every field with a \
-         schema default and Save patches this app's guesses into the operator's own file.",
-        decl.trim()
-    );
-    assert!(
-        !decl.contains("CARD_SETTINGS_READERS") && !decl.contains("cardReader"),
-        "isCardRadio is derived from the settings-reader map: `{}`",
-        decl.trim()
-    );
+    // The helper copies saved values and nothing else: every value it assigns
+    // comes out of `saved`, whatever the next defaults path would be called.
+    let start = profiles
+        .find("export function seedValues(")
+        .expect("no `seedValues` in src/lib/profiles.ts — repoint this guard rather than deleting it");
+    let body = &profiles[start..];
+    let body = &body[..body.find("\n}\n").expect("seedValues has no closing brace")];
+    let assigns: Vec<&str> = body.lines().filter(|l| l.contains("out[")).collect();
+    assert!(!assigns.is_empty(), "seedValues no longer assigns into `out` — repoint this guard");
+    for line in assigns {
+        assert!(
+            line.contains("= saved["),
+            "seedValues assigns a value that does not come from the saved profile: `{}`. A \
+             field the profile has never held must stay ABSENT: every writer patches over the \
+             radio's own bytes, so an invented value is written over the operator's real \
+             setting (#90, #49, #128).",
+            line.trim()
+        );
+    }
 
-    // And the flag has to still reach the thing that suppresses the defaults.
-    // Since #49 it travels inside `startBlank`, which ORs in the driver's own
-    // `settings_start_blank` for a cable radio in the same position.
-    let start_blank = editor
-        .lines()
-        .find(|l| l.trim_start().starts_with("const startBlank"))
-        .expect("no `const startBlank` in ProfileEditor.tsx");
-    assert!(
-        start_blank.contains("isCardRadio") && start_blank.contains("settings_start_blank"),
-        "startBlank must combine isCardRadio with the driver's settings_start_blank: `{}`",
-        start_blank.trim()
-    );
-    assert!(
-        editor.contains("!startBlank"),
-        "ProfileEditor.tsx no longer passes !startBlank as seedValues' `defaults` argument — the \
-         flag this test guards is not reaching the seeding decision."
-    );
+    // And nobody can ask it for more: every call site passes exactly
+    // (fields, saved). Counted at the top level of the call, so a nested call,
+    // an object literal or a trailing comma on a wrapped call is not miscounted.
+    let mut calls = 0;
+    let mut stack = vec![root.join("src")];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("src dir") {
+            let path = entry.expect("dir entry").path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if !matches!(path.extension().and_then(|e| e.to_str()), Some("ts" | "tsx")) {
+                continue;
+            }
+            let src = read(&path);
+            for (i, _) in src.match_indices("seedValues(") {
+                if src[..i].ends_with("function ") {
+                    continue;
+                }
+                calls += 1;
+                let args = &src[i + "seedValues(".len()..];
+                let (mut depth, mut commas, mut last) = (0i32, 0, ' ');
+                for c in args.chars() {
+                    match c {
+                        '(' | '[' | '{' => depth += 1,
+                        ')' | ']' | '}' if depth == 0 => break,
+                        ')' | ']' | '}' => depth -= 1,
+                        ',' if depth == 0 => commas += 1,
+                        _ => {}
+                    }
+                    if !c.is_whitespace() {
+                        last = c;
+                    }
+                }
+                let arity = if last == ',' { commas } else { commas + 1 };
+                assert_eq!(
+                    arity,
+                    2,
+                    "{} calls seedValues with {arity} arguments — it takes (fields, saved) and \
+                     nothing else; a third means a defaults switch has come back.",
+                    path.display()
+                );
+            }
+        }
+    }
+    assert!(calls > 0, "no seedValues call found under src/ — this would pass vacuously");
+
+    // Nor can a schema hand the form a value to invent: the `default` key had
+    // no reader once seeding stopped, and a dead key that reads like "what a
+    // fresh profile programs" is how the next defaults path gets written.
+    for (name, _, schema_json) in crate::seed::model_capability_rows() {
+        let schema: Vec<serde_json::Value> =
+            serde_json::from_str(schema_json).unwrap_or_else(|e| panic!("{name}: {e}"));
+        for f in &schema {
+            assert!(
+                f.get("default").is_none(),
+                "{name}: field {:?} carries a `default`. Nothing reads it — a profile starts \
+                 blank — so leave it out (#128).",
+                f["key"].as_str().unwrap_or_default()
+            );
+        }
+    }
 }
 
 /// Every Tauri command that takes a serial `port` must claim it (#67).

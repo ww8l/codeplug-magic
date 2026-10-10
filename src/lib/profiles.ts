@@ -26,45 +26,26 @@ export function parseSettings(json: string | null | undefined): SettingsValues {
   }
 }
 
-/** The default value for a field, falling back to a sensible per-type blank. */
-export function fieldDefault(field: SettingField): SettingsValue {
-  if (field.default !== undefined) return field.default;
-  switch (field.type) {
-    case "boolean":
-      return false;
-    case "integer":
-      return field.min ?? 0;
-    case "select":
-      return field.options?.[0] ?? "";
-    default:
-      return "";
-  }
-}
-
 /**
- * Seed a values object for a schema, preferring saved values over defaults.
+ * Seed a values object for a schema from what the profile has saved.
  *
- * `defaults: false` leaves a field the profile has never held **blank** instead
- * of inventing a value for it. That matters for the radios whose settings are
- * patched into a file the radio itself wrote: a schema default is this app's
- * guess, not the radio's setting, and saving a profile full of guesses would
- * push all of them onto the radio the next time a codeplug is written. A blank
- * is inert — the writers skip a value they cannot read — so the operator's own
- * settings survive until they load them in and change one deliberately.
+ * A field the profile has never held stays **blank** — absent from the result —
+ * for every radio, card or cable. A schema default is this app's guess, not the
+ * radio's setting, and every writer patches the profile's values over bytes it
+ * has just read off the radio (or out of the radio's own file): a seeded guess
+ * would be WRITTEN, replacing the operator's real setting, the first time a
+ * profile nobody filled in was programmed (#90, #49, #128). An absent key is
+ * inert — every writer skips it — so the radio's own settings survive until the
+ * operator reads them in or changes one deliberately.
  */
 export function seedValues(
   fields: SettingField[],
   saved: SettingsValues,
-  defaults = true,
 ): SettingsValues {
   const out: SettingsValues = {};
   for (const f of fields) {
     if (f.type === "section") continue; // headings hold no value
-    if (f.key in saved) {
-      out[f.key] = saved[f.key];
-    } else if (defaults) {
-      out[f.key] = fieldDefault(f);
-    }
+    if (f.key in saved) out[f.key] = saved[f.key];
   }
   return out;
 }
