@@ -25,28 +25,6 @@
     "group": "General"
   },
   {
-    "key": "boot-display",
-    "label": "Boot Display",
-    "type": "select",
-    "options": [
-      "Default",
-      "Custom Text",
-      "Custom Image"
-    ]
-  },
-  {
-    "key": "boot-text-line-1",
-    "label": "Boot text line 1",
-    "type": "text",
-    "max_length": 14
-  },
-  {
-    "key": "boot-text-line-2",
-    "label": "Boot text line 2",
-    "type": "text",
-    "max_length": 14
-  },
-  {
     "key": "enable-boot-password",
     "label": "Enable Boot Password",
     "type": "boolean"
@@ -243,6 +221,28 @@
     "label": "Display",
     "type": "section",
     "group": "Display"
+  },
+  {
+    "key": "boot-display",
+    "label": "Boot Display",
+    "type": "select",
+    "options": [
+      "Default",
+      "Custom Text",
+      "Custom Image"
+    ]
+  },
+  {
+    "key": "boot-text-line-1",
+    "label": "Boot text line 1",
+    "type": "text",
+    "max_length": 14
+  },
+  {
+    "key": "boot-text-line-2",
+    "label": "Boot text line 2",
+    "type": "text",
+    "max_length": 14
   },
   {
     "key": "language",

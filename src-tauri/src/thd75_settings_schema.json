@@ -275,7 +275,7 @@
   "key": "qso-log",
   "label": "QSO Log",
   "type": "boolean",
-  "group": "General"
+  "group": "Digital"
  },
  {
   "key": "led-control-rx",
@@ -1024,6 +1024,7 @@
   "key": "time-zone",
   "label": "Time Zone",
   "type": "integer",
+  "group": "GPS",
   "min": 0,
   "max": 112
  },

@@ -1289,6 +1289,7 @@
     "key": "wx-channel-a",
     "label": "Wx Channel (Band A)",
     "type": "integer",
+    "group": "General",
     "min": 0,
     "max": 9
   },
@@ -1296,6 +1297,7 @@
     "key": "wx-channel-b",
     "label": "Wx Channel (Band B)",
     "type": "integer",
+    "group": "General",
     "min": 0,
     "max": 9
   },

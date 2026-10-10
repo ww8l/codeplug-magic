@@ -1700,7 +1700,7 @@
   "key": "section-qso-rx-history-log",
   "label": "QSO/RX History Log",
   "type": "section",
-  "group": "General"
+  "group": "Digital"
  },
  {
   "key": "qso-rx-history-log-qso-log",
@@ -1716,7 +1716,7 @@
   "key": "section-qso-rx-history-log-csv-format",
   "label": "QSO/RX History Log - CSV Format",
   "type": "section",
-  "group": "General"
+  "group": "Digital"
  },
  {
   "key": "qso-rx-history-log-csv-format-separator-decimal",
@@ -3450,7 +3450,7 @@
   "key": "section-time-set",
   "label": "Time Set",
   "type": "section",
-  "group": "General"
+  "group": "GPS"
  },
  {
   "key": "time-set-utc-offset",

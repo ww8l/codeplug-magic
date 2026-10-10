@@ -154,10 +154,12 @@ export interface SettingsTab {
  * no fields at all.
  *
  * A field lands in its own `group` if it names one, else its section's. A tab
- * opens with the fields it borrowed from other tabs' sections, unheaded — the
- * TH-D75's "Common" heading on six tabs said nothing — and then its own
- * sections under their OEM headings, in schema order. A heading that would only
- * repeat the tab's name is left out.
+ * draws its own sections first, under their OEM headings in schema order; only
+ * the first may drop a heading that would just repeat the tab's name, since a
+ * later one would read as part of the heading above it. Fields borrowed from
+ * another tab's section follow, under that section's heading — but only when
+ * the tab draws headings at all, so a tab made of borrowed fields (the TH-D75's
+ * Display, all from "Common") is not stamped with a name that says nothing.
  *
  * Tabs are presentation only. The form holds every field's value whether or not
  * its tab is on screen, so saving is unaffected by which one is open.
@@ -184,12 +186,21 @@ export function settingsTabs(fields: SettingField[]): SettingsTab[] | null {
     const entries = buckets.get(group)!;
     const owned = (s: SettingField | null) =>
       (known(s?.group) ?? "General") === group;
-    const out: SettingField[] = entries
-      .filter((e) => !owned(e.section))
-      .map((e) => e.field);
+    const mine = entries.filter((e) => owned(e.section));
+    const borrowed = entries.filter((e) => !owned(e.section));
+    const out: SettingField[] = [];
     let last: SettingField | null | undefined;
-    for (const { section, field } of entries.filter((e) => owned(e.section))) {
-      if (section !== last && section && section.label !== group) out.push(section);
+    for (const { section, field } of mine) {
+      const first = section === mine[0].section;
+      if (section !== last && section && !(first && section.label === group))
+        out.push(section);
+      last = section;
+      out.push(field);
+    }
+    const headed = out.some((f) => f.type === "section");
+    last = undefined;
+    for (const { section, field } of borrowed) {
+      if (headed && section !== last && section) out.push(section);
       last = section;
       out.push(field);
     }

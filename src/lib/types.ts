@@ -1,6 +1,8 @@
 // TypeScript mirrors of the Rust models. Field names are snake_case to match
 // the JSON returned by the Tauri commands (serde serializes struct fields as-is).
 
+import type { SETTINGS_GROUPS } from "./profiles";
+
 export interface Channel {
   id: number;
   rb_name: string | null;
@@ -212,7 +214,7 @@ export interface SettingField {
   // Which settings tab this lands on — one of SETTINGS_GROUPS in profiles.ts.
   // Every section names one; a field names its own only when it belongs on a
   // different tab from the rest of its OEM section (#131).
-  group?: string;
+  group?: (typeof SETTINGS_GROUPS)[number];
   min?: number;
   max?: number;
   max_length?: number;

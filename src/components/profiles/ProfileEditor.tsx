@@ -1099,11 +1099,11 @@ export function ProfileEditor({
             {model.driver_key === "anytone_atd890uv" && (
               <AnytoneBackupBar modelLabel={model.display_name} />
             )}
-            {fields.length === 0 ? (
+            {!openSubTab ? (
               <p className="text-xs text-slate-400">
                 This model has no configurable non-channel settings.
               </p>
-            ) : openSubTab ? (
+            ) : (
               /* Split across sub-tabs. Every field's value stays in `values`
                  whichever tab is open, so this changes what is drawn and
                  nothing about what is saved. */
@@ -1139,13 +1139,6 @@ export function ProfileEditor({
                   onChange={setValue}
                 />
               </div>
-            ) : (
-              <SettingsGrid
-                fields={fields}
-                values={values}
-                errors={rangeErrors}
-                onChange={setValue}
-              />
             )}
 
             <div className="space-y-1.5 pt-2">
