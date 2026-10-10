@@ -165,6 +165,12 @@ impl RadioDriver for BaofengUv5r {
     fn as_settings_reader(&self) -> Option<&dyn crate::radios::driver::SettingsReader> {
         Some(self)
     }
+
+    /// Settings on their own, channels untouched — so the Program dialog's
+    /// Profile option exists here as on every radio that can write settings.
+    fn as_settings_writer(&self) -> Option<&dyn crate::radios::driver::SettingsWriter> {
+        Some(self)
+    }
 }
 
 impl ImageRestorer for BaofengUv5r {
@@ -324,30 +330,16 @@ impl ImageProgrammer for BaofengUv5r {
                  half-written contents with a fresh backup of them.",
             )
         };
-        reident_with_retry(&mut *p).map_err(restore_hint)?;
-        // Record every range as it goes out, and hand that same list to the
-        // verifier — so what is checked is exactly what was written, and the two
-        // cannot drift apart. (#62)
-        let mut written: Vec<WrittenRange> = Vec::new();
-        if settings_written.is_some() {
-            for &range in settings::SETTINGS_MAIN_RANGES {
-                write_region(&mut *p, &image, range.0, range.1).map_err(restore_hint)?;
-                written.push(WrittenRange::main(range));
-            }
-            for &range in settings::SETTINGS_AUX_RANGES {
-                write_aux_region(&mut *p, &image, range.0, range.1).map_err(restore_hint)?;
-                written.push(WrittenRange::aux(range));
-            }
+        let (main, aux): (&[Range], &[Range]) = if settings_written.is_some() {
+            (settings::SETTINGS_MAIN_RANGES, settings::SETTINGS_AUX_RANGES)
         } else {
-            for &range in &[CHANNEL_ADDR, NAME_ADDR] {
-                write_region(&mut *p, &image, range.0, range.1).map_err(restore_hint)?;
-                written.push(WrittenRange::main(range));
-            }
-        }
+            (&[CHANNEL_ADDR, NAME_ADDR], &[])
+        };
+        let checked = upload_and_verify(&mut *p, &image, main, aux).map_err(restore_hint)?;
 
         // 4. Read back and verify (non-fatal: a write that ack'd every block
         //    succeeded; verification is a best-effort confirmation).
-        let (verified, note, channels) = match verify_after_write(&mut *p, &image, &written) {
+        let (verified, note, channels) = match checked {
             Ok((ok, note, ch)) => (ok, note, ch),
             Err(e) => (
                 false,
@@ -382,6 +374,40 @@ impl ImageProgrammer for BaofengUv5r {
             warnings: Vec::new(),
         })
     }
+}
+
+/// A radio-address range `[start, end)`.
+pub(crate) type Range = (u16, u16);
+
+/// A verification outcome: matched, a note when it did not, and the channels
+/// read back.
+pub(crate) type Verified = (bool, Option<String>, Vec<DecodedChannel>);
+
+/// Re-identify, upload `main` and `aux` (radio-address ranges), then read back
+/// and compare exactly the bytes sent. Shared by the codeplug program and the
+/// settings-only write so the two cannot drift.
+///
+/// The outer error is a WRITE failure — the caller attaches its backup path.
+/// The inner result is the verification, which is non-fatal by contract (#62):
+/// every range that went out is recorded and handed to the verifier, so what
+/// is checked is exactly what was written.
+pub(crate) fn upload_and_verify(
+    p: &mut dyn SerialPort,
+    image: &[u8],
+    main: &[Range],
+    aux: &[Range],
+) -> Result<Result<Verified, String>, String> {
+    reident_with_retry(p)?;
+    let mut written: Vec<WrittenRange> = Vec::new();
+    for &range in main {
+        write_region(p, image, range.0, range.1)?;
+        written.push(WrittenRange::main(range));
+    }
+    for &range in aux {
+        write_aux_region(p, image, range.0, range.1)?;
+        written.push(WrittenRange::aux(range));
+    }
+    Ok(verify_after_write(p, image, &written))
 }
 
 /// Narrow the driver's own richer decode to the generic sanity-sample shape.
@@ -1221,14 +1247,14 @@ mod tests {
     }
 
     #[test]
-    fn capabilities_derive_image_programmer_and_settings_read() {
+    fn capabilities_derive_image_programmer_and_settings_read_write() {
         let caps = DriverCapabilities::of(&DRIVER);
         assert!(caps.program_image);
         assert!(caps.read_settings);
-        // Read-only settings: the UV-5R's profile settings go out inside the
-        // image `program_codeplug` uploads, never as a standalone push. This is
-        // what the `SettingsReader`/`SettingsWriter` split (3.6d) exists to say.
-        assert!(!caps.write_settings);
+        // Settings go out inside the image `program_codeplug` uploads AND on
+        // their own (s136), so the Program dialog's Profile option exists here
+        // as on every cable radio that can write settings.
+        assert!(caps.write_settings);
         assert!(!caps.write_channels);
         assert!(!caps.write_callsign_db);
         assert!(!caps.export);

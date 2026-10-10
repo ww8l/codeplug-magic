@@ -18,6 +18,7 @@ import {
   mediaWriteForFormat,
   useDriverCapabilities,
   usbPortFor,
+  profileWriteBlocked,
 } from "../../lib/radioProgramming";
 import type {
   AnytoneDownloadResult,
@@ -118,23 +119,21 @@ function RadioSyncBar({
 function WriteToRadioBar({
   profileId,
   modelLabel,
-  dirty,
-  neverSaved,
-  nothingSet,
+  blocked,
   usbPort,
+  afterWrite,
 }: {
   profileId: number;
   modelLabel: string;
-  dirty: boolean;
-  /// The profile row carries no settings yet, so there is nothing to send and
-  /// the command would only error. Treated like `dirty`: same button, same
-  /// instruction.
-  neverSaved: boolean;
-  /// Saved, but holding no value at all — the normal state of a fresh profile
-  /// now that nothing is seeded (#128). A write would open a radio session to
-  /// change nothing, and the AnyTone reports that as an error.
-  nothingSet: boolean;
+  /// Why the saved profile cannot be written yet (`profileWriteBlocked`):
+  /// never saved, unsaved edits, or nothing set — a fresh profile's state
+  /// (#128), where a write would open a radio session to change nothing and
+  /// the AnyTone reports that as an error.
+  blocked: string | null;
   usbPort: string | null;
+  /// What the operator must do at the radio once the write is sent (the
+  /// ID-5100 waits for its POWER button before it can be read back).
+  afterWrite: string | null;
 }) {
   const choice = usePortChoice(usbPort);
   const { port } = choice;
@@ -164,9 +163,16 @@ function WriteToRadioBar({
     if (res.verified === true) {
       toast.success(`${applied} · read back and verified ✓${suffix}`);
     } else if (res.verified === null) {
+      // The AnyTone: the commit reboots the radio and re-enumerates USB, so it
+      // is verified in a fresh session against the expected image this write
+      // left — which its Program dialog's Verify picks up as the newest write.
       toast.info(
-        `${applied}. This radio cannot be read back in the same session, so the write is unverified${suffix}`,
+        res.expected_path
+          ? `${applied}. The radio reboots and drops off USB to commit: reconnect it, then open Program radio and press Verify — it checks the radio against this write's expected image${suffix}`
+          : `${applied}. This radio cannot be read back in the same session, so the write is unverified${suffix}`,
+        { duration: 15000 },
       );
+      if (res.expected_path) choice.refresh(true);
     } else {
       toast.warning(res.note || `${applied}, but the read-back did not confirm it.`);
     }
@@ -184,26 +190,20 @@ function WriteToRadioBar({
         <Button
           variant="primary"
           onClick={() => setConfirming(true)}
-          disabled={!port || busy || dirty || neverSaved || nothingSet}
-          title={
-            dirty || neverSaved
-              ? "Save this profile first — the radio gets the saved values"
-              : nothingSet
-                ? "This profile holds no settings to write"
-                : undefined
-          }
+          disabled={!port || busy || blocked !== null}
+          title={blocked ?? undefined}
         >
           {busy ? <Spinner className="h-3.5 w-3.5" /> : <UploadCloud size={14} />}
           Write to radio
         </Button>
       </div>
-      {(dirty || neverSaved || nothingSet) && (
-        <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">
-          {neverSaved
-            ? "This profile has not been saved yet. The radio is written from the saved profile, so Save first."
-            : dirty
-              ? "This profile has unsaved changes. The radio is written from the saved profile, so Save first."
-              : "This profile holds no settings yet, so there is nothing to write. Download from the radio or set one, then Save."}
+      {blocked && (
+        <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">{blocked}</p>
+      )}
+      {busy && afterWrite && (
+        <p className="mt-2 flex items-center gap-2 text-[11px] text-slate-700 dark:text-slate-200">
+          <Spinner className="h-3 w-3" />
+          <strong>{afterWrite}</strong>
         </p>
       )}
       {confirming && (
@@ -211,6 +211,7 @@ function WriteToRadioBar({
           <span className="flex-1 text-slate-700 dark:text-slate-200">
             This changes settings on the radio. Channels are left untouched, and a
             backup of the radio is written beside the app's data first.
+            {afterWrite && <strong> {afterWrite}</strong>}
           </span>
           <Button variant="ghost" onClick={() => setConfirming(false)}>
             Cancel
@@ -251,10 +252,19 @@ function CardSettingsBar({
   format,
   read,
   onLoaded,
+  profileId,
+  canWrite,
+  writeBlocked,
 }: {
   format: string;
   read: (path: string) => Promise<RadioSettingsRead>;
   onLoaded: (settings: SettingsValues) => void;
+  profileId: number;
+  /// The format takes settings on their own (`write_card_settings`).
+  canWrite: boolean;
+  /// Why the saved profile cannot be written yet (unsaved, never saved, or
+  /// holding nothing) — the same rules as a cable radio's Write to radio.
+  writeBlocked: string | null;
 }) {
   const [busy, setBusy] = useState(false);
   // Where the radio's own files live, if a card is mounted. Finding the card is
@@ -295,21 +305,68 @@ function CardSettingsBar({
     }
   };
 
+  const [writing, setWriting] = useState(false);
+  /// The card counterpart of Write to radio: the saved profile's settings
+  /// patched into the radio's own file, memories untouched. The mounted card is
+  /// used when one is found, exactly as the Program dialog's card write does.
+  const write = async () => {
+    let target = card;
+    if (!target) {
+      const picked = await openDialog({
+        title: media?.pickTitle,
+        multiple: false,
+        directory: false,
+        filters: media
+          ? [{ name: media.filterName, extensions: media.extensions }]
+          : undefined,
+      });
+      if (typeof picked !== "string") return;
+      target = picked;
+    }
+    setWriting(true);
+    const res = await withToast(api.writeCardSettings(profileId, target), {
+      error: "Could not write settings to the card",
+    });
+    setWriting(false);
+    if (res) {
+      const { toast } = await import("sonner");
+      const n = res.fields_written;
+      toast.success(
+        `Wrote ${n} setting${n === 1 ? "" : "s"} to ${res.path} — memories untouched. ${media?.after ?? ""}${res.note ? ` ${res.note}` : ""}`,
+      );
+    }
+  };
   return (
-    <div className="flex flex-wrap items-end gap-2 rounded-md border border-sky-200 bg-sky-50/60 px-3 py-2.5 dark:border-sky-900/50 dark:bg-sky-950/30">
-      <div className="flex-1">
-        <span className="mb-1 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
-          Read current settings from the radio’s microSD card
-        </span>
-        <span className="block text-[11px] text-slate-400">
-          {media?.before} Nothing is written here: the values land in the form
-          and go back out with the codeplug when you program the radio.
-        </span>
+    <div className="rounded-md border border-sky-200 bg-sky-50/60 px-3 py-2.5 dark:border-sky-900/50 dark:bg-sky-950/30">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="flex-1">
+          <span className="mb-1 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+            Settings on the radio’s microSD card
+          </span>
+          <span className="block text-[11px] text-slate-400">
+            {media?.before} Load fills the form; Write puts this profile&rsquo;s
+            saved settings into the radio&rsquo;s own file, its memories left as
+            they are, and the radio loads it from its menu.
+          </span>
+        </div>
+        <Button variant="primary" onClick={load} disabled={busy || writing}>
+          {busy ? <Spinner className="h-3.5 w-3.5" /> : <HardDrive size={14} />}
+          Load from microSD
+        </Button>
+        {canWrite && (
+          <Button
+            onClick={write}
+            disabled={busy || writing || writeBlocked !== null}
+            title={writeBlocked ?? undefined}
+          >
+            {writing ? <Spinner className="h-3.5 w-3.5" /> : <UploadCloud size={14} />}
+            Write settings to card
+          </Button>
+        )}
       </div>
-      <Button variant="primary" onClick={load} disabled={busy}>
-        {busy ? <Spinner className="h-3.5 w-3.5" /> : <HardDrive size={14} />}
-        Load from microSD
-      </Button>
+      {canWrite && writeBlocked && (
+        <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">{writeBlocked}</p>
+      )}
     </div>
   );
 }
@@ -918,6 +975,12 @@ export function ProfileEditor({
       fields.some((f) => values[f.key] !== saved[f.key]),
     [name, notes, values, saved, fields, profile],
   );
+  // What every settings-write affordance on this page checks first.
+  const writeState = {
+    neverSaved: !profile.non_channel_settings,
+    dirty,
+    nothingSet: Object.values(saved).every((v) => v === ""),
+  };
 
   // Values that came off the radio (or its card) are the new starting point,
   // not an edit — a radio is allowed to hold a value this app's schema does not
@@ -1060,26 +1123,22 @@ export function ProfileEditor({
               />
             )}
             {/* The inverse, gated on the driver's write capability for the same
-                reason. Card radios never get it: their settings are patched
-                into the file the export writes, not sent over a cable.
-                ⚠ And only for radios on the GENERIC programming UI. A radio
-                with a bespoke dialog already offers this write there, in a
-                place that can speak to what makes it unusual — the AnyTone's
-                settings commit reboots the radio and re-enumerates USB, so it
-                reports `verified: null` plus an `expected_path` to diff in a
-                fresh session, and a generic bar would show neither. */}
-            {caps?.write_settings &&
-              fields.length > 0 &&
-              (model.programming_ui ?? "generic") === "generic" && (
-                <WriteToRadioBar
-                  profileId={profile.id}
-                  modelLabel={model.display_name}
-                  dirty={dirty}
-                  neverSaved={!profile.non_channel_settings}
-                  nothingSet={Object.values(saved).every((v) => v === "")}
-                  usbPort={usbPort}
-                />
-              )}
+                reason — on EVERY cable radio that has it, its own Program dialog
+                or not, so the profile page offers the same pair everywhere (Tim,
+                s136). Card radios write theirs into the card file instead —
+                the CardSettingsBar's Write settings to card. The AnyTone's
+                commit reboots the radio, so its result comes back
+                `verified: null`; the bar reports that as unverified rather than
+                as a pass. */}
+            {caps?.write_settings && fields.length > 0 && (
+              <WriteToRadioBar
+                profileId={profile.id}
+                modelLabel={model.display_name}
+                blocked={profileWriteBlocked(writeState, "radio")}
+                usbPort={usbPort}
+                afterWrite={caps?.after_write ?? null}
+              />
+            )}
             {/* A card radio's settings come off its microSD rather than a
                 cable, so it gets a file picker where the others get a port
                 picker. Keyed on the export format — the same key that names the
@@ -1090,6 +1149,9 @@ export function ProfileEditor({
                 format={model.export_format}
                 read={cardReader}
                 onLoaded={loadFromRadio}
+                profileId={profile.id}
+                canWrite={caps?.write_card_settings === true}
+                writeBlocked={profileWriteBlocked(writeState, "card")}
               />
             )}
             {/* Stays keyed to the AnyTone on purpose: this bar drives

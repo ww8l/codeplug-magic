@@ -48,7 +48,7 @@
 
 use crate::commands::export::{expanded_names, tx_frequency, CodeplugGroup, ExpandedChannel};
 use crate::models::RadioModel;
-use crate::radios::driver::{CodeplugExporter, ExportRequest};
+use crate::radios::driver::{CardSettingsWriter, CodeplugExporter, ExportRequest};
 use crate::util::{pack_dstar_call, truncate};
 
 use super::d75::D75File;
@@ -630,11 +630,24 @@ impl CodeplugExporter for KenwoodThd75 {
     /// repeater list, every MENU setting — is inherited from the most recent
     /// picture of the radio.
     fn export(&self, path: &str, req: &ExportRequest) -> Result<usize, String> {
-        let dir = std::path::Path::new(path)
-            .parent()
-            .ok_or("There is no folder to write into.")?;
-        let template = newest_config_file(dir)?;
-        patch_d75(&template, path, req)
+        patch_d75(path, |file| {
+            let written = write_codeplug(file, req.channels, req.groups, req.model)?;
+            // Settings ride in the same file as the memories, so a codeplug
+            // export is also a settings write — the same arrangement as the
+            // ID-52's `.icf`. Nothing happens if the profile has none.
+            if let Some(json) = req.profile_settings {
+                let parsed: serde_json::Value = serde_json::from_str(json)
+                    .map_err(|e| format!("This profile's settings are not valid JSON: {e}"))?;
+                if let Some(map) = parsed.as_object() {
+                    super::settings::apply_settings(file.body_mut(), map);
+                }
+            }
+            Ok(written)
+        })
+    }
+
+    fn as_card_settings_writer(&self) -> Option<&dyn CardSettingsWriter> {
+        Some(self)
     }
 
     /// Name the file this write will create: the radio's own
@@ -661,6 +674,18 @@ impl CodeplugExporter for KenwoodThd75 {
         // now beats reporting a file name and then failing.
         newest_config_file(dir)?;
         Ok(next_config_file(dir).to_string_lossy().into_owned())
+    }
+}
+
+impl CardSettingsWriter for KenwoodThd75 {
+    /// The export's file rule — the newest save as the template, written as a
+    /// NEW file — with only the settings applied.
+    fn export_settings(
+        &self,
+        path: &str,
+        settings: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<usize, String> {
+        patch_d75(path, |file| Ok(super::settings::apply_settings(file.body_mut(), settings)))
     }
 }
 
@@ -728,8 +753,19 @@ fn next_config_file(dir: &std::path::Path) -> std::path::PathBuf {
 }
 
 /// Patch a config file and write the result to `path`.
-fn patch_d75(template: &str, path: &str, req: &ExportRequest) -> Result<usize, String> {
-    let raw = std::fs::read(template).map_err(|e| {
+/// The `.d75` file rule, shared by the export and the settings-only write: the
+/// newest config the radio saved in `path`'s folder is the template, and the
+/// result is always a NEW file at `path` — the radio's own saves are never
+/// modified.
+fn patch_d75(
+    path: &str,
+    patch: impl FnOnce(&mut D75File) -> Result<usize, String>,
+) -> Result<usize, String> {
+    let dir = std::path::Path::new(path)
+        .parent()
+        .ok_or("There is no folder to write into.")?;
+    let template = newest_config_file(dir)?;
+    let raw = std::fs::read(&template).map_err(|e| {
         format!(
             "Could not read {template}: {e}. Pick a config file the radio saved for itself with \
              Menu > Configuration > SD Card > Save Setting — they live in \
@@ -737,22 +773,9 @@ fn patch_d75(template: &str, path: &str, req: &ExportRequest) -> Result<usize, S
         )
     })?;
     let mut file = D75File::parse(&raw)?;
-    let written = write_codeplug(&mut file, req.channels, req.groups, req.model)?;
-
-    // Settings ride in the same file as the memories, so a codeplug export is
-    // also a settings write — the same arrangement as the ID-52's `.icf`.
-    // Nothing happens if the profile has none: an empty profile leaves the
-    // radio's own menu settings exactly as they were.
-    if let Some(json) = req.profile_settings {
-        let parsed: serde_json::Value = serde_json::from_str(json)
-            .map_err(|e| format!("This profile's settings are not valid JSON: {e}"))?;
-        if let Some(map) = parsed.as_object() {
-            super::settings::apply_settings(file.body_mut(), map);
-        }
-    }
-
+    let count = patch(&mut file)?;
     std::fs::write(path, file.to_bytes()).map_err(|e| format!("Could not write {path}: {e}"))?;
-    Ok(written)
+    Ok(count)
 }
 
 #[cfg(test)]

@@ -102,16 +102,18 @@ mod tests {
 
     /// The generic settings commands (3.6d) dispatch on these two accessors, so
     /// the read/write split is what decides which radios each command accepts.
-    /// The UV-5R reads settings but cannot write them on its own (its settings
-    /// ride along in the image `program_codeplug` uploads), which is exactly why
-    /// `SettingsReader` and `SettingsWriter` are separate traits. The FT5D does
+    /// The two traits stay separate because a radio can read settings without a
+    /// standalone write (the card radios read theirs off a file). Every cable
+    /// radio that can write settings now does so on its own as well — the
+    /// UV-5R and ID-5100 gained it (s136) so the Program dialog's Profile
+    /// option exists on all of them. The FT5D does
     /// neither: it is scaffolding until a modality is proven on the radio
     /// (issue #32), so it must not be offered a settings action at all.
     #[test]
     fn settings_capabilities_match_each_radios_reality() {
         for d in all_drivers() {
             let (expect_read, expect_write) = match d.key() {
-                "baofeng_uv5r" => (true, false),
+                "baofeng_uv5r" => (true, true),
                 // All three card radios: no cable, so no cable settings session.
                 // The FT5D's settings ride in its microSD backup, the ID-52's in
                 // its `.icf` and the TH-D75's in its `.d75`, none of which goes
@@ -145,12 +147,10 @@ mod tests {
                 // every exposed range was measured there rather than read off
                 // the published sheet that was wrong about five of them.
                 "kenwood_tmd710" => (true, true),
-                // ID-5100 (#49): reads, but no standalone write. Its settings
-                // live in the clone image, so they ride out inside the codeplug
-                // program (`carries_profile_settings`) exactly like the UV-5R —
-                // a separate settings write would be the same full clone and
-                // the same press-POWER restart.
-                "icom_id5100" => (true, false),
+                // ID-5100 (#49): both. Settings live in the clone image and ride
+                // out inside the codeplug program, AND write on their own (the
+                // same clone and press-POWER restart) for the Profile option.
+                "icom_id5100" => (true, true),
                 // MD-380 (#42): both. Settings live in the codeplug image, and
                 // a codeplug program carries the radio's own through untouched,
                 // so the profile's are a separate write — the AnyTone's shape.

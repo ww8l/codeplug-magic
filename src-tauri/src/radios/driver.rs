@@ -605,6 +605,21 @@ pub(crate) struct ExportRequest<'a> {
     pub profile_settings: Option<&'a str>,
 }
 
+/// Card formats whose file takes the profile's settings ON THEIR OWN: the
+/// radio's own file patched with settings only, every memory left as it is.
+/// The card counterpart of [`SettingsWriter`], reached through
+/// [`CodeplugExporter::as_card_settings_writer`].
+pub(crate) trait CardSettingsWriter {
+    /// Patch only `settings` into the radio's file at `target` — already
+    /// through [`CodeplugExporter::resolve_target`], so it follows exactly the
+    /// file rules the export does — returning the fields applied.
+    fn export_settings(
+        &self,
+        target: &str,
+        settings: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<usize, String>;
+}
+
 /// File-format exporters (CHIRP-style CSV, AnyTone dual-CSV bundle, …). The
 /// `export_format` key matches `radio_models.export_format`.
 pub(crate) trait CodeplugExporter {
@@ -613,6 +628,15 @@ pub(crate) trait CodeplugExporter {
 
     /// Write the codeplug file(s) rooted at `path`, returning channels written.
     fn export(&self, path: &str, req: &ExportRequest) -> Result<usize, String>;
+
+    /// The format's settings-only write, when its file can take the
+    /// profile's settings on their own (the card radios). Declared, not
+    /// inferred, like every other capability: a format either implements
+    /// [`CardSettingsWriter`] or it does not, so the profile page's button and
+    /// the write behind it cannot disagree.
+    fn as_card_settings_writer(&self) -> Option<&dyn CardSettingsWriter> {
+        None
+    }
 
     /// Extensions this exporter's finished file can end in, lowercase and
     /// without dots.
@@ -671,6 +695,9 @@ pub struct DriverCapabilities {
     pub after_write: Option<&'static str>,
     /// [`RadioDriver::usb_direct`]: no port picker; the radio is found by id.
     pub usb_direct: bool,
+    /// [`CodeplugExporter::as_card_settings_writer`]: the profile's settings
+    /// can be written into the radio's own card file without its memories.
+    pub write_card_settings: bool,
 }
 
 impl DriverCapabilities {
@@ -696,6 +723,9 @@ impl DriverCapabilities {
                 .as_image_programmer()
                 .and_then(ImageProgrammer::after_write_instruction),
             usb_direct: driver.usb_direct(),
+            write_card_settings: driver
+                .as_codeplug_exporter()
+                .is_some_and(|e| e.as_card_settings_writer().is_some()),
         }
     }
 }

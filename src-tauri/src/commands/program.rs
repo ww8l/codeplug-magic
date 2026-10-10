@@ -786,6 +786,71 @@ pub async fn write_radio_settings(
     Ok(report)
 }
 
+/// What a settings-only card write produced.
+#[derive(Serialize, Debug)]
+pub struct CardSettingsWritten {
+    /// Settings that now hold the profile's value.
+    pub fields_written: usize,
+    /// The file written — a new one beside the radio's saves, or the picked
+    /// file patched in place, by the format's own rule.
+    pub path: String,
+    /// Values left out because they are outside their schema's range (#87).
+    pub note: Option<String>,
+}
+
+/// Write a profile's settings into a card radio's own file, every memory left
+/// as the file has it — the card counterpart of [`write_radio_settings`]. The
+/// radio then loads the file from its own menu, exactly as after an export.
+///
+/// The target goes through the format's `resolve_target` and the same
+/// file-type check as a codeplug export, so it obeys the same file rules (a new
+/// file beside the saves, or the picked file in place with its `.orig`).
+#[tauri::command]
+pub async fn write_card_settings(
+    state: State<'_, AppState>,
+    profile_id: i64,
+    path: String,
+) -> Result<CardSettingsWritten, String> {
+    let target = profile_target(&state.pool, profile_id).await?;
+    let saved: Option<String> =
+        sqlx::query_scalar("SELECT non_channel_settings FROM radio_profiles WHERE id = ?1")
+            .bind(profile_id)
+            .fetch_optional(&state.pool)
+            .await
+            .estr()?
+            .flatten();
+    // After the last await: the exporter is not Sync, so it must not be held
+    // across one.
+    let exporter = target
+        .driver
+        .as_codeplug_exporter()
+        .filter(|e| e.as_card_settings_writer().is_some())
+        .ok_or_else(|| {
+            format!(
+                "{} has no card file that takes settings on their own.",
+                target.driver.display_name()
+            )
+        })?;
+    let saved = saved.ok_or(
+        "This profile has no saved settings to write. Load them from the radio's card, \
+         or set some, and Save first.",
+    )?;
+    let mut settings: serde_json::Value = serde_json::from_str(&saved)
+        .map_err(|e| format!("saved profile settings are not valid JSON: {e}"))?;
+    let dropped = crate::radios::settings_bounds::strip_out_of_range(&target.schema, &mut settings);
+    let map = settings.as_object().ok_or("saved profile settings are not an object")?;
+
+    let file = exporter.resolve_target(&path)?;
+    crate::commands::write_paths::check_write_target(&file, exporter.target_extensions())?;
+    let writer = exporter.as_card_settings_writer().expect("checked above");
+    let fields_written = writer.export_settings(&file, map)?;
+    Ok(CardSettingsWritten {
+        fields_written,
+        path: file,
+        note: crate::radios::settings_bounds::note_line(&dropped),
+    })
+}
+
 /// Push the DMR **call-sign database** (caller-ID / "UserDB") to a radio that
 /// has one: pull a capacity-capped, country/continent-prioritized batch from
 /// the local `dmr_users` library and hand it to the driver, which owns the

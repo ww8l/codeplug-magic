@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  CardSettingsWritten,
   Channel,
   ChannelFilter,
   ChannelInput,
@@ -367,6 +368,10 @@ export const api = {
   // card. Same decoded shape again. See radios/kenwood_thd75/settings.rs.
   readThd75SettingsFromCard: (path: string) =>
     invoke<RadioSettingsRead>("read_thd75_settings_from_card", { path }),
+  // A card radio's settings alone, patched into its own file on the card —
+  // every memory left as the file has it. The radio loads it from its menu.
+  writeCardSettings: (profileId: number, path: string) =>
+    invoke<CardSettingsWritten>("write_card_settings", { profileId, path }),
   writeRadioSettings: (port: string, profileId: number) =>
     invoke<SettingsWriteReport>("write_radio_settings", { port, profileId }),
   // One program command for every radio (3.6e). Dispatches on capability:

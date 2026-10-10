@@ -25,9 +25,9 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use crate::radios::driver::{SettingsCapture, SettingsReader};
+use crate::radios::driver::{SettingsCapture, SettingsReader, SettingsWriteReport, SettingsWriter};
 
-use super::{download, ident_radio, open_port, BaofengUv5r};
+use super::{backup_filename, download, ident_radio, open_port, upload_and_verify, BaofengUv5r};
 
 impl SettingsReader for BaofengUv5r {
     /// Download the full image and decode the profile's settings out of it. One
@@ -47,6 +47,106 @@ impl SettingsReader for BaofengUv5r {
             backup_ext: "img",
         })
     }
+}
+
+impl SettingsWriter for BaofengUv5r {
+    /// The profile's settings alone, channels untouched — the Program path's
+    /// own settings upload with the channel patch left out. Download and back
+    /// up, apply the settings to that image, upload the settings ranges (the
+    /// channels inside them go back exactly as read), then read back and compare
+    /// every written byte. Nothing is uploaded when no byte changed.
+    fn write_settings(
+        &self,
+        port: &str,
+        settings: &Value,
+        schema_json: &str,
+        backup_dir: &std::path::Path,
+    ) -> Result<SettingsWriteReport, String> {
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let backup_path = backup_dir.join(backup_filename("presettings", "", &stamp));
+        let mut p = open_port(port)?;
+        let (magic, ident) = ident_radio(&mut *p)?;
+        if !magic.starts_with("UV5R") {
+            return Err("the connected radio did not identify as a UV-5R".into());
+        }
+        let base = download(&mut *p, &ident)?;
+        std::fs::write(&backup_path, &base)
+            .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
+
+        let mut image = base.clone();
+        let settings_json =
+            serde_json::to_string(settings).map_err(|e| format!("invalid profile settings: {e}"))?;
+        let fields_written = apply_profile_settings(&mut image, schema_json, &settings_json)?;
+        let report = |verified, note| SettingsWriteReport {
+            fields_written,
+            verified: Some(verified),
+            note,
+            backup_path: backup_path.to_string_lossy().to_string(),
+            expected_path: None,
+            windows_written: Vec::new(),
+        };
+        if image == base {
+            return Ok(report(
+                true,
+                Some("every setting already matched the radio — nothing was written".into()),
+            ));
+        }
+
+        // Only the 16-byte blocks whose bytes changed. The settings ranges also
+        // hold every channel and name, and a settings write has no business
+        // re-sending them: a dropped cable would leave channels half-rewritten
+        // that were never meant to change.
+        let main = changed_runs(&base, &image, SETTINGS_MAIN_RANGES, super::main_offset);
+        let aux = changed_runs(&base, &image, SETTINGS_AUX_RANGES, super::aux_offset);
+
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let restore_hint = |e: String| {
+            crate::radios::driver::with_restore_hint(
+                e,
+                &backup_path,
+                "Restore it with \"Restore backup…\" in the Program dialog and pick that file.",
+            )
+        };
+        let checked = upload_and_verify(&mut *p, &image, &main, &aux).map_err(restore_hint)?;
+        Ok(match checked {
+            Ok((ok, note, _)) => report(ok, note),
+            Err(e) => report(
+                false,
+                Some(format!(
+                    "Settings written, but read-back verification could not run ({e}). \
+                     Power-cycle the radio and use Read to confirm."
+                )),
+            ),
+        })
+    }
+}
+
+/// The parts of `ranges` (radio addresses) whose bytes differ between two
+/// images, as runs of whole 0x10-byte blocks — the unit the radio is written
+/// in. A block past the end of either image (no aux data was read) is skipped.
+pub(crate) fn changed_runs(
+    before: &[u8],
+    after: &[u8],
+    ranges: &[(u16, u16)],
+    offset: fn(u16) -> usize,
+) -> Vec<(u16, u16)> {
+    let mut runs: Vec<(u16, u16)> = Vec::new();
+    for &(start, end) in ranges {
+        let mut addr = start;
+        while addr < end {
+            let off = offset(addr);
+            let differs = off + 0x10 <= before.len().min(after.len())
+                && before[off..off + 0x10] != after[off..off + 0x10];
+            if differs {
+                match runs.last_mut() {
+                    Some(last) if last.1 == addr => last.1 = addr + 0x10,
+                    _ => runs.push((addr, addr + 0x10)),
+                }
+            }
+            addr += 0x10;
+        }
+    }
+    runs
 }
 
 // Aux-block relocation: the bytes read from radio 0x1EC0 onward are stored in
@@ -559,6 +659,26 @@ fn read_text(image: &[u8], off: usize, len: usize) -> String {
         }
     }
     s.trim_end().to_string()
+}
+
+#[cfg(test)]
+mod narrow_tests {
+    use super::*;
+
+    /// One changed settings byte goes out as one 16-byte block — never the
+    /// channel block that shares its range.
+    #[test]
+    fn a_settings_write_sends_only_the_blocks_that_changed() {
+        let before = vec![0u8; 0x1808 + 0x140];
+        let mut after = before.clone();
+        after[super::super::main_offset(0x0E28) + 3] = 1; // in the settings struct
+        let runs = changed_runs(&before, &after, SETTINGS_MAIN_RANGES, super::super::main_offset);
+        assert_eq!(runs, [(0x0E20, 0x0E30)]);
+        after[super::super::main_offset(0x0E30)] = 1; // the next block: one run
+        let runs = changed_runs(&before, &after, SETTINGS_MAIN_RANGES, super::super::main_offset);
+        assert_eq!(runs, [(0x0E20, 0x0E40)]);
+        assert!(changed_runs(&before, &before, SETTINGS_MAIN_RANGES, super::super::main_offset).is_empty());
+    }
 }
 
 #[cfg(test)]

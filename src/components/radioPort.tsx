@@ -14,8 +14,12 @@ export function usePortChoice(usbPort: string | null, onError?: (e: string) => v
   const [ports, setPorts] = useState<PortInfo[]>([]);
   const [port, setPort] = useState(usbPort ?? "");
 
-  const refresh = async () => {
+  /// `forget` drops the current choice first — for after a radio that
+  /// reboots and re-enumerates USB on commit (the AnyTone), whose old port
+  /// name is gone.
+  const refresh = async (forget = false) => {
     if (usbPort) return;
+    if (forget) setPort("");
     try {
       const list = await api.listSerialPorts();
       setPorts(list);
@@ -68,7 +72,7 @@ export function PortSelect({
           </option>
         ))}
       </Select>
-      <Button variant="ghost" onClick={refresh} title="Rescan ports">
+      <Button variant="ghost" onClick={() => refresh()} title="Rescan ports">
         <RefreshCw size={14} />
       </Button>
     </div>

@@ -32,6 +32,8 @@
 pub(crate) mod anytone_atd890uv;
 pub(crate) mod baofeng_uv5r;
 pub(crate) mod binteradio_bt9000;
+#[cfg(test)]
+mod card_settings_write;
 pub(crate) mod driver;
 #[cfg(test)]
 pub(crate) mod fake_port;

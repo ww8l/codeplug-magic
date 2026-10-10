@@ -290,6 +290,7 @@ mod tests {
                 diagnostics: false,
                 after_write: None,
                 usb_direct: false,
+                write_card_settings: true,
             }
         );
     }
