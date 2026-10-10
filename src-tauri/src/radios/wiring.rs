@@ -330,9 +330,17 @@ fn the_profile_form_never_seeds_a_schema_default() {
     let start = profiles
         .find("export function seedValues(")
         .expect("no `seedValues` in src/lib/profiles.ts — repoint this guard rather than deleting it");
-    let body = &profiles[start..];
-    let body = &body[..body.find("\n}\n").expect("seedValues has no closing brace")];
-    let assigns: Vec<&str> = body.lines().filter(|l| l.contains("out[")).collect();
+    // Line-based, so the function ends at its closing brace on a CRLF checkout
+    // too — a `"\n}\n"` search is never found on Windows (see `readme_tables`).
+    let body: Vec<&str> = profiles[start..]
+        .lines()
+        .take_while(|l| l.trim_end_matches('\r') != "}")
+        .collect();
+    assert!(
+        body.len() < profiles[start..].lines().count(),
+        "seedValues has no closing brace"
+    );
+    let assigns: Vec<&str> = body.iter().copied().filter(|l| l.contains("out[")).collect();
     assert!(!assigns.is_empty(), "seedValues no longer assigns into `out` — repoint this guard");
     for line in assigns {
         assert!(
