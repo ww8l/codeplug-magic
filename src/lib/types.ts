@@ -202,6 +202,9 @@ export interface DriverCapabilities {
   /// The radio IS the USB device (the MD-380): no serial-port picker, and the
   /// driver finds it by its USB id.
   usb_direct: boolean;
+  /// The card file takes the profile's settings on their own (the card
+  /// radios' counterpart of `write_settings`).
+  write_card_settings: boolean;
 }
 
 // One field definition inside non_channel_settings_schema (JSON).
@@ -721,6 +724,15 @@ export interface AnytoneVerifyResult {
 // `SettingsWriteReport`). `verified` is null when the driver cannot read back
 // in the same session — the AnyTone reboots on commit, so it verifies via a
 // separate fresh-session byte-diff against `expected_path`.
+/// What a settings-only card write produced (`write_card_settings`).
+export interface CardSettingsWritten {
+  fields_written: number;
+  /// The file written: a new one beside the radio's saves, or the picked file
+  /// patched in place, by the format's own rule.
+  path: string;
+  note: string | null;
+}
+
 export interface SettingsWriteReport {
   fields_written: number;
   verified: boolean | null;

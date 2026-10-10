@@ -83,9 +83,13 @@ impl RadioDriver for IcomId5100 {
         Some(self)
     }
 
-    // No `SettingsWriter`: settings live in the clone image, so they are written
-    // by the codeplug program (`carries_profile_settings`). A standalone settings
-    // write would be the same full clone and the same press-POWER restart.
+    /// Settings on their own, channels untouched — the same full clone and
+    /// press-POWER restart as a program, offered so the Program dialog's
+    /// Profile option exists here as on every radio that can write settings.
+    /// A codeplug program still carries the profile's settings too.
+    fn as_settings_writer(&self) -> Option<&dyn crate::radios::driver::SettingsWriter> {
+        Some(self)
+    }
 }
 
 /// A fresh session for the next clone. Each clone is its own session, as in
@@ -141,6 +145,44 @@ fn read_back(port: &str) -> Result<Vec<u8>, String> {
             Err(_) => std::thread::sleep(Duration::from_secs(2)),
         }
     }
+}
+
+/// Clone `image` to the radio, then read it back once the operator has pressed
+/// POWER and count any written byte that did not stick. Shared by the codeplug
+/// program and the settings-only write so the two cannot drift.
+///
+/// An upload failure is an error, with `hint` attaching the backup path. The
+/// verification is non-fatal: the radio confirmed the clone, so a failed
+/// read-back is a reporting problem, returned as `(false, note)`.
+pub(super) fn clone_back_and_verify(
+    port: &str,
+    base: &[u8],
+    image: &[u8],
+    hint: impl Fn(String) -> String,
+) -> Result<(bool, Option<String>), String> {
+    let mut p = reopen(port).map_err(&hint)?;
+    protocol::upload(&mut *p, image).map_err(&hint)?;
+    drop(p);
+    Ok(match read_back(port) {
+        Ok(after) => match mismatches(base, image, &after) {
+            0 => (true, None),
+            n => (
+                false,
+                Some(format!(
+                    "The radio confirmed the write, but {n} bytes of what was written did \
+                     not read back the same. Power-cycle the radio and use Download to \
+                     confirm what it is holding."
+                )),
+            ),
+        },
+        Err(e) => (
+            false,
+            Some(format!(
+                "Write completed, but read-back verification could not run ({e}). \
+                 Power-cycle the radio and use Download to confirm."
+            )),
+        ),
+    })
 }
 
 /// Addresses that did not read back as written.
@@ -282,33 +324,8 @@ impl ImageProgrammer for IcomId5100 {
                  on the radio before this write.",
             )
         };
-        let mut p = reopen(port).map_err(restore_hint)?;
-        protocol::upload(&mut *p, &built.image).map_err(restore_hint)?;
-        drop(p);
-
-        // 4. Read back and verify. Non-fatal: the radio confirmed the clone, so
-        //    a failed read-back is a reporting problem, not a write problem.
-        let reread = read_back(port);
-        let (verified, note) = match reread {
-            Ok(after) => match mismatches(&base, &built.image, &after) {
-                0 => (true, None),
-                n => (
-                    false,
-                    Some(format!(
-                        "The radio confirmed the write, but {n} bytes of what was written did \
-                         not read back the same. Power-cycle the radio and use Download to \
-                         confirm what it is holding."
-                    )),
-                ),
-            },
-            Err(e) => (
-                false,
-                Some(format!(
-                    "Write completed, but read-back verification could not run ({e}). \
-                     Power-cycle the radio and use Download to confirm."
-                )),
-            ),
-        };
+        // 4. Upload, then read back and verify.
+        let (verified, note) = clone_back_and_verify(port, &base, &built.image, restore_hint)?;
 
         let channels_written = req.channels.len();
         Ok(CodeplugProgramReport {

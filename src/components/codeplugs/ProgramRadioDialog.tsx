@@ -12,6 +12,8 @@ import {
   Undo2,
   MemoryStick,
   Ear,
+  ListChecks,
+  Settings2,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import type {
@@ -20,6 +22,7 @@ import type {
   MemoryCard,
   CodeplugProgramReport,
   RadioIdent,
+  SettingsWriteReport,
 } from "../../lib/types";
 import { FooterClose, Modal } from "../overlays";
 import { PortSelect, usePortChoice } from "../radioPort";
@@ -32,6 +35,8 @@ import {
   useDriverCapabilities,
   type ProgramDialogProps,
   usbPortFor,
+  profileWriteBlocked,
+  savedSettingsEmpty,
 } from "../../lib/radioProgramming";
 
 // Shown on every exit the dialog refuses while a radio operation is running —
@@ -64,6 +69,7 @@ export function ProgramRadioDialog({
   codeplugId,
   codeplugName,
   model,
+  profileId,
 }: ProgramDialogProps) {
   const driverKey = driverKeyOf(model);
   const caps = useDriverCapabilities(driverKey || null);
@@ -97,12 +103,48 @@ export function ProgramRadioDialog({
   // be programmed over the cable". Same shape as #65: the gate existed, the
   // button just never consulted it.
   const canWriteOverCable = showCable && cableCapable;
+  // The Profile payload: the driver writes settings on its own (SettingsWriter).
+  const canWriteProfile = showCable && caps?.write_settings === true;
   // Cable or card — anything at all that ends with a codeplug on the radio.
   const canWriteAnything = canWriteOverCable || media != null;
   const [preview, setPreview] = useState<ExportPreview | null>(null);
   const [busy, setBusy] = useState<
-    null | "identify" | "download" | "program" | "restore" | "media"
+    null | "identify" | "download" | "program" | "restore" | "media" | "settings"
   >(null);
+  // What the write sends: the codeplug's channels, or the profile's settings.
+  // The same choice the AnyTone dialog offers, for every radio whose driver
+  // can write settings on its own — so no radio's settings live only in the
+  // profile editor while its channels live here.
+  const [payload, setPayload] = useState<"channels" | "profile">("channels");
+  const [settingsResult, setSettingsResult] = useState<SettingsWriteReport | null>(null);
+  const profileMode = canWriteProfile && payload === "profile";
+  // The Profile payload writes the SAVED profile, so the profile page's rule
+  // applies here too (`profileWriteBlocked`): a never-saved or empty profile
+  // has nothing to send, and must not open a radio session to change nothing.
+  // Unsaved edits live in the profile editor, out of this dialog's sight; the
+  // explanation below says it is the saved profile that goes out.
+  const [profileBlocked, setProfileBlocked] = useState<string | null>(null);
+  useEffect(() => {
+    if (!profileMode || profileId == null) {
+      setProfileBlocked(null);
+      return;
+    }
+    api
+      .getRadioProfile(profileId)
+      .then((p) =>
+        setProfileBlocked(
+          profileWriteBlocked(
+            {
+              neverSaved: !p.non_channel_settings,
+              dirty: false,
+              nothingSet: savedSettingsEmpty(p.non_channel_settings),
+            },
+            "radio",
+          ),
+        ),
+      )
+      .catch(() => setProfileBlocked(null));
+  }, [profileMode, profileId]);
   const [ident, setIdent] = useState<RadioIdent | null>(null);
   const [download, setDownload] = useState<DownloadResult | null>(null);
   const [program, setProgram] = useState<CodeplugProgramReport | null>(null);
@@ -126,6 +168,8 @@ export function ProgramRadioDialog({
     setIdent(null);
     setDownload(null);
     setProgram(null);
+    setPayload("channels");
+    setSettingsResult(null);
     setConfirming(false);
     setMediaWritten(null);
     setError(null);
@@ -145,10 +189,14 @@ export function ProgramRadioDialog({
   }, [open]);
 
   const run = async (
-    kind: "identify" | "download" | "program" | "restore" | "media",
+    kind: "identify" | "download" | "program" | "restore" | "media" | "settings",
     fn: () => Promise<void>,
   ) => {
     setError(null);
+    // A settings result belongs to the Profile write that produced it. Any
+    // other action leaves it stale — and a green "verified ✓" above a failed
+    // program is the worst kind of stale — so every other run clears it.
+    if (kind !== "settings") setSettingsResult(null);
     setBusy(kind);
     try {
       await fn();
@@ -170,6 +218,18 @@ export function ProgramRadioDialog({
     run("download", async () => {
       setProgram(null);
       setDownload(await api.downloadImage(driverKey, port));
+    });
+
+  const doWriteSettings = () =>
+    run("settings", async () => {
+      setConfirming(false);
+      setDownload(null);
+      setIdent(null);
+      setProgram(null);
+      if (profileId == null) {
+        throw "This codeplug has no radio profile — attach one under Codeplugs first.";
+      }
+      setSettingsResult(await api.writeRadioSettings(port, profileId));
     });
 
   const doProgram = () =>
@@ -282,8 +342,31 @@ export function ProgramRadioDialog({
         // TH-D72. The buttons an operator must reach at any moment, and the
         // confirm that answers them, belong in the footer.
         <>
+              {/* Confirm a settings write (the Profile payload) */}
+              {confirming && profileMode && (
+                <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/40">
+                  <div className="mb-2 flex items-center gap-1.5 font-semibold text-amber-800 dark:text-amber-300">
+                    <AlertTriangle size={14} /> Confirm settings write to {modelName}
+                  </div>
+                  <p className="text-amber-800 dark:text-amber-200">
+                    This writes the radio profile&rsquo;s saved settings to the radio.
+                    Channels, zones and contacts are not touched. A backup is saved
+                    first.
+                    {caps?.after_write && <strong> {caps.after_write}</strong>}
+                  </p>
+                  <div className="mt-3 flex justify-end gap-2">
+                    <Button variant="ghost" onClick={() => setConfirming(false)}>
+                      Cancel
+                    </Button>
+                    <Button variant="primary" onClick={doWriteSettings}>
+                      <Upload size={14} /> Write settings
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Confirm write */}
-              {confirming && (
+              {confirming && !profileMode && (
                 <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/40">
                   <div className="mb-2 flex items-center gap-1.5 font-semibold text-amber-800 dark:text-amber-300">
                     <AlertTriangle size={14} /> Confirm write to {modelName}
@@ -415,7 +498,22 @@ export function ProgramRadioDialog({
                       </Button>
                     </>
                   )}
-                  {canWriteOverCable && (
+                  {profileMode && (
+                    <Button
+                      variant="primary"
+                      onClick={() => setConfirming(true)}
+                      disabled={!port || busy !== null || profileId == null || profileBlocked !== null}
+                      title={
+                        profileId == null
+                          ? "Attach a radio profile to this codeplug first"
+                          : (profileBlocked ?? undefined)
+                      }
+                    >
+                      {busy === "settings" ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
+                      Write settings
+                    </Button>
+                  )}
+                  {canWriteOverCable && !profileMode && (
                     <Button
                       variant="primary"
                       onClick={() => setConfirming(true)}
@@ -455,7 +553,7 @@ export function ProgramRadioDialog({
             {/* Safety banner. Gated on the WRITE capability, not on
                 `showCable`: promising a backup-then-write-then-verify run for a
                 radio that cannot be written is worse than saying nothing. */}
-            {canWriteOverCable && (
+            {canWriteOverCable && !profileMode && (
               <div className="flex items-start gap-2 border-b border-sky-200 bg-sky-50 px-5 py-2.5 text-xs text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/40 dark:text-sky-300">
                 <ShieldCheck size={15} className="mt-px shrink-0" />
                 <span>
@@ -470,9 +568,8 @@ export function ProgramRadioDialog({
                   {caps?.programs_settings === false && caps?.write_settings && (
                     <>
                       {" "}
-                      This radio’s settings are written separately — open the
-                      profile under <strong>Radio Profiles</strong> and use{" "}
-                      <strong>Write to radio</strong>.
+                      This radio’s settings are written separately — choose{" "}
+                      <strong>Profile</strong> below.
                     </>
                   )}
                   {caps?.after_write && (
@@ -504,6 +601,76 @@ export function ProgramRadioDialog({
               </div>
             )}
 
+            {/* Payload picker — the AnyTone dialog's cards, for any radio whose
+                driver writes settings on its own. */}
+            {canWriteProfile && (
+              <div className="grid grid-cols-2 gap-2 px-5 pt-4">
+                {(
+                  [
+                    {
+                      id: "channels",
+                      icon: ListChecks,
+                      label: "Channel set",
+                      detail: caps?.programs_settings
+                        ? "This codeplug's channels, with the profile's settings — full replace."
+                        : "This codeplug's channels — full replace; the radio's settings are left alone.",
+                    },
+                    {
+                      id: "profile",
+                      icon: Settings2,
+                      label: "Profile",
+                      detail: "Radio menu settings from the profile — channels untouched.",
+                    },
+                  ] as const
+                ).map((p) => {
+                  const Icon = p.icon;
+                  const selected = payload === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      disabled={busy !== null}
+                      onClick={() => {
+                        setPayload(p.id);
+                        setConfirming(false);
+                      }}
+                      title={p.detail}
+                      className={
+                        selected
+                          ? "rounded-md border-2 border-sky-500 bg-sky-50 p-3 text-left dark:border-sky-400 dark:bg-sky-950/40"
+                          : "rounded-md border border-slate-200 p-3 text-left hover:border-sky-300 dark:border-slate-700 dark:hover:border-sky-700"
+                      }
+                    >
+                      <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                        <Icon size={14} className={selected ? "text-sky-600 dark:text-sky-400" : ""} />
+                        {p.label}
+                      </div>
+                      <div className="text-[10px] leading-snug text-slate-500 dark:text-slate-400">
+                        {p.detail}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {profileMode && (
+              <div className="mx-5 mt-3 rounded-md border border-slate-200 p-3 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                Writes this profile&rsquo;s saved radio settings (the ones from{" "}
+                <strong>Download from radio</strong> in the profile editor) to the{" "}
+                {modelName}. A setting left blank in the profile is left as the radio
+                has it, and the channel set is not touched.
+                {profileId == null && (
+                  <strong> This codeplug has no radio profile — attach one first.</strong>
+                )}
+                {profileBlocked && (
+                  <span className="mt-1 block text-amber-700 dark:text-amber-400">
+                    {profileBlocked}
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* No port to pick: the radio is found on the USB bus by its id. */}
             {showCable && usbDirect && (
               <div className="px-5 py-4 text-xs text-slate-600 dark:text-slate-300">
@@ -527,7 +694,7 @@ export function ProgramRadioDialog({
                 writes as soon as you click, so a "3 DMR channels are being
                 dropped" warning that only appears in the cable confirmation
                 never reaches half the radios. */}
-            {preview && (
+            {preview && !profileMode && (
               <div className={`space-y-2 px-5 ${showCable ? "" : "pt-4"}`}>
                 <div className="text-xs text-slate-600 dark:text-slate-300">
                   {/* The breakdown below is worth showing even for a radio
@@ -634,6 +801,16 @@ export function ProgramRadioDialog({
                 </span>
               </div>
             )}
+            {busy === "settings" && (
+              <div className="mx-5 mb-4 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
+                <Spinner className="h-3.5 w-3.5" />
+                <span>
+                  Backing up → writing settings → verifying… keep the radio on and
+                  the cable connected.
+                  {caps?.after_write && <strong> {caps.after_write}</strong>}
+                </span>
+              </div>
+            )}
             {busy === "restore" && caps?.after_write && (
               <div className="mx-5 mb-4 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
                 <Spinner className="h-3.5 w-3.5" />
@@ -687,6 +864,23 @@ export function ProgramRadioDialog({
                   backupPath={download.backup_path}
                   backupLabel="Backup saved"
                   channels={download.channels}
+                />
+              )}
+
+              {settingsResult && (
+                <ResultBlock
+                  ok={settingsResult.verified === true}
+                  heading={
+                    settingsResult.verified === true
+                      ? `Wrote ${settingsResult.fields_written} setting${settingsResult.fields_written === 1 ? "" : "s"} · verified ✓`
+                      : settingsResult.verified === null
+                        ? `Wrote ${settingsResult.fields_written} setting${settingsResult.fields_written === 1 ? "" : "s"} — this radio cannot read back in the same session`
+                        : `Wrote ${settingsResult.fields_written} setting${settingsResult.fields_written === 1 ? "" : "s"} — verification warning`
+                  }
+                  note={settingsResult.note ?? undefined}
+                  backupPath={settingsResult.backup_path}
+                  backupLabel="Pre-write backup"
+                  channels={[]}
                 />
               )}
 

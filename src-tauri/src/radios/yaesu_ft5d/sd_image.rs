@@ -75,7 +75,7 @@ use std::collections::HashMap;
 use crate::commands::export::{expanded_names, tx_frequency, CodeplugGroup, ExpandedChannel};
 use crate::error::MapErrString;
 use crate::models::RadioModel;
-use crate::radios::driver::{CodeplugExporter, ExportRequest};
+use crate::radios::driver::{CardSettingsWriter, CodeplugExporter, ExportRequest};
 
 use super::YaesuFt5d;
 
@@ -527,28 +527,73 @@ impl CodeplugExporter for YaesuFt5d {
     /// beside it as `BACKUP.dat.orig`, written once and never overwritten, so a
     /// second export cannot clobber the only pristine copy.
     fn export(&self, path: &str, req: &ExportRequest) -> Result<usize, String> {
-        let template = std::fs::read(path).map_err(|e| {
-            format!(
-                "Could not read {path}: {e}. Pick FT5D/BACKUP/BACKUP.dat on the \
-                 radio's microSD card — back the radio up first if it is not there."
-            )
-        })?;
-        let image = patch_backup(
-            &template,
-            req.channels,
-            req.groups,
-            req.model,
-            req.profile_settings,
-        )?;
-
-        let orig = format!("{path}.orig");
-        if !std::path::Path::new(&orig).exists() {
-            std::fs::write(&orig, &template)
-                .map_err(|e| format!("Could not save the original as {orig}: {e}"))?;
-        }
-        std::fs::write(path, &image).estr()?;
-        Ok(req.channels.len())
+        patch_in_place(path, |template| {
+            let image = patch_backup(
+                template,
+                req.channels,
+                req.groups,
+                req.model,
+                req.profile_settings,
+            )?;
+            Ok((image, req.channels.len()))
+        })
     }
+
+    fn as_card_settings_writer(&self) -> Option<&dyn CardSettingsWriter> {
+        Some(self)
+    }
+}
+
+impl CardSettingsWriter for YaesuFt5d {
+    /// The same file and rules as the export — in place, `.orig` kept once —
+    /// with only the settings applied and the checksum recomputed.
+    fn export_settings(
+        &self,
+        path: &str,
+        settings: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<usize, String> {
+        patch_in_place(path, |template| patch_settings(template, settings))
+    }
+}
+
+/// The FT5D's file rule, shared by the export and the settings-only write:
+/// read `path` (the operator's `BACKUP.dat`, which is what the radio's Restore
+/// menu reads), patch it, keep the untouched original as `.orig` — written once
+/// and never overwritten, so a second write cannot clobber the only pristine
+/// copy — and write the result back in place.
+fn patch_in_place(
+    path: &str,
+    patch: impl FnOnce(&[u8]) -> Result<(Vec<u8>, usize), String>,
+) -> Result<usize, String> {
+    let template = std::fs::read(path).map_err(|e| {
+        format!(
+            "Could not read {path}: {e}. Pick FT5D/BACKUP/BACKUP.dat on the \
+             radio's microSD card — back the radio up first if it is not there."
+        )
+    })?;
+    let (image, count) = patch(&template)?;
+    let orig = format!("{path}.orig");
+    if !std::path::Path::new(&orig).exists() {
+        std::fs::write(&orig, &template)
+            .map_err(|e| format!("Could not save the original as {orig}: {e}"))?;
+    }
+    std::fs::write(path, &image).estr()?;
+    Ok(count)
+}
+
+/// The settings half of [`patch_backup`] on its own: validate, apply the
+/// profile's settings, recompute the checksum. Every memory, flag and bank is
+/// the template's. Returns the image and the fields applied.
+pub(crate) fn patch_settings(
+    template: &[u8],
+    settings: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(Vec<u8>, usize), String> {
+    validate_backup(template)?;
+    let mut img = template.to_vec();
+    let n = super::settings::apply_settings(&mut img, settings);
+    // ★ Never optional: a wrong sum makes the radio factory-reset itself.
+    write_checksum(&mut img);
+    Ok((img, n))
 }
 
 #[cfg(test)]

@@ -52,6 +52,40 @@ export function usbPortFor(driverKey: string): string {
   return `usb:${driverKey}`;
 }
 
+/// Why a profile's settings cannot be written yet, or `null` when they can.
+/// One rule for every place that writes them — the profile page's radio and
+/// card bars and the Program dialog's Profile option: the radio is written
+/// from the SAVED profile, so unsaved edits block, and a profile holding no
+/// value at all (#128's blank start) has nothing to send.
+export function profileWriteBlocked(
+  state: { neverSaved: boolean; dirty: boolean; nothingSet: boolean },
+  destination: "radio" | "card",
+): string | null {
+  if (state.neverSaved) {
+    return `This profile has not been saved yet. The ${destination} is written from the saved profile, so Save first.`;
+  }
+  if (state.dirty) {
+    return `This profile has unsaved changes. The ${destination} is written from the saved profile, so Save first.`;
+  }
+  if (state.nothingSet) {
+    return "This profile holds no settings yet, so there is nothing to write.";
+  }
+  return null;
+}
+
+/// Whether saved `non_channel_settings` JSON holds no value at all — every
+/// field blank, the state a fresh profile starts in. Unparseable JSON is not
+/// "nothing": the write path reports it properly.
+export function savedSettingsEmpty(json: string | null | undefined): boolean {
+  if (!json) return true;
+  try {
+    const v = JSON.parse(json) as Record<string, unknown>;
+    return Object.values(v).every((x) => x === "" || x === null);
+  } catch {
+    return false;
+  }
+}
+
 /// Can this model be programmed over a cable at all? False for export-only
 /// models (NULL `driver_key`), which is what the generic dialog gates on.
 export function isProgrammable(model: RadioModel | null): boolean {

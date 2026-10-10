@@ -23,7 +23,9 @@
 
 use serde_json::{Map, Value};
 
-use crate::radios::driver::{SettingsCapture, SettingsReader};
+use crate::radios::driver::{
+    with_restore_hint, SettingsCapture, SettingsReader, SettingsWriteReport, SettingsWriter,
+};
 use crate::radios::icom_id52::settings::{apply_settings_with, decode_settings_with, SF, SK};
 
 use super::protocol;
@@ -276,6 +278,68 @@ fn enforce_limits(image: &[u8], applicable: &mut Map<String, Value>, notes: &mut
                  combination it does not allow, and resets itself."
             ));
         }
+    }
+}
+
+impl SettingsWriter for super::IcomId5100 {
+    /// The profile's settings alone, channels untouched: the codeplug
+    /// program's own steps with the channel build left out. Download and back
+    /// up, apply the settings, clone the image back, then read back once the
+    /// operator has pressed POWER (`after_write_instruction`) and count any
+    /// written byte that did not stick. Nothing is cloned when no byte changed.
+    fn write_settings(
+        &self,
+        port: &str,
+        settings: &Value,
+        _schema_json: &str,
+        backup_dir: &std::path::Path,
+    ) -> Result<SettingsWriteReport, String> {
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let backup_path = backup_dir.join(format!("id5100-presettings-{stamp}.img"));
+        let mut p = super::reopen(port)?;
+        let base = protocol::download(&mut *p)?;
+        std::fs::write(&backup_path, &base)
+            .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
+        drop(p);
+
+        let mut image = base.clone();
+        let (fields_written, notes) = apply(&mut image, settings);
+        let report = |verified, note: Option<String>| {
+            let note = match (note, notes.is_empty()) {
+                (n, true) => n,
+                (None, false) => Some(notes.join("; ")),
+                (Some(n), false) => Some(format!("{n} {}", notes.join("; "))),
+            };
+            SettingsWriteReport {
+                fields_written,
+                verified: Some(verified),
+                note,
+                backup_path: backup_path.to_string_lossy().to_string(),
+                expected_path: None,
+                windows_written: Vec::new(),
+            }
+        };
+        if image == base {
+            return Ok(report(
+                true,
+                Some("every setting already matched the radio — nothing was written".into()),
+            ));
+        }
+
+        // The backstop every upload passes: one memory the radio cannot hold
+        // makes it refuse the whole clone and factory-reset. These channels
+        // came off the radio, so this passes by construction — it stays anyway.
+        super::check_image(&image)?;
+
+        let restore_hint = |e: String| {
+            with_restore_hint(
+                e,
+                &backup_path,
+                "Keep that file. Put it back with \"Restore backup…\" in the Program dialog.",
+            )
+        };
+        let (verified, note) = super::clone_back_and_verify(port, &base, &image, restore_hint)?;
+        Ok(report(verified, note))
     }
 }
 

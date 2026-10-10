@@ -68,7 +68,7 @@
 
 use crate::commands::export::{expanded_names, CodeplugGroup, ExpandedChannel};
 use crate::models::RadioModel;
-use crate::radios::driver::{CodeplugExporter, ExportRequest};
+use crate::radios::driver::{CardSettingsWriter, CodeplugExporter, ExportRequest};
 
 use super::icf::IcfFile;
 use super::IcomId52;
@@ -317,18 +317,24 @@ impl CodeplugExporter for IcomId52 {
         if path.to_ascii_lowercase().ends_with(".csv") {
             return super::memory_csv::write_csv(path, req);
         }
-        // A target that does not exist yet is a NEW file on the card, and the
-        // template is the newest settings file sitting beside it. A target that
-        // does exist is the operator pointing at one file and meaning it.
-        let template = if std::path::Path::new(path).is_file() {
-            path.to_string()
-        } else {
-            let dir = std::path::Path::new(path)
-                .parent()
-                .ok_or("There is no folder to write into.")?;
-            newest_settings_file(dir)?
-        };
-        patch_icf(&template, path, req)
+        patch_icf(path, |icf| {
+            let written = write_codeplug(icf, req.channels, req.groups, req.model)?;
+            // Settings ride in the same file as the memories, so a codeplug
+            // export is also a settings write. Nothing happens if the profile
+            // has none — an empty profile leaves the radio's settings as they were.
+            if let Some(json) = req.profile_settings {
+                let parsed: serde_json::Value = serde_json::from_str(json)
+                    .map_err(|e| format!("This profile's settings are not valid JSON: {e}"))?;
+                if let Some(map) = parsed.as_object() {
+                    super::settings::apply_settings(icf.image_mut(), map);
+                }
+            }
+            Ok(written)
+        })
+    }
+
+    fn as_card_settings_writer(&self) -> Option<&dyn CardSettingsWriter> {
+        Some(self)
     }
 
     /// A folder means "make me a new file in here", named the way the radio
@@ -344,6 +350,20 @@ impl CodeplugExporter for IcomId52 {
         Ok(next_settings_file(std::path::Path::new(path))
             .to_string_lossy()
             .into_owned())
+    }
+}
+
+impl CardSettingsWriter for IcomId52 {
+    /// The `.icf` file rules of the export, with only the settings applied.
+    fn export_settings(
+        &self,
+        path: &str,
+        settings: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<usize, String> {
+        if path.to_ascii_lowercase().ends_with(".csv") {
+            return Err("A Memory CH .csv carries no settings — pick the .icf.".into());
+        }
+        patch_icf(path, |icf| Ok(super::settings::apply_settings(icf.image_mut(), settings)))
     }
 }
 
@@ -404,26 +424,32 @@ fn next_settings_file(dir: &std::path::Path) -> std::path::PathBuf {
 /// codeplug does not describe (the repeater list, DV call signs, Bluetooth
 /// pairings) has to survive the round trip. `.orig` is written once and never
 /// overwritten, so a second export cannot clobber the only pristine copy.
-fn patch_icf(template: &str, path: &str, req: &ExportRequest) -> Result<usize, String> {
-    let text = std::fs::read_to_string(template).map_err(|e| {
+/// The `.icf` file rule, shared by the export and the settings-only write.
+///
+/// A target that does not exist yet is a NEW file on the card, and the template
+/// is the newest settings file sitting beside it. A target that does exist is
+/// the operator pointing at one file and meaning it: it is patched in place,
+/// with the untouched original kept once as `.orig`.
+fn patch_icf(
+    path: &str,
+    patch: impl FnOnce(&mut IcfFile) -> Result<usize, String>,
+) -> Result<usize, String> {
+    let template = if std::path::Path::new(path).is_file() {
+        path.to_string()
+    } else {
+        let dir = std::path::Path::new(path)
+            .parent()
+            .ok_or("There is no folder to write into.")?;
+        newest_settings_file(dir)?
+    };
+    let text = std::fs::read_to_string(&template).map_err(|e| {
         format!(
-            "Could not read {path}: {e}. Pick a settings file the radio saved for \
+            "Could not read {template}: {e}. Pick a settings file the radio saved for \
              itself with SET > SD Card > Save Setting — they live in ID-52/Setting/."
         )
     })?;
     let mut icf = IcfFile::parse(&text)?;
-    let written = write_codeplug(&mut icf, req.channels, req.groups, req.model)?;
-
-    // Settings ride in the same file as the memories, so a codeplug export is
-    // also a settings write. Nothing happens if the profile has none — an empty
-    // profile leaves the radio's own settings exactly as they were.
-    if let Some(json) = req.profile_settings {
-        let parsed: serde_json::Value = serde_json::from_str(json)
-            .map_err(|e| format!("This profile's settings are not valid JSON: {e}"))?;
-        if let Some(map) = parsed.as_object() {
-            super::settings::apply_settings(icf.image_mut(), map);
-        }
-    }
+    let count = patch(&mut icf)?;
 
     // Only when we are overwriting the operator's file. Writing a NEW one leaves
     // theirs untouched by construction, so a `.orig` would be a copy of a file
@@ -436,7 +462,7 @@ fn patch_icf(template: &str, path: &str, req: &ExportRequest) -> Result<usize, S
         }
     }
     std::fs::write(path, icf.render()).map_err(|e| format!("Could not write {path}: {e}"))?;
-    Ok(written)
+    Ok(count)
 }
 
 /// Encode one memory. Field offsets are the measured ones; see FINDINGS.md.
