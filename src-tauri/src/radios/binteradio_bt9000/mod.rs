@@ -59,7 +59,7 @@ use serialport::{ClearBuffer, SerialPort};
 use crate::commands::export::SlotChannel;
 use crate::models::{Channel, RadioModel};
 use crate::radios::driver::{
-    CodeplugProgramReport, DecodedChannelSample, ImageProgramRequest, ImageProgrammer,
+    CodeplugProgramReport, DecodedChannelSample, ImageProgramRequest, ImageProgrammer, ImageReader,
     ImageRestorer, RadioDriver, RadioIdentity,
 };
 
@@ -957,6 +957,25 @@ impl ImageRestorer for BinteradioBt9000 {
     }
 }
 
+impl ImageReader for BinteradioBt9000 {
+    fn download_image(&self, port: &str) -> Result<(RadioIdentity, Vec<u8>), String> {
+        let mut p = open_port(port)?;
+        let hs = handshake(&mut *p)?;
+        let image = download(&mut *p, &hs)?;
+        Ok((
+            RadioIdentity {
+                matched: hs.model.clone(),
+                ident_hex: hex(&hs.probe),
+                ident_ascii: Some(hs.model),
+            },
+            image,
+        ))
+    }
+    fn decode_sample(&self, image: &[u8]) -> Vec<DecodedChannelSample> {
+        decode_channels(image).into_iter().map(decoded_to_sample).collect()
+    }
+}
+
 impl ImageProgrammer for BinteradioBt9000 {
     /// Yes. A codeplug program writes the profile's settings alongside the
     /// channels.
@@ -979,23 +998,7 @@ impl ImageProgrammer for BinteradioBt9000 {
         true
     }
 
-    fn download_image(&self, port: &str) -> Result<(RadioIdentity, Vec<u8>), String> {
-        let mut p = open_port(port)?;
-        let hs = handshake(&mut *p)?;
-        let image = download(&mut *p, &hs)?;
-        Ok((
-            RadioIdentity {
-                matched: hs.model.clone(),
-                ident_hex: hex(&hs.probe),
-                ident_ascii: Some(hs.model),
-            },
-            image,
-        ))
-    }
 
-    fn decode_sample(&self, image: &[u8]) -> Vec<DecodedChannelSample> {
-        decode_channels(image).into_iter().map(decoded_to_sample).collect()
-    }
 
     fn upload_image(&self, port: &str, image: &[u8]) -> Result<(), String> {
         validate_image(image)?;

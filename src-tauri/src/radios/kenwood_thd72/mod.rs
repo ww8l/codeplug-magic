@@ -55,7 +55,7 @@ use crate::commands::export::SlotChannel;
 use crate::models::RadioModel;
 use crate::radios::driver::{
     with_restore_hint, CodeplugProgramReport, DecodedChannelSample, ImageProgramRequest,
-    ImageProgrammer, ImageRestorer, RadioDriver, RadioIdentity,
+    ImageProgrammer, ImageReader, ImageRestorer, RadioDriver, RadioIdentity,
 };
 
 use container::check_thd72_image;
@@ -179,17 +179,19 @@ fn writable_blocks() -> Vec<usize> {
     (0..CALIBRATION_BASE / BLOCK_LEN).collect()
 }
 
-impl ImageProgrammer for KenwoodThd72 {
+impl ImageReader for KenwoodThd72 {
     fn download_image(&self, port: &str) -> Result<(RadioIdentity, Vec<u8>), String> {
         let mut p = protocol::open_port(port)?;
         let ident = protocol::identify(&mut *p)?;
         let image = protocol::download(&mut *p)?;
         Ok((ident, image))
     }
-
     fn decode_sample(&self, image: &[u8]) -> Vec<DecodedChannelSample> {
         program::decode_sample(image)
     }
+}
+
+impl ImageProgrammer for KenwoodThd72 {
 
     /// Write a whole image back, minus the calibration blocks.
     ///

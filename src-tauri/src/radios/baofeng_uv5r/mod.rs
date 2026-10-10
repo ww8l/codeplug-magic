@@ -29,7 +29,7 @@ use crate::commands::export::SlotChannel;
 use crate::error::MapErrString;
 use crate::models::{Channel, RadioModel};
 use crate::radios::driver::{
-    CodeplugProgramReport, DecodedChannelSample, ImageProgramRequest, ImageProgrammer,
+    CodeplugProgramReport, DecodedChannelSample, ImageProgramRequest, ImageProgrammer, ImageReader,
     ImageRestorer, RadioDriver, RadioIdentity,
 };
 
@@ -185,15 +185,7 @@ impl ImageRestorer for BaofengUv5r {
     }
 }
 
-impl ImageProgrammer for BaofengUv5r {
-    /// The UV-5R is the only radio here that answers yes. It has no standalone
-    /// settings-write path — `SettingsWriter` is deliberately not implemented —
-    /// so the profile's settings ride out inside the image this uploads, which
-    /// is exactly why the two halves are separate traits.
-    fn carries_profile_settings(&self) -> bool {
-        true
-    }
-
+impl ImageReader for BaofengUv5r {
     fn download_image(&self, port: &str) -> Result<(RadioIdentity, Vec<u8>), String> {
         let mut p = open_port(port)?;
         let (matched, ident) = ident_radio(&mut *p)?;
@@ -207,10 +199,21 @@ impl ImageProgrammer for BaofengUv5r {
             image,
         ))
     }
-
     fn decode_sample(&self, image: &[u8]) -> Vec<DecodedChannelSample> {
         decode_channels(image).into_iter().map(decoded_to_sample).collect()
     }
+}
+
+impl ImageProgrammer for BaofengUv5r {
+    /// The UV-5R is the only radio here that answers yes. It has no standalone
+    /// settings-write path — `SettingsWriter` is deliberately not implemented —
+    /// so the profile's settings ride out inside the image this uploads, which
+    /// is exactly why the two halves are separate traits.
+    fn carries_profile_settings(&self) -> bool {
+        true
+    }
+
+
 
     fn upload_image(&self, port: &str, image: &[u8]) -> Result<(), String> {
         if image.len() < MIN_IMAGE_LEN {

@@ -160,40 +160,20 @@ fn invert_tone(
     dcs_tx: Option<&str>,
     dcs_rx: Option<&str>,
 ) -> (AnytoneToneEdit, Vec<String>) {
-    let mut warnings = Vec::new();
-    let w = &mut warnings;
-    let mode = tone_mode.unwrap_or("off");
-    let tone = if mode.eq_ignore_ascii_case("off") || mode.is_empty() {
-        AnytoneToneEdit::default()
-    } else if mode.eq_ignore_ascii_case("Tone") {
-        AnytoneToneEdit {
-            tx: ctcss_side(up, "TX", w),
-            rx: None,
-        }
-    } else if mode.eq_ignore_ascii_case("TSQL") {
-        // Tone squelch keys on the downlink tone both ways.
-        let hz = down.or(up);
-        AnytoneToneEdit {
-            tx: ctcss_side(hz, "TX", w),
-            rx: ctcss_side(hz, "RX", w),
-        }
-    } else if mode.eq_ignore_ascii_case("DTCS") {
-        AnytoneToneEdit {
-            tx: dcs_side(dcs_tx, "TX", w),
-            rx: dcs_side(dcs_rx.or(dcs_tx), "RX", w),
-        }
-    } else if mode.eq_ignore_ascii_case("Cross") {
-        // Each side carries exactly one of CTCSS/DCS in the stored columns, so
-        // the sides invert independently of the cross_mode label.
-        let _ = cross_mode;
-        let tx = ctcss_side(up, "TX", w).or_else(|| dcs_side(dcs_tx, "TX", w));
-        let rx = ctcss_side(down, "RX", w).or_else(|| dcs_side(dcs_rx, "RX", w));
-        AnytoneToneEdit { tx, rx }
-    } else {
-        warnings.push(format!("unknown tone mode '{mode}' — programmed with no tone"));
-        AnytoneToneEdit::default()
-    };
-    (tone, warnings)
+    // The mode logic is shared with the MD-380 (`export::invert_chirp_tones`);
+    // only the encodings are this radio's. It ignores DCS polarity, as before.
+    let _ = cross_mode;
+    let (sides, warnings) = crate::commands::export::invert_chirp_tones(
+        tone_mode,
+        up,
+        down,
+        dcs_tx,
+        dcs_rx,
+        "NN",
+        |hz, side, w| ctcss_side(Some(hz), side, w),
+        |code, _inverted, side, w| dcs_side(Some(code), side, w),
+    );
+    (AnytoneToneEdit { tx: sides.tx, rx: sides.rx }, warnings)
 }
 
 /// Invert the import's power mapping: Low/Med/High/NULL → mode-byte power bits
@@ -1040,6 +1020,9 @@ fn run_program(
         note: "Written and committed — the radio reboots and re-enumerates USB. \
                Rescan, reselect the port, then run Verify against the expected image."
             .to_string(),
+        verified: None,
+        channels: Vec::new(),
+        skipped: Vec::new(),
     })
 }
 

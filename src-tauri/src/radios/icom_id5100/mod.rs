@@ -42,7 +42,7 @@ use crate::commands::export::SlotChannel;
 use crate::models::RadioModel;
 use crate::radios::driver::{
     with_restore_hint, CodeplugProgramReport, DecodedChannelSample, ImageProgramRequest,
-    ImageProgrammer, ImageRestorer, RadioDriver, RadioIdentity,
+    ImageProgrammer, ImageReader, ImageRestorer, RadioDriver, RadioIdentity,
 };
 
 use layout::{CHANNEL_COUNT, IMAGE_LEN, VOLATILE_BASE};
@@ -184,6 +184,17 @@ fn check_image(image: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+impl ImageReader for IcomId5100 {
+    fn download_image(&self, port: &str) -> Result<(RadioIdentity, Vec<u8>), String> {
+        let (mut p, ident) = open_identified(port)?;
+        let image = protocol::download(&mut *p)?;
+        Ok((ident, image))
+    }
+    fn decode_sample(&self, image: &[u8]) -> Vec<DecodedChannelSample> {
+        program::decode_sample(image)
+    }
+}
+
 impl ImageProgrammer for IcomId5100 {
     /// The profile's settings are in the image the program uploads, so they go
     /// out with the channels.
@@ -204,15 +215,7 @@ impl ImageProgrammer for IcomId5100 {
         )
     }
 
-    fn download_image(&self, port: &str) -> Result<(RadioIdentity, Vec<u8>), String> {
-        let (mut p, ident) = open_identified(port)?;
-        let image = protocol::download(&mut *p)?;
-        Ok((ident, image))
-    }
 
-    fn decode_sample(&self, image: &[u8]) -> Vec<DecodedChannelSample> {
-        program::decode_sample(image)
-    }
 
     fn upload_image(&self, port: &str, image: &[u8]) -> Result<(), String> {
         check_image(image)?;

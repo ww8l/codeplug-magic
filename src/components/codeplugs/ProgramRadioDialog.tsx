@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   RadioTower,
-  RefreshCw,
   Search,
   DownloadCloud,
   Upload,
@@ -19,19 +18,20 @@ import type {
   DownloadResult,
   ExportPreview,
   MemoryCard,
-  PortInfo,
   CodeplugProgramReport,
   RadioIdent,
 } from "../../lib/types";
 import { FooterClose, Modal } from "../overlays";
+import { PortSelect, usePortChoice } from "../radioPort";
 import { WarningList } from "./ReportWarnings";
-import { Button, Spinner, Select } from "../ui";
+import { Button, Spinner } from "../ui";
 import {
   driverKeyOf,
   isProgrammable,
   mediaWriteFor,
   useDriverCapabilities,
   type ProgramDialogProps,
+  usbPortFor,
 } from "../../lib/radioProgramming";
 
 // Shown on every exit the dialog refuses while a radio operation is running —
@@ -99,8 +99,6 @@ export function ProgramRadioDialog({
   const canWriteOverCable = showCable && cableCapable;
   // Cable or card — anything at all that ends with a codeplug on the radio.
   const canWriteAnything = canWriteOverCable || media != null;
-  const [ports, setPorts] = useState<PortInfo[]>([]);
-  const [port, setPort] = useState<string>("");
   const [preview, setPreview] = useState<ExportPreview | null>(null);
   const [busy, setBusy] = useState<
     null | "identify" | "download" | "program" | "restore" | "media"
@@ -116,16 +114,12 @@ export function ProgramRadioDialog({
   const [cards, setCards] = useState<MemoryCard[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const refreshPorts = async () => {
-    try {
-      const list = await api.listSerialPorts();
-      setPorts(list);
-      const usb = list.find((p) => p.kind === "usb");
-      setPort((cur) => cur || usb?.name || list[0]?.name || "");
-    } catch (e) {
-      setError(typeof e === "string" ? e : String(e));
-    }
-  };
+  // A radio that IS the USB device (the MD-380) has no port to pick. The
+  // driver finds it by id; the token still keys the backend's one-operation-
+  // at-a-time lock.
+  const usbDirect = caps?.usb_direct === true;
+  const choice = usePortChoice(usbDirect && driverKey ? usbPortFor(driverKey) : null, setError);
+  const { port } = choice;
 
   useEffect(() => {
     if (!open) return;
@@ -137,7 +131,7 @@ export function ProgramRadioDialog({
     setError(null);
     setBusy(null);
     setCards(null);
-    refreshPorts();
+    choice.refresh();
     if (media) {
       api
         .findMemoryCards(model?.export_format ?? "")
@@ -363,7 +357,7 @@ export function ProgramRadioDialog({
                     mean the driver can put one back, and this button used to
                     appear for any clone radio while the command behind it spoke
                     UV-5R only. */}
-                {showCable && caps?.program_image && (
+                {showCable && caps?.download_image && (
                   <Button onClick={doDownload} disabled={!port || busy !== null}>
                     {busy === "download" ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
                     Download backup
@@ -510,32 +504,22 @@ export function ProgramRadioDialog({
               </div>
             )}
 
+            {/* No port to pick: the radio is found on the USB bus by its id. */}
+            {showCable && usbDirect && (
+              <div className="px-5 py-4 text-xs text-slate-600 dark:text-slate-300">
+                Connect the programming cable and switch {modelName} on normally. It
+                connects over USB directly; there is no port to choose.
+              </div>
+            )}
+
             {/* Port picker */}
-            {showCable && (
-            <div className="flex items-end gap-2 px-5 py-4">
-              <label className="flex-1">
+            {showCable && !usbDirect && (
+              <div className="px-5 py-4">
                 <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Serial port
                 </span>
-                <Select
-                  className="w-full"
-                  value={port}
-                  onChange={(e) => setPort(e.target.value)}
-                >
-                  {ports.length === 0 && <option value="">No ports found</option>}
-                  {ports.map((p) => (
-                    <option key={p.name} value={p.name}>
-                      {p.name}
-                      {p.kind === "usb" ? "  ·  USB" : ""}
-                      {p.product ? `  ·  ${p.product}` : ""}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-              <Button variant="ghost" onClick={refreshPorts} title="Rescan ports">
-                <RefreshCw size={14} />
-              </Button>
-            </div>
+                <PortSelect usbPort={null} modelLabel={modelName} choice={choice} />
+              </div>
             )}
 
             {/* What this codeplug will actually do to the radio. Shown before
@@ -779,9 +763,12 @@ function ChannelNotice({
       </div>
       <div className="max-h-32 overflow-auto">
         <ul className="space-y-0.5">
-          {rows.map((r) => (
+          {/* Not keyed by channel_id alone: on a DMR radio one repeater
+              expands into a row per talkgroup, so several rows share an id
+              (the MD-380, #42, was the first DMR radio on this dialog). */}
+          {rows.map((r, i) => (
             <li
-              key={r.channel_id}
+              key={`${r.channel_id}-${i}`}
               className={`flex flex-wrap items-baseline gap-x-1.5 ${palette.body}`}
             >
               <span className="font-medium">{r.name || "—"}</span>

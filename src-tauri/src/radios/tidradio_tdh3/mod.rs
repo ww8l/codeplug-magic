@@ -36,7 +36,7 @@ use crate::commands::export::SlotChannel;
 use crate::error::MapErrString;
 use crate::models::{Channel, RadioModel};
 use crate::radios::driver::{
-    CodeplugProgramReport, DecodedChannelSample, ImageProgramRequest, ImageProgrammer,
+    CodeplugProgramReport, DecodedChannelSample, ImageProgramRequest, ImageProgrammer, ImageReader,
     ImageRestorer, RadioDriver, RadioIdentity, SettingsReader, SettingsWriter,
 };
 
@@ -191,7 +191,7 @@ impl ImageRestorer for TidradioTdh3 {
     }
 }
 
-impl ImageProgrammer for TidradioTdh3 {
+impl ImageReader for TidradioTdh3 {
     fn download_image(&self, port: &str) -> Result<(RadioIdentity, Vec<u8>), String> {
         let mut p = open_port(port)?;
         let ident = do_ident(&mut *p)?;
@@ -205,10 +205,12 @@ impl ImageProgrammer for TidradioTdh3 {
             image,
         ))
     }
-
     fn decode_sample(&self, image: &[u8]) -> Vec<DecodedChannelSample> {
         decode_channels(image).into_iter().map(decoded_to_sample).collect()
     }
+}
+
+impl ImageProgrammer for TidradioTdh3 {
 
     fn upload_image(&self, port: &str, image: &[u8]) -> Result<(), String> {
         if image.len() < MIN_IMAGE_LEN {

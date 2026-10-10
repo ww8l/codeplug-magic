@@ -176,6 +176,9 @@ export interface RadioModel {
 /// What a driver can actually do, derived on the Rust side from its trait impls
 /// (`driver_capabilities`). Gate UI on this rather than on model names.
 export interface DriverCapabilities {
+  /// Can read its whole image off for a backup (every clone radio, and the
+  /// MD-380, which is programmed from the codeplug but backs up an image).
+  download_image: boolean;
   program_image: boolean;
   /// Can put one of its own backups back on the radio. NOT implied by
   /// `program_image`, which only means a backup can be taken.
@@ -198,6 +201,9 @@ export interface DriverCapabilities {
   /// the program writes every value it holds into the radio's own image (the
   /// ID-5100). The card radios' rule, declared by a cable driver.
   settings_start_blank: boolean;
+  /// The radio IS the USB device (the MD-380): no serial-port picker, and the
+  /// driver finds it by its USB id.
+  usb_direct: boolean;
 }
 
 // One field definition inside non_channel_settings_schema (JSON).

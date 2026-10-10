@@ -24,6 +24,10 @@
 //! `kenwood_thd72` (issue #55) is a cable-clone radio like the UV-5R and TD-H3.
 //! Phase 2 — container plus memory encoder — only: it is not in `registry.rs`
 //! and claims no capabilities until the hardware ladder has run.
+//!
+//! `tyt_md380` (issue #42) is the first DMR radio after the AnyTone and the
+//! first with no serial port: the radio enumerates as an STM32 DFU device and
+//! its 256 KiB codeplug moves over USB control transfers.
 
 pub(crate) mod anytone_atd890uv;
 pub(crate) mod baofeng_uv5r;
@@ -45,6 +49,7 @@ pub(crate) mod port_lock;
 pub(crate) mod registry;
 pub(crate) mod settings_bounds;
 pub(crate) mod tidradio_tdh3;
+pub(crate) mod tyt_md380;
 #[cfg(test)]
 mod wiring;
 pub(crate) mod yaesu_ft5d;

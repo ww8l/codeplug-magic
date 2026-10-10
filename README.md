@@ -28,6 +28,7 @@ cable, or its microSD card — or exported as CSV for tools that expect it.
 | **Kenwood TH-D72** | APRS + Analog | 2 m / 70 cm TX, 118–174 / 320–524 MHz RX | Direct USB — read, write, settings | 1000 memories; 113 menu settings over the radio's own `MU` command |
 | **Kenwood TH-D75** | D-STAR + APRS + Analog | VHF / 1.25 m / UHF TX, 0.1–524 MHz RX | microSD — patches the radio's own `.d75` file | 1000 memories in 30 groups; memories and menu settings, including the APRS setup |
 | **Kenwood TM-D710** | APRS + Analog | 2 m / 70 cm TX, 118–524 MHz RX | Serial cable — read, write, settings | 1000 memories; 95 settings across **two transports** — 35 over the radio's `MU` command and 60 more, including the APRS position, status texts and station icon, out of the settings image `MU` cannot reach. Programmed live, one memory at a time over the COM port on the rear of the **operation panel** (not the main unit), so there is no image file and a backup is a transcript of the radio's own lines |
+| **TYT MD-380** | DMR + Analog | UHF (400–480 MHz) | Direct USB — read, write | 1000 channels in zones of 16, talkgroup contacts and scan lists. No serial port and, on macOS, no driver: the radio itself is the USB device. On Windows it uses the driver TYT's CPS installs — **not yet tested on a Windows PC with the radio attached** |
 | **Binteradio BT-9000** | Analog FM/NFM | 18–64 / 136–174 / 200–260 / 400–520 MHz TX, 18–520 MHz RX | Direct USB — read, write, settings | 960 channels in 15 fixed zones; 42 menu settings. Also sold as the Radtel RT-950 Pro, Bajeton BJ-9000 and Tenway TP-900 Pro — the radio reports itself as `RT-950` |
 
 Direct USB and cable programming reads the radio's current image, applies your changes, backs up
@@ -66,7 +67,6 @@ settings together, then verify on the actual radio before shipping.
 | **Icom IC-9100** | HF / VHF / UHF base | [#45](https://github.com/ww8l/codeplug-magic/issues/45) |
 | **Icom IC-7610** | HF / 6 m SDR base | [#46](https://github.com/ww8l/codeplug-magic/issues/46) |
 | **Quansheng UV-K5** | Analog handheld | [#44](https://github.com/ww8l/codeplug-magic/issues/44) |
-| **TYT MD-380** | DMR + Analog handheld | [#42](https://github.com/ww8l/codeplug-magic/issues/42) |
 | **Yaesu FT-891** | HF / 6 m mobile | [#53](https://github.com/ww8l/codeplug-magic/issues/53) |
 | **Yaesu FTM-300** | C4FM + Analog mobile | [#48](https://github.com/ww8l/codeplug-magic/issues/48) |
 | **Yaesu FTM-400** | C4FM + Analog mobile | [#52](https://github.com/ww8l/codeplug-magic/issues/52) |

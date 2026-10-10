@@ -1387,6 +1387,69 @@ fn render_chirp_csv(channels: &[&ExpandedChannel], model: &RadioModel) -> Result
 // Anytone CSV bundle (DMR-native)
 // ============================================================
 
+/// One side's sub-tone per radio, as each driver encodes it.
+pub(crate) struct ToneSides<T> {
+    pub tx: Option<T>,
+    pub rx: Option<T>,
+}
+
+/// The CHIRP-style tone columns (`tone_mode` off | Tone | TSQL | DTCS | Cross)
+/// as a TX and an RX sub-tone, for any radio. The driver supplies how it
+/// encodes a CTCSS frequency (`ctcss(hz, "TX"/"RX", warnings)`) and a DCS code
+/// (`dcs(octal_code, inverted, side, warnings)`, `inverted` from
+/// `dcs_polarity`, TX first); a side it cannot encode comes back `None` with a
+/// warning rather than failing the program. Warnings are unprefixed.
+///
+/// Written for the AnyTone, where it is tested as the exact inverse of that
+/// radio's import (`program.rs`, `tone_inversion_round_trips_…`), and shared
+/// with the MD-380 so the two DMR radios cannot drift apart. Cross ignores the
+/// `cross_mode` label: each side's stored columns hold exactly one of a CTCSS
+/// and a DCS value, so the sides invert independently.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn invert_chirp_tones<T>(
+    tone_mode: Option<&str>,
+    up: Option<f64>,
+    down: Option<f64>,
+    dcs_tx: Option<&str>,
+    dcs_rx: Option<&str>,
+    polarity: &str,
+    mut ctcss: impl FnMut(f64, &str, &mut Vec<String>) -> Option<T>,
+    mut dcs: impl FnMut(&str, bool, &str, &mut Vec<String>) -> Option<T>,
+) -> (ToneSides<T>, Vec<String>) {
+    let mut w = Vec::new();
+    let pol = polarity.as_bytes();
+    let (tx_inv, rx_inv) = (pol.first() == Some(&b'R'), pol.get(1) == Some(&b'R'));
+    let mode = tone_mode.unwrap_or("off");
+    let (tx, rx) = if mode.eq_ignore_ascii_case("off") || mode.is_empty() {
+        (None, None)
+    } else if mode.eq_ignore_ascii_case("Tone") {
+        (up.and_then(|hz| ctcss(hz, "TX", &mut w)), None)
+    } else if mode.eq_ignore_ascii_case("TSQL") {
+        // Tone squelch keys on the downlink tone both ways.
+        let hz = down.or(up);
+        (hz.and_then(|hz| ctcss(hz, "TX", &mut w)), hz.and_then(|hz| ctcss(hz, "RX", &mut w)))
+    } else if mode.eq_ignore_ascii_case("DTCS") {
+        (
+            dcs_tx.and_then(|c| dcs(c, tx_inv, "TX", &mut w)),
+            dcs_rx.or(dcs_tx).and_then(|c| dcs(c, rx_inv, "RX", &mut w)),
+        )
+    } else if mode.eq_ignore_ascii_case("Cross") {
+        let mut tx = up.and_then(|hz| ctcss(hz, "TX", &mut w));
+        if tx.is_none() {
+            tx = dcs_tx.and_then(|c| dcs(c, tx_inv, "TX", &mut w));
+        }
+        let mut rx = down.and_then(|hz| ctcss(hz, "RX", &mut w));
+        if rx.is_none() {
+            rx = dcs_rx.and_then(|c| dcs(c, rx_inv, "RX", &mut w));
+        }
+        (tx, rx)
+    } else {
+        w.push(format!("unknown tone mode '{mode}' — programmed with no tone"));
+        (None, None)
+    };
+    (ToneSides { tx, rx }, w)
+}
+
 /// Compute the actual transmit frequency from rx + duplex/offset, preferring an
 /// explicit tx_freq when present (e.g. odd splits).
 pub(crate) fn tx_frequency(c: &Channel) -> f64 {
