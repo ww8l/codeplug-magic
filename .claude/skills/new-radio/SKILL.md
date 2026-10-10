@@ -214,6 +214,11 @@ Then wire *both* ends, and check each off explicitly:
   (`src/components/profiles/ProfileEditor.tsx`) for a card radio
 - [ ] **`apply_settings` called by the export path**
 - [ ] the table↔schema agreement test
+- [ ] **every section names a `group`** — one of `SETTINGS_GROUPS` in
+      `src/lib/profiles.ts` (General, Display, Sounds, APRS…), so the radio's form
+      lands on the same tabs as every other radio's (#131). Keep the OEM's section
+      names as the labels; when an OEM section mixes subjects, give the odd field
+      its own `group`. `wiring.rs` refuses a missing or unknown one.
 
 - [ ] **the coverage check against step 1's menu census** — the schema's field
       count and groups reconciled against the menus the radio actually has, with

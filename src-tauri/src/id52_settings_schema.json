@@ -2,7 +2,8 @@
   {
     "key": "section-function",
     "label": "Function",
-    "type": "section"
+    "type": "section",
+    "group": "General"
   },
   {
     "key": "auto-power-off",
@@ -20,6 +21,7 @@
     "key": "auto-repeater",
     "label": "Auto Repeater",
     "type": "select",
+    "group": "Transmit & Receive",
     "options": [
       "Off",
       "Dup",
@@ -29,17 +31,20 @@
   {
     "key": "ptt-lock",
     "label": "PTT Lock",
-    "type": "boolean"
+    "type": "boolean",
+    "group": "Transmit & Receive"
   },
   {
     "key": "busy-channel-lockout",
     "label": "Busy Channel Lockout",
-    "type": "boolean"
+    "type": "boolean",
+    "group": "Transmit & Receive"
   },
   {
     "key": "time-out-timer",
     "label": "Time-Out Timer",
     "type": "select",
+    "group": "Transmit & Receive",
     "options": [
       "Off",
       "1",
@@ -75,6 +80,7 @@
     "key": "monitor",
     "label": "Monitor",
     "type": "select",
+    "group": "Transmit & Receive",
     "options": [
       "Push",
       "Hold"
@@ -99,12 +105,14 @@
   {
     "key": "tone-burst",
     "label": "Tone Burst",
-    "type": "boolean"
+    "type": "boolean",
+    "group": "Transmit & Receive"
   },
   {
     "key": "mic-gain-internal",
     "label": "Mic Gain Internal",
     "type": "select",
+    "group": "Transmit & Receive",
     "options": [
       "1",
       "2",
@@ -116,6 +124,7 @@
     "key": "mic-gain-external",
     "label": "Mic Gain External",
     "type": "select",
+    "group": "Transmit & Receive",
     "options": [
       "1",
       "2",
@@ -127,6 +136,7 @@
     "key": "sub-band-mute",
     "label": "Sub Band Mute",
     "type": "select",
+    "group": "Sounds",
     "options": [
       "Off",
       "Mute",
@@ -138,6 +148,7 @@
     "key": "volume-select",
     "label": "Volume Select",
     "type": "select",
+    "group": "Sounds",
     "options": [
       "All",
       "BC Radio Separate",
@@ -148,6 +159,7 @@
     "key": "heterodyne",
     "label": "Heterodyne",
     "type": "select",
+    "group": "Transmit & Receive",
     "options": [
       "Normal",
       "Reverse"
@@ -167,6 +179,7 @@
     "key": "tx-delay-ptt",
     "label": "Tx Delay, PTT (sec, 0 = OFF)",
     "type": "integer",
+    "group": "Transmit & Receive",
     "min": 0,
     "max": 10
   },
@@ -188,6 +201,7 @@
     "key": "lo-call-key",
     "label": "LO/Call Key",
     "type": "select",
+    "group": "Keys",
     "options": [
       "Standard",
       "ID-51"
@@ -202,6 +216,7 @@
     "key": "vhf-tx-power",
     "label": "VHF Tx Power",
     "type": "select",
+    "group": "Transmit & Receive",
     "options": [
       "High"
     ]
@@ -210,6 +225,7 @@
     "key": "uhf-tx-power",
     "label": "UHF Tx Power",
     "type": "select",
+    "group": "Transmit & Receive",
     "options": [
       "LO1",
       "High"
@@ -219,6 +235,7 @@
     "key": "squelch-a",
     "label": "Squelch A",
     "type": "select",
+    "group": "Transmit & Receive",
     "options": [
       "Open",
       "Auto",
@@ -237,6 +254,7 @@
     "key": "squelch-b",
     "label": "Squelch B",
     "type": "select",
+    "group": "Transmit & Receive",
     "options": [
       "Open",
       "Auto",
@@ -254,7 +272,8 @@
   {
     "key": "att-band-a",
     "label": "ATT (Band A)",
-    "type": "boolean"
+    "type": "boolean",
+    "group": "Transmit & Receive"
   },
   {
     "key": "att-fm-radio",
@@ -264,7 +283,8 @@
   {
     "key": "section-vox",
     "label": "VOX",
-    "type": "section"
+    "type": "section",
+    "group": "Transmit & Receive"
   },
   {
     "key": "vox-enable",
@@ -312,7 +332,8 @@
   {
     "key": "section-display",
     "label": "Display",
-    "type": "section"
+    "type": "section",
+    "group": "Display"
   },
   {
     "key": "busy-led",
@@ -532,7 +553,8 @@
   {
     "key": "section-sounds-and-speech",
     "label": "Sounds and Speech",
-    "type": "section"
+    "type": "section",
+    "group": "Sounds"
   },
   {
     "key": "standby-beep",
@@ -659,7 +681,8 @@
   {
     "key": "section-scan",
     "label": "Scan",
-    "type": "section"
+    "type": "section",
+    "group": "Scan"
   },
   {
     "key": "scan-pause-timer-a",
@@ -771,7 +794,8 @@
   {
     "key": "section-dv-d-star",
     "label": "DV (D-STAR)",
-    "type": "section"
+    "type": "section",
+    "group": "Digital"
   },
   {
     "key": "auto-reply",
@@ -884,7 +908,8 @@
   {
     "key": "section-gps",
     "label": "GPS",
-    "type": "section"
+    "type": "section",
+    "group": "GPS"
   },
   {
     "key": "gps-tx-mode",
@@ -1218,7 +1243,8 @@
   {
     "key": "section-weather-and-units",
     "label": "Weather and Units",
-    "type": "section"
+    "type": "section",
+    "group": "Display"
   },
   {
     "key": "temperature",
@@ -1263,6 +1289,7 @@
     "key": "wx-channel-a",
     "label": "Wx Channel (Band A)",
     "type": "integer",
+    "group": "General",
     "min": 0,
     "max": 9
   },
@@ -1270,13 +1297,15 @@
     "key": "wx-channel-b",
     "label": "Wx Channel (Band B)",
     "type": "integer",
+    "group": "General",
     "min": 0,
     "max": 9
   },
   {
     "key": "section-bluetooth-and-headset",
     "label": "Bluetooth and Headset",
-    "type": "section"
+    "type": "section",
+    "group": "Connections"
   },
   {
     "key": "bluetooth-on",
@@ -1390,7 +1419,8 @@
   {
     "key": "section-connectors-and-ci-v",
     "label": "Connectors and CI-V",
-    "type": "section"
+    "type": "section",
+    "group": "Connections"
   },
   {
     "key": "ci-v-address",
@@ -1437,7 +1467,8 @@
   {
     "key": "section-remote-microphone-keys",
     "label": "Remote Microphone Keys",
-    "type": "section"
+    "type": "section",
+    "group": "Keys"
   },
   {
     "key": "remote-mic-rx-a",
@@ -1554,7 +1585,8 @@
   {
     "key": "section-fix-frequencies",
     "label": "FIX Frequencies",
-    "type": "section"
+    "type": "section",
+    "group": "Transmit & Receive"
   },
   {
     "key": "fix-air",

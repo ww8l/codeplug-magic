@@ -2,7 +2,8 @@
  {
   "key": "section-vox",
   "label": "VOX",
-  "type": "section"
+  "type": "section",
+  "group": "Transmit & Receive"
  },
  {
   "key": "vox-level",
@@ -42,12 +43,14 @@
  {
   "key": "section-radio",
   "label": "Radio",
-  "type": "section"
+  "type": "section",
+  "group": "General"
  },
  {
   "key": "squelch",
   "label": "SQL",
   "type": "integer",
+  "group": "Transmit & Receive",
   "min": 1,
   "max": 9
  },
@@ -71,6 +74,7 @@
   "key": "tot",
   "label": "TOT",
   "type": "select",
+  "group": "Transmit & Receive",
   "options": [
    "OFF",
    "30sec",
@@ -87,6 +91,7 @@
   "key": "scan-mode",
   "label": "Scan Mode",
   "type": "select",
+  "group": "Scan",
   "options": [
    "Time",
    "Carrier",
@@ -106,12 +111,14 @@
  {
   "key": "tall",
   "label": "TALL",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Transmit & Receive"
  },
  {
   "key": "rp-ste",
   "label": "RP-STE",
   "type": "select",
+  "group": "Transmit & Receive",
   "options": [
    "OFF",
    "100ms",
@@ -130,6 +137,7 @@
   "key": "rpt-rl",
   "label": "RPT-RL",
   "type": "select",
+  "group": "Transmit & Receive",
   "options": [
    "OFF",
    "100ms",
@@ -148,6 +156,7 @@
   "key": "roger",
   "label": "ROGRE",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "OFF",
    "Beep",
@@ -158,6 +167,7 @@
   "key": "r-tone",
   "label": "R-TONE",
   "type": "select",
+  "group": "Transmit & Receive",
   "options": [
    "1000hz",
    "1450hz",
@@ -168,17 +178,20 @@
  {
   "key": "ab-rpt-mode",
   "label": "AB RPT-Mode",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Transmit & Receive"
  },
  {
   "key": "rpt-speaker",
   "label": "RPT-Speaker",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Transmit & Receive"
  },
  {
   "key": "section-vfo-ch",
   "label": "VFO&CH",
-  "type": "section"
+  "type": "section",
+  "group": "Display"
  },
  {
   "key": "mdf-a",
@@ -213,12 +226,14 @@
  {
   "key": "section-setting",
   "label": "Setting",
-  "type": "section"
+  "type": "section",
+  "group": "General"
  },
  {
   "key": "backlight",
   "label": "Back Light",
   "type": "select",
+  "group": "Display",
   "options": [
    "Bright",
    "5 sec",
@@ -234,17 +249,20 @@
  {
   "key": "beep",
   "label": "Beep Prompt",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Sounds"
  },
  {
   "key": "voice",
   "label": "Voice",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Sounds"
  },
  {
   "key": "language",
   "label": "Language",
   "type": "select",
+  "group": "Display",
   "options": [
    "English",
    "Chinese"
@@ -265,6 +283,7 @@
   "key": "power-on-display",
   "label": "Power On Display",
   "type": "select",
+  "group": "Display",
   "options": [
    "Picture",
    "Voltage"
@@ -274,6 +293,7 @@
   "key": "menu-timeout",
   "label": "Menu OutTime",
   "type": "select",
+  "group": "Display",
   "options": [
    "5 sec",
    "10 sec",
@@ -291,7 +311,8 @@
  {
   "key": "section-bluetooth",
   "label": "Bluetooth",
-  "type": "section"
+  "type": "section",
+  "group": "Connections"
  },
  {
   "key": "bluetooth",
@@ -301,7 +322,8 @@
  {
   "key": "section-signaling",
   "label": "Signaling",
-  "type": "section"
+  "type": "section",
+  "group": "DTMF & Signaling"
  },
  {
   "key": "dtmfst",
@@ -317,7 +339,8 @@
  {
   "key": "section-user-key",
   "label": "User Key",
-  "type": "section"
+  "type": "section",
+  "group": "Keys"
  },
  {
   "key": "pf1-short",

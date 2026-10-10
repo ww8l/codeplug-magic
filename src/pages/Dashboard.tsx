@@ -12,7 +12,7 @@ const STAT_CARDS = [
   { key: "total_scan_lists", label: "Scan Lists", icon: ScanLine },
   { key: "total_talkgroups", label: "Talkgroups", icon: Users },
   { key: "total_codeplugs", label: "Codeplugs", icon: Package },
-  { key: "total_radio_profiles", label: "Radios", icon: HandheldRadio },
+  { key: "total_radio_profiles", label: "Radio Profiles", icon: HandheldRadio },
 ] as const;
 
 export function Dashboard() {

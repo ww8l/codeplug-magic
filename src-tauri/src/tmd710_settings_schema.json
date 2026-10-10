@@ -2,7 +2,8 @@
   {
     "key": "section-audio-and-voice",
     "label": "Audio and Voice",
-    "type": "section"
+    "type": "section",
+    "group": "Sounds"
   },
   {
     "key": "key-beep",
@@ -92,7 +93,8 @@
   {
     "key": "section-receive-and-transmit",
     "label": "Receive and Transmit",
-    "type": "section"
+    "type": "section",
+    "group": "Transmit & Receive"
   },
   {
     "key": "vhf-aip",
@@ -146,7 +148,8 @@
   {
     "key": "section-memory-and-echolink",
     "label": "Memory and EchoLink",
-    "type": "section"
+    "type": "section",
+    "group": "Memory & VFO"
   },
   {
     "key": "memory-recall-method",
@@ -161,6 +164,7 @@
     "key": "echolink-speed",
     "label": "EchoLink speed (Menu 205)",
     "type": "select",
+    "group": "DTMF & Signaling",
     "options": [
       "Fast",
       "Slow"
@@ -169,7 +173,8 @@
   {
     "key": "section-dtmf",
     "label": "DTMF",
-    "type": "section"
+    "type": "section",
+    "group": "DTMF & Signaling"
   },
   {
     "key": "dtmf-hold",
@@ -207,7 +212,8 @@
   {
     "key": "section-repeater",
     "label": "Repeater",
-    "type": "section"
+    "type": "section",
+    "group": "Transmit & Receive"
   },
   {
     "key": "automatic-repeater-offset",
@@ -222,7 +228,8 @@
   {
     "key": "section-display",
     "label": "Display",
-    "type": "section"
+    "type": "section",
+    "group": "Display"
   },
   {
     "key": "power-on-message",
@@ -263,7 +270,8 @@
   {
     "key": "section-auxiliary",
     "label": "Auxiliary",
-    "type": "section"
+    "type": "section",
+    "group": "General"
   },
   {
     "key": "microphone-key-lock",
@@ -274,6 +282,7 @@
     "key": "scan-resume-method",
     "label": "Scan resume method (Menu 514)",
     "type": "select",
+    "group": "Scan",
     "options": [
       "Time-operated",
       "Carrier-operated",
@@ -297,6 +306,7 @@
     "key": "external-data-band",
     "label": "External data band (Menu 517)",
     "type": "select",
+    "group": "Connections",
     "options": [
       "A band",
       "B band",
@@ -308,6 +318,7 @@
     "key": "external-data-speed",
     "label": "External data speed (Menu 518)",
     "type": "select",
+    "group": "Connections",
     "options": [
       "1200 bps",
       "9600 bps"
@@ -317,6 +328,7 @@
     "key": "sqc-output-source",
     "label": "SQC output source (Menu 520)",
     "type": "select",
+    "group": "Connections",
     "options": [
       "Off",
       "Busy",
@@ -329,17 +341,20 @@
   {
     "key": "auto-pm-store",
     "label": "Auto PM store (Menu 521)",
-    "type": "boolean"
+    "type": "boolean",
+    "group": "Memory & VFO"
   },
   {
     "key": "display-partition-bar",
     "label": "Display partition bar (Menu 527)",
-    "type": "boolean"
+    "type": "boolean",
+    "group": "Display"
   },
   {
     "key": "section-aprs-basic",
     "label": "APRS Basic",
-    "type": "section"
+    "type": "section",
+    "group": "APRS"
   },
   {
     "key": "aprs-my-callsign",
@@ -359,7 +374,8 @@
   {
     "key": "section-aprs-internal-tnc",
     "label": "APRS Internal TNC",
-    "type": "section"
+    "type": "section",
+    "group": "APRS"
   },
   {
     "key": "aprs-data-band",
@@ -409,7 +425,8 @@
   {
     "key": "section-aprs-gps-and-waypoints",
     "label": "APRS GPS and Waypoints",
-    "type": "section"
+    "type": "section",
+    "group": "APRS"
   },
   {
     "key": "aprs-gps-baud",
@@ -476,7 +493,8 @@
   {
     "key": "section-aprs-my-position",
     "label": "APRS My Position",
-    "type": "section"
+    "type": "section",
+    "group": "APRS"
   },
   {
     "key": "aprs-position-1-name",
@@ -581,7 +599,8 @@
   {
     "key": "section-aprs-beacon-information",
     "label": "APRS Beacon Information",
-    "type": "section"
+    "type": "section",
+    "group": "APRS"
   },
   {
     "key": "aprs-speed-info",
@@ -630,7 +649,8 @@
   {
     "key": "section-aprs-status-text",
     "label": "APRS Status Text",
-    "type": "section"
+    "type": "section",
+    "group": "APRS"
   },
   {
     "key": "aprs-status-text-1",
@@ -745,7 +765,8 @@
   {
     "key": "section-aprs-packet-filter",
     "label": "APRS Packet Filter",
-    "type": "section"
+    "type": "section",
+    "group": "APRS"
   },
   {
     "key": "aprs-position-limit",
@@ -797,7 +818,8 @@
   {
     "key": "section-aprs-beacon-transmission",
     "label": "APRS Beacon Transmission",
-    "type": "section"
+    "type": "section",
+    "group": "APRS"
   },
   {
     "key": "aprs-station-icon",
@@ -846,7 +868,8 @@
   {
     "key": "section-aprs-voice-alert-and-timing",
     "label": "APRS Voice Alert and Timing",
-    "type": "section"
+    "type": "section",
+    "group": "APRS"
   },
   {
     "key": "aprs-voice-alert",
@@ -912,7 +935,8 @@
   {
     "key": "section-aprs-display-and-sound",
     "label": "APRS Display and Sound",
-    "type": "section"
+    "type": "section",
+    "group": "APRS"
   },
   {
     "key": "aprs-rx-beep",

@@ -114,47 +114,98 @@ export function modelModes(m: RadioModel): string[] {
   return modes;
 }
 
-/** One sub-tab of the settings form: a section heading and the fields under it. */
+/**
+ * The tabs every radio's settings form is split into, in the order they are
+ * drawn (#131). Each schema section names one of these as its `group`, and a
+ * field may name another when its OEM section mixes subjects — the TH-D75's
+ * "Common" holds TX power, scan resume and the backlight side by side. A radio
+ * shows only the tabs it has fields for.
+ *
+ * The OEM's own section names survive as headings inside a tab, so an operator
+ * matching the form against the manufacturer's software still finds the names
+ * they know. `wiring.rs` reads this list and refuses a schema whose section
+ * names a group that is not on it.
+ */
+export const SETTINGS_GROUPS = [
+  "General",
+  "Display",
+  "Sounds",
+  "Transmit & Receive",
+  "Memory & VFO",
+  "Scan",
+  "DTMF & Signaling",
+  "Keys",
+  "Digital",
+  "GPS",
+  "APRS",
+  "Connections",
+] as const;
+
+/** One sub-tab of the settings form: a group and the fields drawn under it. */
 export interface SettingsTab {
   key: string;
   label: string;
+  /** Section headings included, ready for `SettingsGrid`. */
   fields: SettingField[];
 }
 
 /**
- * Split a schema into sub-tabs on its section headings, or return null to leave
- * it as the single scroll it has always been.
+ * Split a schema into its `SETTINGS_GROUPS` tabs, or return null when it has
+ * no fields at all.
  *
- * Only schemas carrying an APRS section are split. Those radios keep their APRS
- * settings in tables — status texts, canned phrases, beacon objects — so their
- * field count runs away from the rest, and their own programming software
- * already presents APRS on tabs of its own. Splitting there matches what the
- * operator has seen before; splitting a radio with no APRS would just add a
- * click to a list that reads fine as one column.
+ * A field lands in its own `group` if it names one, else its section's. A tab
+ * draws its own sections first, under their OEM headings in schema order; only
+ * the first may drop a heading that would just repeat the tab's name, since a
+ * later one would read as part of the heading above it. Fields borrowed from
+ * another tab's section follow, under that section's heading — but only when
+ * the tab draws headings at all, so a tab made of borrowed fields (the TH-D75's
+ * Display, all from "Common") is not stamped with a name that says nothing.
  *
  * Tabs are presentation only. The form holds every field's value whether or not
  * its tab is on screen, so saving is unaffected by which one is open.
  */
 export function settingsTabs(fields: SettingField[]): SettingsTab[] | null {
-  const hasAprs = fields.some(
-    (f) => f.type === "section" && /^APRS\b/i.test(f.label),
-  );
-  if (!hasAprs) return null;
-
-  const tabs: SettingsTab[] = [];
+  const known = (g: string | undefined) =>
+    g && (SETTINGS_GROUPS as readonly string[]).includes(g) ? g : undefined;
+  // A section or group the list does not know falls to General rather than
+  // vanishing; the wiring guard keeps that from happening to a seeded radio.
+  const buckets = new Map<string, { section: SettingField | null; field: SettingField }[]>();
+  let section: SettingField | null = null;
   for (const f of fields) {
     if (f.type === "section") {
-      tabs.push({ key: f.key, label: f.label, fields: [] });
-    } else if (tabs.length > 0) {
-      tabs[tabs.length - 1].fields.push(f);
-    } else {
-      // A field ahead of the first heading. No schema does this today, but
-      // dropping it would hide a real setting, so it gets a tab of its own.
-      tabs.push({ key: "section-general", label: "General", fields: [f] });
+      section = f;
+      continue;
     }
+    const group = known(f.group) ?? known(section?.group) ?? "General";
+    if (!buckets.has(group)) buckets.set(group, []);
+    buckets.get(group)!.push({ section, field: f });
   }
-  // A heading with nothing under it would be an empty tab.
-  return tabs.filter((t) => t.fields.length > 0);
+  if (buckets.size === 0) return null;
+
+  return SETTINGS_GROUPS.filter((g) => buckets.has(g)).map((group) => {
+    const entries = buckets.get(group)!;
+    const owned = (s: SettingField | null) =>
+      (known(s?.group) ?? "General") === group;
+    const mine = entries.filter((e) => owned(e.section));
+    const borrowed = entries.filter((e) => !owned(e.section));
+    const out: SettingField[] = [];
+    let last: SettingField | null | undefined;
+    for (const { section, field } of mine) {
+      const first = section === mine[0].section;
+      if (section !== last && section && !(first && section.label === group))
+        out.push(section);
+      last = section;
+      out.push(field);
+    }
+    const headed = out.some((f) => f.type === "section");
+    last = undefined;
+    for (const { section, field } of borrowed) {
+      if (headed && section !== last && section) out.push(section);
+      last = section;
+      out.push(field);
+    }
+    return { key: `group-${group}`, label: group, fields: out };
+  });
 }
 
 /**

@@ -2,7 +2,8 @@
  {
   "key": "section-display",
   "label": "Display",
-  "type": "section"
+  "type": "section",
+  "group": "Display"
  },
  {
   "key": "lamp-timer",
@@ -37,7 +38,8 @@
  {
   "key": "section-battery",
   "label": "Battery",
-  "type": "section"
+  "type": "section",
+  "group": "General"
  },
  {
   "key": "battery-saver",
@@ -71,7 +73,8 @@
  {
   "key": "section-audio",
   "label": "Audio",
-  "type": "section"
+  "type": "section",
+  "group": "Sounds"
  },
  {
   "key": "key-beep",
@@ -99,7 +102,8 @@
  {
   "key": "section-radio",
   "label": "Radio",
-  "type": "section"
+  "type": "section",
+  "group": "Transmit & Receive"
  },
  {
   "key": "vhf-aip",
@@ -139,7 +143,8 @@
  {
   "key": "section-vox",
   "label": "VOX",
-  "type": "section"
+  "type": "section",
+  "group": "Transmit & Receive"
  },
  {
   "key": "vox",
@@ -175,7 +180,8 @@
  {
   "key": "section-memory",
   "label": "Memory",
-  "type": "section"
+  "type": "section",
+  "group": "Memory & VFO"
  },
  {
   "key": "recall-method",
@@ -189,7 +195,8 @@
  {
   "key": "section-scan",
   "label": "Scan",
-  "type": "section"
+  "type": "section",
+  "group": "Scan"
  },
  {
   "key": "scan-resume",
@@ -218,7 +225,8 @@
  {
   "key": "image-common1",
   "label": "Common 1",
-  "type": "section"
+  "type": "section",
+  "group": "General"
  },
  {
   "key": "common1-1144",
@@ -258,6 +266,7 @@
   "key": "common1-1029",
   "label": "Panel PF Key — PF1",
   "type": "select",
+  "group": "Keys",
   "options": [
    "WX",
    "GROUP UP",
@@ -423,6 +432,7 @@
   "key": "common1-1157",
   "label": "Lamp control",
   "type": "select",
+  "group": "Display",
   "options": [
    "Manual",
    "Auto"
@@ -431,7 +441,8 @@
  {
   "key": "image-common2",
   "label": "Common 2",
-  "type": "section"
+  "type": "section",
+  "group": "Transmit & Receive"
  },
  {
   "key": "common2-1186",
@@ -466,12 +477,14 @@
  {
   "key": "common2-1291",
   "label": "Display Memory Name",
-  "type": "boolean"
+  "type": "boolean",
+  "group": "Display"
  },
  {
   "key": "common2-1158",
   "label": "Sky Command II — Tone frequency",
   "type": "select",
+  "group": "General",
   "options": [
    "67.0",
    "69.3",
@@ -520,7 +533,8 @@
  {
   "key": "image-txrx",
   "label": "Tx / Rx / Repeater",
-  "type": "section"
+  "type": "section",
+  "group": "Transmit & Receive"
  },
  {
   "key": "txrx-1149",
@@ -614,7 +628,8 @@
  {
   "key": "image-dtmf",
   "label": "DTMF, EchoLink, Weather",
-  "type": "section"
+  "type": "section",
+  "group": "DTMF & Signaling"
  },
  {
   "key": "dtmf-1016",
@@ -648,7 +663,8 @@
  {
   "key": "image-gps",
   "label": "GPS",
-  "type": "section"
+  "type": "section",
+  "group": "GPS"
  },
  {
   "key": "gps-1257",
@@ -725,7 +741,8 @@
  {
   "key": "image-aprs1",
   "label": "APRS",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "aprs1-1168",
@@ -1048,7 +1065,8 @@
  {
   "key": "image-aprs2",
   "label": "APRS — stations",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "aprs2-1234",
@@ -1135,7 +1153,8 @@
  {
   "key": "image-aprs3",
   "label": "APRS — NAVITRA",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "aprs3-1303",

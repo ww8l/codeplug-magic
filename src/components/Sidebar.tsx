@@ -22,7 +22,7 @@ const NAV = [
   { to: "/talkgroups", label: "Talkgroups", icon: Users },
   { to: "/dmr-contacts", label: "DMR Contacts", icon: IdCard },
   { to: "/codeplugs", label: "Codeplugs", icon: Package },
-  { to: "/radio-profiles", label: "Radios", icon: HandheldRadio },
+  { to: "/radio-profiles", label: "Radio Profiles", icon: HandheldRadio },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 

@@ -1,8 +1,9 @@
 [
  {
   "key": "section-misc",
-  "label": "Misc",
-  "type": "section"
+  "label": "Display",
+  "type": "section",
+  "group": "Display"
  },
  {
   "key": "opening-message-flag",
@@ -25,6 +26,7 @@
   "key": "beep-settings-beep-select",
   "label": "Beep Select",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "Off",
    "Key+Scan",
@@ -87,7 +89,8 @@
  {
   "key": "section-digital-modes",
   "label": "Digital Modes",
-  "type": "section"
+  "type": "section",
+  "group": "Digital"
  },
  {
   "key": "mycall-callsign",
@@ -357,7 +360,8 @@
  {
   "key": "section-group-monitor-gm",
   "label": "Group Monitor(GM)",
-  "type": "section"
+  "type": "section",
+  "group": "Digital"
  },
  {
   "key": "first-settings-gm-ring",
@@ -382,12 +386,14 @@
  {
   "key": "section-scan",
   "label": "Scan",
-  "type": "section"
+  "type": "section",
+  "group": "Scan"
  },
  {
   "key": "squelch-vfo-a",
   "label": "VFO A Squelch",
   "type": "select",
+  "group": "Transmit & Receive",
   "options": [
    "0",
    "1",
@@ -411,6 +417,7 @@
   "key": "squelch-vfo-b",
   "label": "VFO B Squelch",
   "type": "select",
+  "group": "Transmit & Receive",
   "options": [
    "0",
    "1",
@@ -495,6 +502,7 @@
   "key": "scan-settings-tot",
   "label": "Transmit Timeout (TOT)",
   "type": "select",
+  "group": "Transmit & Receive",
   "options": [
    "Off",
    "0.5 min",
@@ -532,6 +540,7 @@
   "key": "scan-settings-busy-led",
   "label": "Busy LED",
   "type": "select",
+  "group": "Display",
   "options": [
    "Off",
    "On"
@@ -541,6 +550,7 @@
   "key": "scan-settings-vol-mode",
   "label": "Volume Mode",
   "type": "select",
+  "group": "Sounds",
   "options": [
    "Normal",
    "Auto Back"
@@ -549,7 +559,8 @@
  {
   "key": "section-dtmf",
   "label": "DTMF",
-  "type": "section"
+  "type": "section",
+  "group": "DTMF & Signaling"
  },
  {
   "key": "scan-settings-dtmf-delay",
@@ -584,7 +595,8 @@
  {
   "key": "section-aprs-general",
   "label": "APRS General",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "aprs-my-callsign-callsign",
@@ -783,7 +795,8 @@
  {
   "key": "section-aprs-receive",
   "label": "APRS Receive",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "aprs-rx-baud",
@@ -1108,7 +1121,8 @@
  {
   "key": "section-aprs-transmit",
   "label": "APRS Transmit",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "aprs-selected-beacon-status-txt",
@@ -1158,7 +1172,8 @@
  {
   "key": "section-aprs-smartbeacon",
   "label": "APRS SmartBeacon",
-  "type": "section"
+  "type": "section",
+  "group": "APRS"
  },
  {
   "key": "aprs-active-smartbeaconing",

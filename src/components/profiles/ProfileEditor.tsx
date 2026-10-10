@@ -668,9 +668,8 @@ function Capabilities({ model }: { model: RadioModel }) {
 }
 
 /**
- * The two-column field grid. Takes a flat list, so it draws either a whole
- * schema — headings included — or the fields of one sub-tab, which have had
- * their heading lifted into the tab button.
+ * The two-column field grid. Takes a flat list with its section headings
+ * already placed, so it draws a whole schema or one sub-tab alike.
  */
 function SettingsGrid({
   fields,
@@ -850,8 +849,8 @@ export function ProfileEditor({
   const [saving, setSaving] = useState(false);
 
   const fields = useMemo(() => parseSchema(model), [model]);
-  // Non-null only for the radios whose settings are split across sub-tabs —
-  // see `settingsTabs`. Null keeps the original single scroll.
+  // Every radio's settings split into the same named tabs — see
+  // `settingsTabs` (#131). Null only for a schema with no fields.
   const subTabs = useMemo(() => settingsTabs(fields), [fields]);
   const [subTab, setSubTab] = useState<string | null>(null);
   const openSubTab =
@@ -1100,11 +1099,11 @@ export function ProfileEditor({
             {model.driver_key === "anytone_atd890uv" && (
               <AnytoneBackupBar modelLabel={model.display_name} />
             )}
-            {fields.length === 0 ? (
+            {!openSubTab ? (
               <p className="text-xs text-slate-400">
                 This model has no configurable non-channel settings.
               </p>
-            ) : openSubTab ? (
+            ) : (
               /* Split across sub-tabs. Every field's value stays in `values`
                  whichever tab is open, so this changes what is drawn and
                  nothing about what is saved. */
@@ -1140,13 +1139,6 @@ export function ProfileEditor({
                   onChange={setValue}
                 />
               </div>
-            ) : (
-              <SettingsGrid
-                fields={fields}
-                values={values}
-                errors={rangeErrors}
-                onChange={setValue}
-              />
             )}
 
             <div className="space-y-1.5 pt-2">
