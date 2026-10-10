@@ -11,11 +11,8 @@
 //! full read, 1.2 s, the image identical to the Mac's read but for the one
 //! byte the radio itself rewrites.
 //!
-//! ⚠ THIS RUST PORT HAS NOT RUN ON WINDOWS. It compiles for
-//! x86_64-pc-windows-gnu (s136) and CI builds it, but no radio has been read or
-//! written through it. Tim will test it and say when the README's "not yet
-//! tested" note can go. `scratchpad/tyt_md380/wintest/` builds a standalone
-//! read/write exe from these same files for that test.
+//! This Rust port was then run by Tim on Windows with v26.10.10 (2026-10-10)
+//! and works.
 //!
 //! The app never installs or changes a driver (Tim, s136). With STTub30 absent
 //! the caller falls back to WinUSB via nusb — which works only if the user has
