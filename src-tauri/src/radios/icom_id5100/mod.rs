@@ -202,12 +202,6 @@ impl ImageProgrammer for IcomId5100 {
         true
     }
 
-    /// Settings are patched into the image just read, and the schema has no
-    /// defaults — so a form seeded with guesses would write every guess.
-    fn profile_starts_blank(&self) -> bool {
-        true
-    }
-
     fn after_write_instruction(&self) -> Option<&'static str> {
         Some(
             "When the write finishes, the radio asks to be restarted — press its POWER \
@@ -419,18 +413,6 @@ mod tests {
         assert_eq!(built.image[0x29AFC], 3);
         assert_eq!(&built.image[0x2215C..0x22164], b"WW8L    ");
         assert_eq!(built.image[0x29ACD], 1);
-    }
-
-    /// The profile editor seeds this radio's form blank: its program writes
-    /// every value the form holds into the radio's own image, and the schema
-    /// has no defaults, so a seeded guess would overwrite a real setting.
-    #[test]
-    fn a_new_profile_starts_blank() {
-        let caps = crate::radios::driver::DriverCapabilities::of(&DRIVER);
-        assert!(caps.settings_start_blank && caps.programs_settings);
-        let schema: Vec<serde_json::Value> =
-            serde_json::from_str(crate::seed::ID5100_SETTINGS_SCHEMA).unwrap();
-        assert!(schema.iter().all(|f| f.get("default").is_none()), "a default would be written");
     }
 
     #[test]

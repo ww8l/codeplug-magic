@@ -242,21 +242,6 @@ pub(crate) trait ImageProgrammer: ImageReader {
     fn after_write_instruction(&self) -> Option<&'static str> {
         None
     }
-
-    /// Whether a new profile's settings form must start BLANK rather than
-    /// seeded with schema defaults — the card radios' rule, for a cable radio
-    /// in the same position.
-    ///
-    /// True when the program patches the profile's settings into an image just
-    /// read off the radio (`carries_profile_settings`) and the schema carries no
-    /// defaults of its own: every value the form invented would then be WRITTEN,
-    /// replacing the operator's real setting. The ID-5100's first review found
-    /// exactly that — a profile opened and saved without "Download from radio"
-    /// would have blanked My Call Sign, unlinked every bank and zeroed Beep
-    /// Level on the next program (#49).
-    fn profile_starts_blank(&self) -> bool {
-        false
-    }
 }
 
 /// Attach the pre-write backup to an error raised DURING the write phase.
@@ -684,8 +669,6 @@ pub struct DriverCapabilities {
     pub diagnostics: bool,
     /// [`ImageProgrammer::after_write_instruction`], for the Program dialog.
     pub after_write: Option<&'static str>,
-    /// [`ImageProgrammer::profile_starts_blank`], for the profile editor.
-    pub settings_start_blank: bool,
     /// [`RadioDriver::usb_direct`]: no port picker; the radio is found by id.
     pub usb_direct: bool,
 }
@@ -712,9 +695,6 @@ impl DriverCapabilities {
             after_write: driver
                 .as_image_programmer()
                 .and_then(ImageProgrammer::after_write_instruction),
-            settings_start_blank: driver
-                .as_image_programmer()
-                .is_some_and(ImageProgrammer::profile_starts_blank),
             usb_direct: driver.usb_direct(),
         }
     }

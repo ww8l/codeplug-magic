@@ -197,10 +197,6 @@ export interface DriverCapabilities {
   /// What the operator must do at the radio after an upload (the ID-5100 asks
   /// for its POWER button). The driver's read-back waits on it.
   after_write: string | null;
-  /// A new profile's form must start BLANK, not seeded with schema defaults:
-  /// the program writes every value it holds into the radio's own image (the
-  /// ID-5100). The card radios' rule, declared by a cable driver.
-  settings_start_blank: boolean;
   /// The radio IS the USB device (the MD-380): no serial-port picker, and the
   /// driver finds it by its USB id.
   usb_direct: boolean;
@@ -213,7 +209,6 @@ export interface SettingField {
   // "section" is a full-width heading used to group the fields that follow it;
   // it carries no value and is skipped when seeding/saving settings.
   type: "text" | "integer" | "select" | "boolean" | "section";
-  default?: string | number | boolean;
   min?: number;
   max?: number;
   max_length?: number;

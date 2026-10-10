@@ -194,7 +194,6 @@ mod tests {
                 export: true,
                 diagnostics: false,
                 after_write: None,
-                settings_start_blank: false,
                 usb_direct: false,
             }
         );

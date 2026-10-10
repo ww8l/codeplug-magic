@@ -387,23 +387,29 @@ pub fn encode_anytone_settings(
     // mirrored Primary ID) with a BCD-BE id + UTF-16LE name, so encoded by hand.
     // Only touched when the profile actually carries a non-zero dmr-id, so a
     // profile without one never disturbs whatever ID is already on the radio.
+    // The name likewise: absent or blank leaves the radio's own name in place
+    // rather than writing an empty one over it (#128).
     if let Some(id) = obj.get(DMR_ID_KEY).and_then(as_u32).filter(|&id| id != 0) {
-        let name = obj
+        let name16 = obj
             .get(RADIO_NAME_KEY)
             .and_then(Value::as_str)
-            .unwrap_or_default();
+            .filter(|n| !n.is_empty())
+            .map(radio_name_encode);
         let bcd = bcd_be_encode(id);
-        let name16 = radio_name_encode(name);
         if let Some(buf) = regions.get_mut(&RADIO_ID_BASE) {
             if buf.len() >= 0x24 {
                 buf[0..4].copy_from_slice(&bcd);
-                buf[4..0x24].copy_from_slice(&name16);
+                if let Some(name16) = &name16 {
+                    buf[4..0x24].copy_from_slice(name16);
+                }
             }
         }
         if let Some(buf) = regions.get_mut(&PRIMARY_ID_BASE) {
             if buf.len() >= 0x27 {
                 buf[0..4].copy_from_slice(&bcd);
-                buf[4..0x24].copy_from_slice(&name16);
+                if let Some(name16) = &name16 {
+                    buf[4..0x24].copy_from_slice(name16);
+                }
                 buf[0x26] = 1; // Used flag
             }
         }
@@ -868,6 +874,51 @@ mod tests {
         z.insert(DMR_ID_KEY.into(), Value::from(0u32));
         let patches = encode_anytone_settings(&windows, &Value::Object(z)).unwrap();
         assert!(patches.is_empty());
+    }
+
+    #[test]
+    fn encode_keeps_the_radio_name_when_the_profile_has_none() {
+        // A profile that sets only the DMR ID must not blank the name already on
+        // the radio — absent and "" both mean "leave it alone" (#128).
+        let mut windows = vec![
+            (RADIO_ID_BASE, vec![0u8; 0x40]),
+            (PRIMARY_ID_BASE, vec![0u8; 0x40]),
+        ];
+        let name = radio_name_encode("My Radio");
+        for (_, buf) in &mut windows {
+            buf[4..0x24].copy_from_slice(&name);
+        }
+        for blank in [None, Some("")] {
+            let mut vals = Map::new();
+            vals.insert(DMR_ID_KEY.into(), Value::from(3_108_176u32));
+            if let Some(b) = blank {
+                vals.insert(RADIO_NAME_KEY.into(), Value::from(b));
+            }
+            let patches = encode_anytone_settings(&windows, &Value::Object(vals)).unwrap();
+            for base in [RADIO_ID_BASE, PRIMARY_ID_BASE] {
+                assert!(
+                    patches.iter().all(|p| {
+                        let end = p.addr + p.data.len() as u32;
+                        end <= base + 4 || p.addr >= base + 0x24
+                    }),
+                    "name bytes at {base:#x} were patched for radio-name {blank:?}"
+                );
+            }
+            // …while the DMR ID itself still goes out to both records, with the
+            // Primary ID's Used flag: keeping the name must not skip the ID.
+            let byte_at = |addr: u32| -> Option<u8> {
+                patches.iter().find_map(|p| {
+                    let end = p.addr + p.data.len() as u32;
+                    (addr >= p.addr && addr < end).then(|| p.data[(addr - p.addr) as usize])
+                })
+            };
+            for base in [RADIO_ID_BASE, PRIMARY_ID_BASE] {
+                for (i, b) in [0x03, 0x10, 0x81, 0x76].iter().enumerate() {
+                    assert_eq!(byte_at(base + i as u32), Some(*b), "DMR ID at {base:#x}");
+                }
+            }
+            assert_eq!(byte_at(PRIMARY_ID_BASE + 0x26), Some(1));
+        }
     }
 
     #[test]

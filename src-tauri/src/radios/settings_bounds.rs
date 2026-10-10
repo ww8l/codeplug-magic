@@ -35,6 +35,16 @@
 //! option list does not contain — that is how a value read off a radio this app
 //! cannot name survives a round trip — and text fields are cut to their field
 //! width by the encoder that knows the width.
+//!
+//! ## Blank values go first
+//!
+//! A blank — `""` or `null` — means "not set, leave the radio alone" (#128), and
+//! it is removed here, before any driver sees it, rather than skipped in each
+//! one. Several encoders refuse a blank outright (the TH-D72's and TM-D710's
+//! `encode_one` call `""` "not a number"), so a field the operator typed into
+//! and then cleared would otherwise fail the whole write. Profiles saved before
+//! the form stopped storing blanks still hold them, so the form alone is not
+//! enough.
 
 use serde_json::Value;
 
@@ -44,6 +54,10 @@ use serde_json::Value;
 /// A schema that will not parse is not this function's business — the driver
 /// that needs it reports that itself — so it changes nothing.
 pub(crate) fn strip_out_of_range(schema_json: &str, settings: &mut Value) -> Vec<String> {
+    // Not set, so written by nobody — and said by nobody: a blank is not a note.
+    if let Some(values) = settings.as_object_mut() {
+        values.retain(|_, v| !(v.is_null() || v.as_str() == Some("")));
+    }
     let Ok(schema) = serde_json::from_str::<Value>(schema_json) else {
         return Vec::new();
     };
@@ -60,8 +74,8 @@ pub(crate) fn strip_out_of_range(schema_json: &str, settings: &mut Value) -> Vec
         let Some(key) = field.get("key").and_then(Value::as_str) else {
             continue;
         };
-        // Absent, or blank — a card radio's profile starts with every field
-        // unset on purpose, and an unset field is written by nobody.
+        // Absent — every profile starts with its fields unset, and blanks are
+        // already gone — or not a number, which the encoder resolves itself.
         let Some(Value::Number(n)) = values.get(key) else {
             continue;
         };
@@ -168,14 +182,30 @@ mod tests {
     }
 
     /// A `select` holding a value its option list does not name is how a
-    /// setting read off a radio survives a round trip, and a card radio's
-    /// profile starts with every field blank. Neither is this check's business.
+    /// setting read off a radio survives a round trip. Not this check's business.
     #[test]
-    fn selects_blanks_and_missing_keys_pass_through_untouched() {
-        let before = json!({"save": "1:9", "abr": "", "callsign": "WW8LWW8L", "unknown": 900});
+    fn selects_and_missing_keys_pass_through_untouched() {
+        let before = json!({"save": "1:9", "callsign": "WW8LWW8L", "unknown": 900});
         let (after, notes) = strip(before.clone());
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(after, before);
+    }
+
+    /// A blank is "not set": removed before any encoder sees it, whatever the
+    /// field's type, and without a note — nothing the operator chose was
+    /// dropped. A cleared integer saved as `""` used to reach the TH-D72's
+    /// encoder and fail the whole write (#128).
+    #[test]
+    fn blanks_are_removed_silently() {
+        let (after, notes) = strip(json!({
+            "abr": "", "save": "", "callsign": "", "unknown": null, "squelch": 4
+        }));
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(after, json!({"squelch": 4}));
+        // Even when the schema cannot be read: the blank rule needs no schema.
+        let mut v = json!({"abr": "", "squelch": 4});
+        strip_out_of_range("not json", &mut v);
+        assert_eq!(v, json!({"squelch": 4}));
     }
 
     #[test]

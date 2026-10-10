@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   confirm as confirmDialog,
   open as openDialog,
@@ -120,6 +120,7 @@ function WriteToRadioBar({
   modelLabel,
   dirty,
   neverSaved,
+  nothingSet,
   usbPort,
 }: {
   profileId: number;
@@ -129,6 +130,10 @@ function WriteToRadioBar({
   /// the command would only error. Treated like `dirty`: same button, same
   /// instruction.
   neverSaved: boolean;
+  /// Saved, but holding no value at all — the normal state of a fresh profile
+  /// now that nothing is seeded (#128). A write would open a radio session to
+  /// change nothing, and the AnyTone reports that as an error.
+  nothingSet: boolean;
   usbPort: string | null;
 }) {
   const choice = usePortChoice(usbPort);
@@ -179,22 +184,26 @@ function WriteToRadioBar({
         <Button
           variant="primary"
           onClick={() => setConfirming(true)}
-          disabled={!port || busy || dirty || neverSaved}
+          disabled={!port || busy || dirty || neverSaved || nothingSet}
           title={
             dirty || neverSaved
               ? "Save this profile first — the radio gets the saved values"
-              : undefined
+              : nothingSet
+                ? "This profile holds no settings to write"
+                : undefined
           }
         >
           {busy ? <Spinner className="h-3.5 w-3.5" /> : <UploadCloud size={14} />}
           Write to radio
         </Button>
       </div>
-      {(dirty || neverSaved) && (
+      {(dirty || neverSaved || nothingSet) && (
         <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">
           {neverSaved
             ? "This profile has not been saved yet. The radio is written from the saved profile, so Save first."
-            : "This profile has unsaved changes. The radio is written from the saved profile, so Save first."}
+            : dirty
+              ? "This profile has unsaved changes. The radio is written from the saved profile, so Save first."
+              : "This profile holds no settings yet, so there is nothing to write. Download from the radio or set one, then Save."}
         </p>
       )}
       {confirming && (
@@ -698,6 +707,52 @@ function SettingsGrid({
   );
 }
 
+/// Unset is not Off. A blank boolean leaves the radio's own setting alone, so it
+/// shows as indeterminate rather than as an unchecked box that reads as "off" —
+/// the select's "— not set —" rule, for a checkbox — and a set one can be
+/// cleared back to that, since a click can only ever produce On or Off (#128).
+function BooleanField({
+  field,
+  value,
+  onChange,
+}: {
+  field: SettingField;
+  value: string | number | boolean;
+  onChange: (v: string | number | boolean) => void;
+}) {
+  const unset = value === "";
+  const box = useRef<HTMLInputElement>(null);
+  // `indeterminate` is a DOM property with no attribute, so React cannot set it.
+  useLayoutEffect(() => {
+    if (box.current) box.current.indeterminate = unset;
+  }, [unset]);
+  return (
+    <div className="group flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200">
+      <label className="flex items-center gap-2">
+        <input
+          ref={box}
+          type="checkbox"
+          checked={Boolean(value)}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        {field.label}
+      </label>
+      {unset ? (
+        <span className="text-slate-400 dark:text-slate-500">— not set —</span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          title="Leave this setting as it is on the radio"
+          className="text-[11px] text-slate-400 opacity-0 hover:text-slate-600 focus:opacity-100 group-hover:opacity-100 dark:text-slate-500 dark:hover:text-slate-300"
+        >
+          clear
+        </button>
+      )}
+    </div>
+  );
+}
+
 function SettingsField({
   field,
   value,
@@ -710,16 +765,7 @@ function SettingsField({
   onChange: (v: string | number | boolean) => void;
 }) {
   if (field.type === "boolean") {
-    return (
-      <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200">
-        <input
-          type="checkbox"
-          checked={Boolean(value)}
-          onChange={(e) => onChange(e.target.checked)}
-        />
-        {field.label}
-      </label>
-    );
+    return <BooleanField field={field} value={value} onChange={onChange} />;
   }
 
   const control =
@@ -731,13 +777,15 @@ function SettingsField({
         {/* A value the option list does not contain would otherwise display as
             the first option, which is a lie in both directions: an unset field
             would read as a real setting, and a value the radio holds but this
-            app cannot name would read as a different one. Both happen — a card
-            radio's profile starts blank on purpose, and an unrecognised stored
-            value decodes to its raw number. */}
-        {!(field.options ?? []).includes(String(value)) && (
-          <option value={String(value)}>
-            {String(value) === "" ? "— not set —" : `${value} (unrecognised)`}
-          </option>
+            app cannot name would read as a different one. Both happen — every
+            profile starts blank on purpose, and an unrecognised stored value
+            decodes to its raw number.
+
+            "— not set —" stays in the list once a value is picked, so a field
+            chosen by mistake can be put back to "leave the radio alone" (#128). */}
+        <option value="">— not set —</option>
+        {String(value) !== "" && !(field.options ?? []).includes(String(value)) && (
+          <option value={String(value)}>{`${value} (unrecognised)`}</option>
         )}
         {(field.options ?? []).map((o) => (
           <option key={o} value={o}>
@@ -808,18 +856,7 @@ export function ProfileEditor({
   const [subTab, setSubTab] = useState<string | null>(null);
   const openSubTab =
     subTabs?.find((t) => t.key === subTab) ?? subTabs?.[0] ?? null;
-  // Programmed from its own memory card, which means its settings are patched
-  // into a file that already holds the operator's — see the seeding note below.
-  //
-  // ⚠ Keyed on the MEDIA-WRITE map, not on CARD_SETTINGS_READERS. Whether a
-  // settings *reader* happens to be wired yet says nothing about whether this
-  // radio's file already holds the operator's settings — and the state where
-  // they diverge (a card radio with a schema but no decoder yet) is the normal
-  // intermediate state of every new-radio branch. Keying on the reader made
-  // that state seed ~300 schema defaults into a file the radio itself wrote.
-  // (#90)
-  const isCardRadio = mediaWriteForFormat(model?.export_format ?? null) !== null;
-  // Separately: whether "Download from radio" can be offered at all.
+  // Whether "Download from radio" can be offered for a card radio.
   const cardReader = model?.export_format
     ? CARD_SETTINGS_READERS[model.export_format]
     : undefined;
@@ -827,13 +864,6 @@ export function ProfileEditor({
   const caps = useDriverCapabilities(model?.driver_key ?? null);
   const usbPort =
     caps?.usb_direct && model?.driver_key ? usbPortFor(model.driver_key) : null;
-  // The card radios' rule, for a cable radio in the same position: its program
-  // writes every value the form holds into the radio's own image, so a field
-  // the operator never set must stay blank rather than become a schema default
-  // that then overwrites their radio (the ID-5100, #49). Declared by the
-  // driver; never a per-model branch here.
-  const startBlank = isCardRadio || caps?.settings_start_blank === true;
-
   // Form state, re-seeded whenever a different profile is selected.
   const [name, setName] = useState(profile.display_name);
   const [notes, setNotes] = useState(profile.notes ?? "");
@@ -849,41 +879,29 @@ export function ProfileEditor({
   // `write_radio_settings` sends the SAVED row, not the form.
   const [saved, setSaved] = useState<SettingsValues>({});
   const [lastId, setLastId] = useState<number | null>(null);
-  // Whether the current seed invented defaults. The driver's capabilities load
-  // asynchronously the first time a model is opened, so a form can be seeded
-  // before `startBlank` is known; see the re-seed below.
-  const [seededDefaults, setSeededDefaults] = useState(false);
   if (profile.id !== lastId) {
     setName(profile.display_name);
     setNotes(profile.notes ?? "");
-    // A card radio's settings are patched into the operator's own file, so this
-    // form must not invent values for fields they have never set — see
-    // `seedValues`. Read them off the card first, or leave them alone.
-    const seeded = seedValues(
-      fields,
-      parseSettings(profile.non_channel_settings),
-      !startBlank,
-    );
+    // Blank for every field the profile has never held, on every radio: a
+    // schema default would be written over the radio's real setting — see
+    // `seedValues`. Read them off the radio first, or leave them alone. (#128)
+    const seeded = seedValues(fields, parseSettings(profile.non_channel_settings));
     setValues(seeded);
     setBaseline(seeded);
     setSaved(seeded);
-    setSeededDefaults(!startBlank);
     setLastId(profile.id);
     setTab("settings");
     setSubTab(null);
-  } else if (seededDefaults && startBlank && values === baseline) {
-    // The capability arrived after the form was seeded with defaults, and the
-    // operator has not typed into it yet (`values` is still the very object the
-    // seed produced): re-seed blank. An edited form is left exactly as it is.
-    const seeded = seedValues(fields, parseSettings(profile.non_channel_settings), false);
-    setValues(seeded);
-    setBaseline(seeded);
-    setSaved(seeded);
-    setSeededDefaults(false);
   }
 
+  // A blank is "not set", and not set is ABSENT: a cleared field must not be
+  // saved as `""`, which some encoders refuse as a value (#128).
   const setValue = (key: string, v: string | number | boolean) =>
-    setValues((s) => ({ ...s, [key]: v }));
+    setValues((s) => {
+      if (v !== "") return { ...s, [key]: v };
+      const { [key]: _cleared, ...rest } = s;
+      return rest;
+    });
 
   // `write_radio_settings` sends the profile as STORED, so anything the form
   // holds that the database does not must block the write.
@@ -1059,6 +1077,7 @@ export function ProfileEditor({
                   modelLabel={model.display_name}
                   dirty={dirty}
                   neverSaved={!profile.non_channel_settings}
+                  nothingSet={Object.values(saved).every((v) => v === "")}
                   usbPort={usbPort}
                 />
               )}
