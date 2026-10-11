@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { useSearchParams } from "react-router-dom";
-import { Upload, Download, Plus, Search, X, Radio, Trash2, ListPlus, MapPin, BookMarked } from "lucide-react";
+import { Upload, Download, Plus, Search, X, Radio, Trash2, ListPlus, MapPin, BookMarked, CloudDownload, Clock } from "lucide-react";
 import { api, withToast } from "../lib/api";
 import { useOnlineGeocoding } from "../lib/prefs";
 import type { Channel, ChannelFilter, CityCentroid } from "../lib/types";
@@ -16,6 +16,8 @@ import {
 import { ColumnPicker } from "../components/channels/ColumnPicker";
 import { ChannelDetailPanel } from "../components/channels/ChannelDetailPanel";
 import { ImportDialog } from "../components/channels/ImportDialog";
+import { RepeaterBookDialog } from "../components/channels/RepeaterBookDialog";
+import { sourceLabel } from "../lib/repeaterbook";
 import { StandardListDialog } from "../components/channels/StandardListDialog";
 import { AddToListModal } from "../components/channels/AddToListModal";
 import {
@@ -74,6 +76,10 @@ export function Channels() {
   const [panelMode, setPanelMode] = useState<"edit" | "create">("edit");
   const [panelOpen, setPanelOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [rbOpen, setRbOpen] = useState(false);
+  // RepeaterBook API records not refreshed within 12 months (#136). The app
+  // flags them and asks the user to refresh or delete them.
+  const [staleIds, setStaleIds] = useState<number[]>([]);
   const [standardOpen, setStandardOpen] = useState(false);
   const [addToListOpen, setAddToListOpen] = useState(false);
 
@@ -106,6 +112,7 @@ export function Channels() {
   // Refresh the unfiltered list that backs the filter dropdowns.
   const loadFacets = useCallback(async () => {
     setAllChannels(await api.listChannels({}));
+    setStaleIds(await api.rbStaleChannelIds().catch(() => []));
   }, []);
   useEffect(() => {
     loadFacets();
@@ -135,6 +142,12 @@ export function Channels() {
     });
   }, [channels, origin, maxMiles, distanceById]);
 
+  // Stale RepeaterBook records the grid is actually showing.
+  const staleShown = useMemo(() => {
+    const shown = new Set(visibleChannels.map((c) => c.id));
+    return staleIds.filter((id) => shown.has(id));
+  }, [staleIds, visibleChannels]);
+
   const toggleSelect = (id: number) =>
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -161,12 +174,19 @@ export function Channels() {
       filters: [{ name: "Codeplug Magic channel backup", extensions: ["json"] }],
     });
     if (!path) return;
-    const n = await withToast(api.exportChannels(ids, path), {
-      error: "Export failed",
-    });
-    if (n !== undefined) {
+    // No fixed error text: the backend's says why (e.g. every selected
+    // repeater came from RepeaterBook).
+    const res = await withToast(api.exportChannels(ids, path));
+    if (res !== undefined) {
       const { toast } = await import("sonner");
-      toast.success(`Exported ${n} channel${n === 1 ? "" : "s"}`);
+      const n = res.written;
+      const left = res.excluded_repeaterbook;
+      toast.success(
+        `Exported ${n} channel${n === 1 ? "" : "s"}` +
+          (left
+            ? ` · ${left} RepeaterBook repeater${left === 1 ? "" : "s"} left out — RepeaterBook data only leaves the app as radio programming`
+            : ""),
+      );
     }
   };
 
@@ -318,7 +338,7 @@ export function Channels() {
   if (filter.state) chips.push({ key: "state", label: `State: ${filter.state}` });
   if (filter.operational_status)
     chips.push({ key: "operational_status", label: `Status: ${filter.operational_status}` });
-  if (filter.source) chips.push({ key: "source", label: `Source: ${filter.source}` });
+  if (filter.source) chips.push({ key: "source", label: `Source: ${sourceLabel(filter.source)}` });
 
   return (
     <>
@@ -347,6 +367,9 @@ export function Channels() {
             <Button onClick={() => setStandardOpen(true)}>
               <BookMarked size={14} /> Standard Lists
             </Button>
+            <Button onClick={() => setRbOpen(true)}>
+              <CloudDownload size={14} /> RepeaterBook
+            </Button>
             <Button onClick={() => setImportOpen(true)}>
               <Upload size={14} /> Import
             </Button>
@@ -356,6 +379,33 @@ export function Channels() {
           </>
         }
       />
+
+      {staleIds.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <Clock size={14} className="shrink-0" />
+          <span>
+            {staleIds.length} repeater{staleIds.length === 1 ? "" : "s"} from
+            RepeaterBook {staleIds.length === 1 ? "hasn't" : "haven't"} been
+            refreshed in over a year. Refresh each one from its detail panel, or
+            delete {staleIds.length === 1 ? "it" : "them"}.
+          </span>
+          {/* Only the ones on screen: selecting rows the filters hide would
+              let the Delete button remove repeaters nobody can see. */}
+          {staleShown.length > 0 && (
+            <Button onClick={() => setSelectedIds(new Set(staleShown))}>
+              {staleShown.length === staleIds.length
+                ? `Select ${staleIds.length === 1 ? "it" : "them"}`
+                : `Select the ${staleShown.length} shown`}
+            </Button>
+          )}
+          {staleShown.length < staleIds.length && (
+            <span className="text-amber-700/80 dark:text-amber-300/80">
+              {staleIds.length - staleShown.length} hidden by the current
+              filters.
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-2 dark:border-slate-700">
@@ -405,7 +455,9 @@ export function Channels() {
           >
             <option value="">Any source</option>
             {sources.map((s) => (
-              <option key={s}>{s}</option>
+              <option key={s} value={s}>
+                {sourceLabel(s)}
+              </option>
             ))}
           </Select>
         )}
@@ -472,11 +524,14 @@ export function Channels() {
           <EmptyState
             icon={<Radio size={40} strokeWidth={1.5} />}
             title="No repeaters yet"
-            description="Import a RepeaterBook CSV/JSON export or add a repeater manually to start building your master table."
+            description="Search RepeaterBook, import a RepeaterBook CSV/JSON export, or add a repeater manually to start building your master table."
             action={
               <div className="flex gap-2">
                 <Button onClick={() => setStandardOpen(true)}>
                   <BookMarked size={14} /> Standard Lists
+                </Button>
+                <Button onClick={() => setRbOpen(true)}>
+                  <CloudDownload size={14} /> RepeaterBook
                 </Button>
                 <Button onClick={() => setImportOpen(true)}>
                   <Upload size={14} /> Import
@@ -528,6 +583,11 @@ export function Channels() {
         }}
         sourceSuggestions={sources}
         cities={cities}
+      />
+      <RepeaterBookDialog
+        open={rbOpen}
+        onClose={() => setRbOpen(false)}
+        onImported={reload}
       />
       <ImportDialog
         open={importOpen}

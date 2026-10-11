@@ -872,6 +872,85 @@ export interface ImportSummary {
   updated: number;
   // Native-backup restore: existing channels left untouched (deduped).
   skipped: number;
+  // Native-backup restore: RepeaterBook API records the file held, refused
+  // because RepeaterBook data never moves between installs by file (#136).
+  excluded_repeaterbook?: number;
+}
+
+// ============================================================
+// RepeaterBook API (#136)
+// ============================================================
+
+/** What `export_channels` wrote, and how many RepeaterBook API records it left out. */
+export interface ChannelExportSummary {
+  written: number;
+  excluded_repeaterbook: number;
+}
+
+export interface RbStatus {
+  has_token: boolean;
+  library_count: number;
+  /** API records not refreshed within 12 months. */
+  stale_count: number;
+  max_results: number;
+  max_selected: number;
+  requests_last_hour: number;
+  requests_per_hour: number;
+  tokens_page: string;
+}
+
+export interface RbAreaInfo {
+  state_id: string;
+  name: string;
+  country: string;
+}
+
+export type RbArea =
+  | { kind: "region"; state_id: string }
+  | { kind: "country"; country: string };
+
+export interface RbResultRow extends ImportPreviewRow {
+  /** "api": already imported from the API (refreshed on import); "file": a
+   *  RepeaterBook file import has it (the import takes it over). */
+  in_library: "api" | "file" | null;
+}
+
+export interface RbSearchResult {
+  area: string;
+  matched: number;
+  too_many: boolean;
+  server_truncated: boolean;
+  from_cache: boolean;
+  rows: RbResultRow[];
+}
+
+export interface RbImportSummary {
+  added: number;
+  updated: number;
+  took_over: number;
+  library_count: number;
+}
+
+/** Ways to narrow a RepeaterBook search. Mirrors `RbFilters` in rb_api.rs. */
+export interface RbFilters {
+  /** Any of these bands matches. Empty: any band. */
+  band?: string[];
+  /** Any of these modes matches. Empty: any mode. */
+  mode?: string[];
+  county?: string | null;
+  city?: string | null;
+  callsign?: string | null;
+  on_air_only?: boolean;
+  open_only?: boolean;
+  /** Any of ARES, RACES, SKYWARN, CANWARN. */
+  emcomm?: string[];
+  near?: { latitude: number; longitude: number; miles: number } | null;
+  hide_in_library?: boolean;
+}
+
+export interface RbRemoved {
+  channels_deleted: number;
+  token_removed: boolean;
 }
 
 // ============================================================

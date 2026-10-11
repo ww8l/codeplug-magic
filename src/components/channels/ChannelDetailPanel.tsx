@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import clsx from "clsx";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
-import { Check, Copy, Trash2, Plus, X } from "lucide-react";
+import { Check, Copy, Trash2, Plus, X, RefreshCw } from "lucide-react";
 import { api, withToast } from "../../lib/api";
 import { useOnlineGeocoding } from "../../lib/prefs";
 import type {
@@ -38,6 +38,14 @@ import {
 import { SlideOver } from "../overlays";
 import { TalkgroupModal } from "../talkgroups/TalkgroupModal";
 import { Button, Select, TextInput, Badge } from "../ui";
+import {
+  RB_API_SOURCE,
+  RbAttribution,
+  fmtImportDate,
+  isRbSource,
+  isStale,
+  sourceLabel,
+} from "../../lib/repeaterbook";
 
 function blankInput(): ChannelInput {
   return {
@@ -561,9 +569,9 @@ export function ChannelDetailPanel({
         return;
       }
     }
-    const copy = await withToast(api.duplicateChannel(channel.id), {
-      error: "Could not copy channel",
-    });
+    // No fixed error text: the backend's explains a refusal (the RepeaterBook
+    // library cap, for a copy of a RepeaterBook record).
+    const copy = await withToast(api.duplicateChannel(channel.id));
     setSaving(false);
     if (copy) {
       const { toast } = await import("sonner");
@@ -586,6 +594,28 @@ export function ChannelDetailPanel({
     }
   };
 
+  // One request for this one record, made only because the user asked (#136).
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshFromRb = async () => {
+    if (!channel) return;
+    if (!sameInput(form, toInput(channel))) {
+      const ok = await confirmDialog(
+        "Refreshing reloads this repeater and discards the edits you haven't saved. Continue?",
+        { title: "Refresh from RepeaterBook", kind: "warning" },
+      );
+      if (!ok) return;
+    }
+    setRefreshing(true);
+    const res = await withToast(api.rbRefreshChannel(channel.id), {
+      success: "Refreshed from RepeaterBook",
+    });
+    setRefreshing(false);
+    if (res !== undefined) {
+      onSaved();
+      onClose();
+    }
+  };
+
   const remove = async () => {
     if (!channel) return;
     const label = channel.name_long || channel.name_short || channel.callsign || "this repeater";
@@ -603,7 +633,8 @@ export function ChannelDetailPanel({
     }
   };
 
-  const isRb = channel?.source === "repeaterbook";
+  const isRb = isRbSource(channel?.source);
+  const isRbApi = channel?.source === RB_API_SOURCE;
 
   // Tone-mode driven field visibility (CHIRP universal scheme). For Cross, the
   // two sides come from cross_mode "TX->RX"; otherwise each mode implies them.
@@ -657,7 +688,7 @@ export function ChannelDetailPanel({
                   : undefined
               }
             >
-              {channel.source}
+              {sourceLabel(channel.source)}
             </Badge>
             {channel.rb_name && (
               <span className="text-slate-500 dark:text-slate-400">
@@ -666,6 +697,37 @@ export function ChannelDetailPanel({
                   {channel.rb_name}
                 </span>
               </span>
+            )}
+            {isRbApi && (
+              <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-slate-500 dark:text-slate-400">
+                <RbAttribution />
+                <span>Imported {fmtImportDate(channel.last_rb_update)}</span>
+                {channel.repeaterbook_id ? (
+                  <Button
+                    className="ml-auto"
+                    onClick={refreshFromRb}
+                    disabled={refreshing || saving}
+                    title="Ask RepeaterBook for this one repeater's current listing"
+                  >
+                    <RefreshCw size={13} className={refreshing ? "animate-spin" : undefined} />
+                    Refresh
+                  </Button>
+                ) : (
+                  // A Duplicate of a RepeaterBook record: still RepeaterBook
+                  // data, but not the listing itself, so it can't be refreshed.
+                  <span className="w-full text-slate-500 dark:text-slate-400">
+                    A copy of a RepeaterBook repeater. Refresh the original;
+                    this copy keeps the values it was made with.
+                  </span>
+                )}
+                {isStale(channel.last_rb_update) && (
+                  <span className="w-full text-amber-700 dark:text-amber-300">
+                    {channel.repeaterbook_id
+                      ? "Not refreshed from RepeaterBook in over a year — refresh it, or delete it if you no longer need it."
+                      : "This copy's RepeaterBook data is over a year old — delete it if you no longer need it."}
+                  </span>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -700,11 +762,17 @@ export function ChannelDetailPanel({
               value={form.source ?? ""}
               placeholder="manual"
               onChange={(e) => set("source", e.target.value)}
+              // A RepeaterBook API record's source is what keeps it out of
+              // channel files and inside the library cap; it can't be edited.
+              readOnly={isRbApi}
+              title={isRbApi ? "Imported from the RepeaterBook API — the source can't be changed" : undefined}
             />
             <datalist id="channel-source-suggestions">
-              {sourceSuggestions.map((s) => (
-                <option key={s} value={s} />
-              ))}
+              {sourceSuggestions
+                .filter((s) => s !== RB_API_SOURCE)
+                .map((s) => (
+                  <option key={s} value={s} />
+                ))}
             </datalist>
           </Field>
         </Section>

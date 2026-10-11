@@ -81,6 +81,7 @@ fn fatal_startup_error(app: &tauri::App, message: String) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // Database lives in the platform app-data directory.
             let data_dir = match app.path().app_data_dir() {
@@ -127,6 +128,16 @@ pub fn run() {
             commands::import::import_csv,
             commands::import::preview_json_import,
             commands::import::import_json,
+            // RepeaterBook API (#136)
+            commands::rb_api::rb_status,
+            commands::rb_api::rb_areas,
+            commands::rb_api::rb_set_token,
+            commands::rb_api::rb_remove_token,
+            commands::rb_api::rb_search,
+            commands::rb_api::rb_import,
+            commands::rb_api::rb_refresh_channel,
+            commands::rb_api::rb_stale_channel_ids,
+            commands::rb_api::rb_remove_all_data,
             // any other CSV: map its columns to channel fields (#115)
             commands::csv_map::inspect_csv,
             commands::csv_map::preview_mapped_csv,

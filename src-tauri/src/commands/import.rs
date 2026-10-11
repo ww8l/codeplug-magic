@@ -27,7 +27,7 @@ use crate::util::{
 ///
 /// Only the premium JSON carries link node numbers, and only the wide CSV
 /// carries Operational Status, so every export is missing something here.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct SourceColumns {
     /// allstar_node, echolink_node, irlp_node, wires_node.
     pub(crate) link_nodes: bool,
@@ -41,7 +41,10 @@ pub(crate) struct SourceColumns {
 /// A single RepeaterBook record (from CSV or JSON) parsed and mapped into our
 /// schema, ready to be inserted or previewed. Serialized directly to the import
 /// preview so the UI can show every field that will be imported.
-#[derive(Debug, Clone, Serialize)]
+///
+/// `Deserialize` is for the RepeaterBook API import (#136), where the operator
+/// picks rows from a preview and the dialog hands the picked ones back.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedChannel {
     pub(crate) repeaterbook_id: String,
     pub(crate) rb_name: String,
@@ -92,6 +95,8 @@ pub struct ParsedChannel {
     pub(crate) longitude: Option<f64>,
     pub(crate) notes: Option<String>,
     /// Not part of the preview: this describes the *export*, not the channel.
+    /// Skipped both ways, so a row handed back by the UI arrives all-false and
+    /// the importer that receives it must set the truth itself.
     #[serde(skip)]
     pub(crate) covers: SourceColumns,
 }
@@ -204,7 +209,22 @@ async fn insert_parsed(
 ) -> Result<ImportSummary, String> {
     let mut conn = pool.acquire().await.estr()?;
     let mut tx = conn.begin().await.estr()?;
+    let (added, updated) = insert_parsed_tx(&mut tx, parsed, "repeaterbook").await?;
+    tx.commit().await.estr()?;
+    Ok(ImportSummary { added, updated, skipped: 0, excluded_repeaterbook: 0 })
+}
 
+/// Insert or merge `parsed` inside the caller's transaction, stamping new rows
+/// with `source`. Returns `(added, updated)`.
+///
+/// The file importers pass `repeaterbook`; the API importer passes
+/// `repeaterbook_api` and does its own cap check in the same transaction, so
+/// the count it checked is the count that commits.
+pub(crate) async fn insert_parsed_tx(
+    tx: &mut sqlx::SqliteConnection,
+    parsed: &[ParsedChannel],
+    source: &str,
+) -> Result<(usize, usize), String> {
     let mut added = 0usize;
     let mut updated = 0usize;
 
@@ -226,7 +246,7 @@ async fn insert_parsed(
         .await
         .estr()?;
         if let Some(ex) = existing {
-            merge_existing(&mut tx, &ex, p).await?;
+            merge_existing(tx, &ex, p).await?;
             updated += 1;
             continue;
         }
@@ -256,7 +276,7 @@ async fn insert_parsed(
                 ?24, ?25, ?26, ?27,
                 ?28, ?29, 'Amateur',
                 ?30, ?31, ?32, ?33, ?34, ?35, ?36,
-                'repeaterbook', ?37,
+                ?45, ?37,
                 ?38, ?39, ?40,
                 ?41, ?42, CURRENT_TIMESTAMP
             )
@@ -308,6 +328,7 @@ async fn insert_parsed(
         // an operator's edit from one of ours.
         .bind(&p.dcs_code) // ?43
         .bind(&p.dcs_rx_code) // ?44
+        .bind(source) // ?45
         .execute(&mut *tx)
         .await
         .estr()?;
@@ -315,8 +336,7 @@ async fn insert_parsed(
         added += 1;
     }
 
-    tx.commit().await.estr()?;
-    Ok(ImportSummary { added, updated, skipped: 0 })
+    Ok((added, updated))
 }
 
 /// Re-sync one already-imported channel from a fresh RepeaterBook record.
@@ -540,13 +560,7 @@ pub(crate) fn finalize(
     // N2SKY 448.400 exists in both Fort Collins and Buena Vista, CO) and would
     // otherwise collapse into a single row. Kept in sync with migration 0011,
     // which recomputes this for already-imported rows.
-    let repeaterbook_id = format!(
-        "{}|{:.4}|{}|{}",
-        callsign.to_uppercase(),
-        rx_freq,
-        state.unwrap_or_default().to_uppercase(),
-        city_str.to_uppercase(),
-    );
+    let repeaterbook_id = synthetic_rb_id(callsign, rx_freq, state, city);
 
     // RepeaterBook gives an uplink tone (TX, what you must transmit to key the
     // repeater) and a downlink tone (RX, what the repeater sends back). Map to
@@ -570,6 +584,24 @@ pub(crate) fn finalize(
         tone_mode,
         cross_mode,
     }
+}
+
+/// The file importers' synthetic dedupe id, `CALLSIGN|FREQ|STATE|CITY`. Also
+/// how the API importer finds a file-imported copy of a repeater it is about to
+/// import, so the two do not sit side by side in the library.
+pub(crate) fn synthetic_rb_id(
+    callsign: &str,
+    rx_freq: f64,
+    state: Option<&str>,
+    city: Option<&str>,
+) -> String {
+    format!(
+        "{}|{:.4}|{}|{}",
+        callsign.to_uppercase(),
+        rx_freq,
+        state.unwrap_or_default().to_uppercase(),
+        city.unwrap_or_default().to_uppercase(),
+    )
 }
 
 /// Pick the primary `mode` string from the digital-capability flags. RepeaterBook
@@ -1187,7 +1219,7 @@ struct JsonExport {
 
 /// Pull a trimmed, non-empty string value out of a JSON record (string or
 /// number).
-fn jstr(rec: &HashMap<String, Value>, key: &str) -> Option<String> {
+pub(crate) fn jstr(rec: &HashMap<String, Value>, key: &str) -> Option<String> {
     rec.get(key)
         .and_then(|v| match v {
             Value::String(s) => Some(s.trim().to_string()),
@@ -1329,7 +1361,7 @@ fn s_notes_json(rec: &HashMap<String, Value>) -> Option<String> {
 }
 
 /// Normalize a RepeaterBook country code to match manually-entered channels.
-fn normalize_country(c: String) -> String {
+pub(crate) fn normalize_country(c: String) -> String {
     match c.to_uppercase().as_str() {
         "US" | "USA" => "United States".to_string(),
         _ => c,
@@ -1668,7 +1700,7 @@ pub(crate) fn parse_leading_f64(s: &str) -> Option<f64> {
 }
 
 /// Interpret a RepeaterBook yes/no style flag.
-fn parse_bool(v: Option<String>) -> bool {
+pub(crate) fn parse_bool(v: Option<String>) -> bool {
     matches!(
         v.map(|s| s.trim().to_lowercase()).as_deref(),
         Some("yes") | Some("y") | Some("true") | Some("1") | Some("x")

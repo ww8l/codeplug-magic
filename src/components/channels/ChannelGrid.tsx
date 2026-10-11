@@ -4,6 +4,7 @@ import { ArrowUp, ArrowDown } from "lucide-react";
 import clsx from "clsx";
 import type { Channel } from "../../lib/types";
 import { fmtFreq, fmtOffset } from "../../lib/constants";
+import { sourceLabel } from "../../lib/repeaterbook";
 
 type Align = "left" | "right" | "center";
 
@@ -58,7 +59,7 @@ export const ALL_COLUMNS: Column[] = [
   { key: "country", label: "Country", width: 110 },
   { key: "latitude", label: "Lat", width: 86, align: "right", render: (c) => (c.latitude != null ? c.latitude.toFixed(4) : "") },
   { key: "longitude", label: "Lon", width: 90, align: "right", render: (c) => (c.longitude != null ? c.longitude.toFixed(4) : "") },
-  { key: "source", label: "Source", width: 96 },
+  { key: "source", label: "Source", width: 110, render: (c) => sourceLabel(c.source) },
 ];
 
 // Default columns shown until the user customizes the view.

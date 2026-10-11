@@ -1301,7 +1301,7 @@ async fn insert_mapped(
     }
 
     tx.commit().await.estr()?;
-    Ok(ImportSummary { added, updated: 0, skipped })
+    Ok(ImportSummary { added, updated: 0, skipped, excluded_repeaterbook: 0 })
 }
 
 #[cfg(test)]

@@ -7,13 +7,16 @@ import {
   Download,
   Upload,
   Eraser,
+  KeyRound,
+  ExternalLink,
 } from "lucide-react";
 import clsx from "clsx";
 import { save, open, confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import { useTheme } from "../theme";
 import { api } from "../lib/api";
-import type { BackupTable, RadioBackupsSummary } from "../lib/types";
+import type { BackupTable, RadioBackupsSummary, RbStatus } from "../lib/types";
+import { RbAttribution, openRb } from "../lib/repeaterbook";
 import { useOnlineGeocoding } from "../lib/prefs";
 import {
   Button,
@@ -22,6 +25,7 @@ import {
   APP_VERSION,
   Spinner,
   Select,
+  TextInput,
 } from "../components/ui";
 
 const THEMES = [
@@ -185,6 +189,159 @@ function RadioBackups() {
           </p>
         </>
       )}
+    </Card>
+  );
+}
+
+/**
+ * The RepeaterBook API token, and the one button that takes back everything
+ * RepeaterBook gave this app (#136).
+ *
+ * Each user generates their own `rbuapp_` token on RepeaterBook. It is pasted
+ * once and kept in the OS credential store: never in the database, never in a
+ * backup, and never shown again — the field only says whether one is stored.
+ */
+function RepeaterBookCard() {
+  const [status, setStatus] = useState<RbStatus | null>(null);
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setStatus(await api.rbStatus());
+    } catch (e) {
+      toast.error(String(e));
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const saveToken = async () => {
+    setBusy(true);
+    try {
+      await api.rbSetToken(token);
+      setToken("");
+      toast.success("RepeaterBook token saved");
+      await load();
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeToken = async () => {
+    const ok = await confirmDialog(
+      "Remove your RepeaterBook token from this computer? Repeaters you already imported stay in your library.",
+      { title: "Remove token", kind: "warning" },
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.rbRemoveToken();
+      toast.success("Token removed");
+      await load();
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeAll = async () => {
+    const n = status?.library_count ?? 0;
+    const ok = await confirmDialog(
+      `Delete all ${n} repeater${n === 1 ? "" : "s"} imported from RepeaterBook, and remove your RepeaterBook token? ` +
+        "They are removed from every channel list and scan list that uses them. This cannot be undone.",
+      { title: "Remove RepeaterBook data", kind: "warning" },
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const r = await api.rbRemoveAllData();
+      toast.success(
+        `Deleted ${r.channels_deleted} repeater${r.channels_deleted === 1 ? "" : "s"}` +
+          (r.token_removed ? " and removed the token" : ""),
+      );
+      await load();
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="p-4">
+      <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+        RepeaterBook
+      </h2>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        Search RepeaterBook from the Channels page with your own free
+        RepeaterBook token. Sign in to RepeaterBook, open{" "}
+        <a
+          href={status?.tokens_page}
+          onClick={(e) => {
+            e.preventDefault();
+            if (status) openRb(status.tokens_page);
+          }}
+          className="inline-flex items-center gap-0.5 font-medium text-sky-600 underline-offset-2 hover:underline dark:text-sky-400"
+        >
+          API Apps &amp; Tokens <ExternalLink size={11} />
+        </a>
+        , generate a token for CodePlug Magic, and paste it here. It is kept in
+        this computer’s credential store, sent only to RepeaterBook, and never
+        written to the database or a backup.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <KeyRound size={14} className="text-slate-400" />
+        {status?.has_token ? (
+          <>
+            <span className="text-xs text-emerald-700 dark:text-emerald-400">
+              Token saved
+            </span>
+            <Button onClick={removeToken} disabled={busy}>
+              Remove token
+            </Button>
+          </>
+        ) : (
+          <>
+            <TextInput
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="rbuapp_…"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && token.trim() && saveToken()}
+              className="w-64"
+            />
+            <Button variant="primary" onClick={saveToken} disabled={busy || !token.trim()}>
+              Save token
+            </Button>
+          </>
+        )}
+      </div>
+      {status && (
+        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+          Repeaters imported from RepeaterBook leave the app only as radio
+          programming — never in a channel export file.
+          {status.stale_count > 0
+            ? ` ${status.stale_count} haven’t been refreshed in over a year.`
+            : ""}
+        </p>
+      )}
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button
+          variant="danger"
+          onClick={removeAll}
+          disabled={busy || !status || (status.library_count === 0 && !status.has_token)}
+        >
+          <Eraser size={14} /> Remove RepeaterBook data…
+        </Button>
+        <RbAttribution className="text-xs text-slate-500 dark:text-slate-400" />
+      </div>
     </Card>
   );
 }
@@ -359,13 +516,15 @@ export function Settings() {
 
           <RadioBackups />
 
+          <RepeaterBookCard />
+
           <Card className="p-4">
             <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
               Privacy
             </h2>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               This app has no telemetry, no accounts and no automatic updates.
-              It makes exactly three kinds of network request, every one of
+              It makes exactly four kinds of network request, every one of
               them because you asked for something:
             </p>
             <ul className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
@@ -377,6 +536,14 @@ export function Settings() {
                 service, which answers with a latitude and longitude. Only the
                 town, state and country are sent; never a call sign, a
                 frequency, or anything identifying you.
+              </li>
+              <li>
+                <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                  RepeaterBook search
+                </strong>{" "}
+                — when you search or refresh a repeater, the area you picked
+                (and any band or mode filter) goes to RepeaterBook with your
+                own RepeaterBook token. Nothing else about you is sent.
               </li>
               <li>
                 <strong className="font-semibold text-slate-700 dark:text-slate-200">
@@ -421,6 +588,9 @@ export function Settings() {
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               WW8L Codeplug Magic v{APP_VERSION} — a single master database and
               intelligent per-radio export for amateur radio operators.
+            </p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Repeater search: <RbAttribution />
             </p>
           </Card>
         </div>

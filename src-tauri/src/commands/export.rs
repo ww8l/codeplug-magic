@@ -1348,6 +1348,11 @@ fn render_chirp_csv(channels: &[&ExpandedChannel], model: &RadioModel) -> Result
             dmr.push_str(&format!("TG{tg_num}"));
             comment_parts.push(dmr);
         }
+        // Attribution promised to RepeaterBook (#136): a record that came from
+        // RepeaterBook says so wherever the format has a comment.
+        if crate::commands::rb_api::is_repeaterbook_source(&c.source) {
+            comment_parts.push("RepeaterBook.com".to_string());
+        }
         let comment = comment_parts
             .join(" ")
             .split_whitespace()

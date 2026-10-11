@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use sqlx::{Acquire, QueryBuilder};
 use tauri::State;
 
+use super::rb_api::API_SOURCE;
 use crate::db::AppState;
 use crate::error::MapErrString;
 use crate::models::{Channel, ChannelFilter, ChannelInput, CityCentroid};
@@ -26,6 +27,8 @@ fn normalize_freq_term(term: &str) -> String {
     let trimmed = term.trim_end_matches('0');
     trimmed.trim_end_matches('.').to_string()
 }
+
+const API_SOURCE_LOCKED: &str = "\"repeaterbook_api\" marks a repeater imported from the RepeaterBook API. It can't be given to another channel or taken off one.";
 
 const CHANNEL_COLUMNS: &str = "id, rb_name, name_long, name_short, callsign, rx_freq, tx_freq, offset, duplex, band, mode, tone_mode, ctcss_uplink, ctcss_downlink, dcs_code, dcs_rx_code, dcs_polarity, cross_mode, power, dmr_color_code, dmr_timeslot, dmr_talkgroup, dstar_capable, dstar_ur_call, dstar_rpt1, dstar_rpt2, ysf_capable, nxdn_capable, p25_capable, p25_nac, m17_capable, m17_can, tetra_capable, allstar_node, echolink_node, irlp_node, wires_node, use_type, operational_status, service_type, city, county, state, country, latitude, longitude, notes, source, repeaterbook_id, rb_dcs_code, rb_dcs_rx_code, rb_ctcss_uplink, rb_ctcss_downlink, rb_operational_status, rb_notes, ctcss_uplink_overridden, ctcss_downlink_overridden, operational_status_overridden, notes_overridden, has_overrides, last_rb_update, last_user_edit, created_at";
 
@@ -499,6 +502,11 @@ pub async fn create_channel(
         .clone()
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "manual".to_string());
+    // ...except the RepeaterBook API's. That label is what the channel-export
+    // rule keys on (#136), so only the API importer may write it.
+    if source == API_SOURCE {
+        return Err(API_SOURCE_LOCKED.to_string());
+    }
 
     let id = sqlx::query(
         r#"
@@ -630,7 +638,13 @@ pub(super) async fn update_impl(
         .source
         .clone()
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or(existing.source);
+        .unwrap_or(existing.source.clone());
+    // A RepeaterBook API record stays one, and nothing becomes one by being
+    // relabelled: renaming the source would carry it past the channel-export
+    // rule the label exists for (#136).
+    if (existing.source == API_SOURCE) != (source == API_SOURCE) {
+        return Err(API_SOURCE_LOCKED.to_string());
+    }
 
     sqlx::query(
         r#"
@@ -891,7 +905,7 @@ pub async fn delete_channels(
 
 /// Delete `ids` in one transaction, dropping any scan-list priority pointer at
 /// them first. Shared by the single and bulk commands so neither can forget.
-async fn delete_impl(pool: &sqlx::SqlitePool, ids: &[i64]) -> Result<u64, String> {
+pub(crate) async fn delete_impl(pool: &sqlx::SqlitePool, ids: &[i64]) -> Result<u64, String> {
     if ids.is_empty() {
         return Ok(0);
     }

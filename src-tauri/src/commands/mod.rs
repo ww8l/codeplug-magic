@@ -16,6 +16,7 @@ pub mod lists;
 pub mod profiles;
 pub mod program;
 pub mod radio_backups;
+pub mod rb_api;
 pub mod rb_regions;
 pub mod standard_lists;
 pub mod talkgroups;
