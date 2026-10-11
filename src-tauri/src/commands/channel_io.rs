@@ -112,30 +112,54 @@ pub struct ChannelBackupPreview {
 // Tauri commands
 // ============================================================
 
+/// What a channel export wrote, and what it deliberately left out.
+#[derive(Debug, Serialize)]
+pub struct ChannelExportSummary {
+    pub written: usize,
+    /// Selected channels that came from the RepeaterBook API. They are never
+    /// written to this file (#136): RepeaterBook data leaves the app only as
+    /// radio programming output, and this file moves a library between
+    /// installs, which is exactly the "reusable dataset" the API terms rule out.
+    pub excluded_repeaterbook: usize,
+}
+
 /// Write the given channels (in the supplied order) to a Codeplug Magic backup JSON
-/// file at `path`. Returns how many channels were written. Channel ids that no
-/// longer exist are silently skipped.
+/// file at `path`. Channel ids that no longer exist are silently skipped, and
+/// RepeaterBook API records are left out and counted.
 #[tauri::command]
 pub async fn export_channels(
     state: State<'_, AppState>,
     ids: Vec<i64>,
     path: String,
-) -> Result<usize, String> {
+) -> Result<ChannelExportSummary, String> {
+    export_impl(&state.pool, &ids, path).await
+}
+
+async fn export_impl(
+    pool: &SqlitePool,
+    ids: &[i64],
+    path: String,
+) -> Result<ChannelExportSummary, String> {
     if ids.is_empty() {
         return Err("No channels selected to export.".to_string());
     }
     crate::commands::write_paths::check_write_target(&path, &["json"])?;
 
     let mut channels = Vec::with_capacity(ids.len());
-    for id in &ids {
+    let mut excluded_repeaterbook = 0usize;
+    for id in ids {
         let Some(channel) = sqlx::query_as::<_, Channel>("SELECT * FROM channels WHERE id = ?1")
             .bind(id)
-            .fetch_optional(&state.pool)
+            .fetch_optional(pool)
             .await
             .estr()?
         else {
             continue;
         };
+        if channel.source == crate::commands::rb_api::API_SOURCE {
+            excluded_repeaterbook += 1;
+            continue;
+        }
 
         let talkgroups = sqlx::query_as::<_, (i64, String, String, String, i64, Option<String>)>(
             r#"
@@ -148,7 +172,7 @@ pub async fn export_channels(
             "#,
         )
         .bind(id)
-        .fetch_all(&state.pool)
+        .fetch_all(pool)
         .await
         .estr()?
         .into_iter()
@@ -170,6 +194,14 @@ pub async fn export_channels(
         });
     }
 
+    if channels.is_empty() && excluded_repeaterbook > 0 {
+        return Err(format!(
+            "Nothing was exported: {} selected repeater{} came from RepeaterBook, and RepeaterBook data can only leave the app as radio programming, not as a channel file.",
+            if excluded_repeaterbook == 1 { "the" } else { "all" },
+            if excluded_repeaterbook == 1 { "" } else { "s" },
+        ));
+    }
+
     let backup = ChannelBackup {
         format: BACKUP_FORMAT.to_string(),
         version: BACKUP_VERSION,
@@ -182,7 +214,7 @@ pub async fn export_channels(
         .map_err(|e| format!("Could not serialize channels: {e}"))?;
     std::fs::write(&path, json).map_err(|e| format!("Could not write file: {e}"))?;
 
-    Ok(backup.count)
+    Ok(ChannelExportSummary { written: backup.count, excluded_repeaterbook })
 }
 
 /// Cheap probe used by the import dialog to route a `.json` file to the right
@@ -259,9 +291,18 @@ async fn insert_backup(
 
     let mut added = 0usize;
     let mut skipped = 0usize;
+    let mut excluded_repeaterbook = 0usize;
 
     for bc in &backup.channels {
         let c = &bc.channel;
+
+        // This app never writes an API record to a channel file, so one here
+        // was put there by hand: a file is exactly how RepeaterBook data must
+        // NOT move between installs (#136), so it is skipped instead.
+        if c.source == crate::commands::rb_api::API_SOURCE {
+            excluded_repeaterbook += 1;
+            continue;
+        }
 
         // Dedupe: RepeaterBook-sourced channels by their synthetic id; manual
         // channels by (rx_freq, name, tx_freq) so re-importing a backup into the
@@ -433,7 +474,7 @@ async fn insert_backup(
     }
 
     tx.commit().await.estr()?;
-    Ok(ImportSummary { added, skipped, updated: 0 })
+    Ok(ImportSummary { added, skipped, updated: 0, excluded_repeaterbook })
 }
 
 /// Project a full channel down to the importer's preview shape.
@@ -650,6 +691,43 @@ mod tests {
     }
 
     // -- test helpers (mirror the command bodies without a Tauri State) --
+
+    /// RepeaterBook API records never reach a channel file (#136), and the
+    /// caller is told how many were left out.
+    #[tokio::test]
+    async fn export_leaves_out_repeaterbook_api_records() {
+        let dir = std::env::temp_dir().join(format!("cpm_export_rb_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+        sqlx::query(
+            "INSERT INTO channels (id, name_long, rx_freq, mode, source, repeaterbook_id) VALUES \
+             (1, 'Mine', 146.52, 'FM', 'manual', NULL), \
+             (2, 'From RB', 146.94, 'FM', 'repeaterbook_api', 'rbapi:na:26:7')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let path = dir.join("out.json");
+        let path = path.to_str().unwrap().to_string();
+
+        let s = export_impl(&pool, &[1, 2], path.clone()).await.unwrap();
+        assert_eq!((s.written, s.excluded_repeaterbook), (1, 1));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("rbapi:"), "an API record reached the file");
+
+        let err = export_impl(&pool, &[2], path).await.unwrap_err();
+        assert!(err.contains("Nothing was exported"), "{err}");
+
+        // A hand-made file holding one is refused on import, and reported as
+        // RepeaterBook data rather than as a duplicate.
+        let backup = build_backup(&pool, &[2]).await;
+        sqlx::query("DELETE FROM channels WHERE id = 2").execute(&pool).await.unwrap();
+        let s = insert_backup(&pool, &backup).await.unwrap();
+        assert_eq!((s.added, s.skipped, s.excluded_repeaterbook), (0, 0, 1));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     async fn build_backup(pool: &SqlitePool, ids: &[i64]) -> ChannelBackup {
         let mut channels = Vec::new();

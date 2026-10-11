@@ -199,7 +199,10 @@ export function ImportDialog({
       toast.success(
         `Imported ${summary.added} channel${summary.added === 1 ? "" : "s"}` +
           (summary.updated ? ` · ${summary.updated} updated` : "") +
-          (summary.skipped ? ` · ${summary.skipped} skipped (duplicates)` : ""),
+          (summary.skipped ? ` · ${summary.skipped} skipped (duplicates)` : "") +
+          (summary.excluded_repeaterbook
+            ? ` · ${summary.excluded_repeaterbook} RepeaterBook repeater${summary.excluded_repeaterbook === 1 ? "" : "s"} left out — RepeaterBook data can't be moved by file`
+            : ""),
       );
       onImported();
       onClose();

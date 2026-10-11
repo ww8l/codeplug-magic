@@ -440,7 +440,7 @@ pub async fn import_talkgroups(
     }
 
     tx.commit().await.estr()?;
-    Ok(ImportSummary { added, skipped, updated: 0 })
+    Ok(ImportSummary { added, skipped, updated: 0, excluded_repeaterbook: 0 })
 }
 
 /// Parse a talkgroup CSV. Header-driven and forgiving about column names:
@@ -668,7 +668,7 @@ pub async fn import_talkgroup_backup(
     }
 
     tx.commit().await.estr()?;
-    Ok(ImportSummary { added, skipped, updated: 0 })
+    Ok(ImportSummary { added, skipped, updated: 0, excluded_repeaterbook: 0 })
 }
 
 #[cfg(test)]

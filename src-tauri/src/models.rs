@@ -477,6 +477,11 @@ pub struct ImportSummary {
     /// rather than merging them, so it reports here instead of `updated`.
     #[serde(default)]
     pub skipped: usize,
+    /// RepeaterBook API records a channel-backup file held and the import
+    /// refused (#136): such data never moves between installs by file. Kept
+    /// apart from `skipped` so they are not reported as duplicates.
+    #[serde(default)]
+    pub excluded_repeaterbook: usize,
 }
 
 // ============================================================

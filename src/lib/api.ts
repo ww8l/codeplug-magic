@@ -60,6 +60,15 @@ import type {
   DmrUsersRefreshSummary,
   DmrExportPreview,
   DmrExportSummary,
+  ChannelExportSummary,
+  RbStatus,
+  RbAreaInfo,
+  RbArea,
+  RbSearchResult,
+  RbResultRow,
+  RbImportSummary,
+  RbRemoved,
+  RbFilters,
 } from "./types";
 
 // Tauri converts camelCase JS argument keys to the snake_case Rust parameter
@@ -115,9 +124,22 @@ export const api = {
   importMappedCsv: (path: string, mapping: ColumnMapping) =>
     invoke<ImportSummary>("import_mapped_csv", { path, mapping }),
 
+  // ---- RepeaterBook API (#136) ----
+  rbStatus: () => invoke<RbStatus>("rb_status"),
+  rbAreas: () => invoke<RbAreaInfo[]>("rb_areas"),
+  rbSetToken: (token: string) => invoke<void>("rb_set_token", { token }),
+  rbRemoveToken: () => invoke<boolean>("rb_remove_token"),
+  rbSearch: (area: RbArea, filters: RbFilters) =>
+    invoke<RbSearchResult>("rb_search", { area, filters }),
+  rbImport: (rows: RbResultRow[]) =>
+    invoke<RbImportSummary>("rb_import", { rows }),
+  rbRefreshChannel: (id: number) => invoke<void>("rb_refresh_channel", { id }),
+  rbStaleChannelIds: () => invoke<number[]>("rb_stale_channel_ids"),
+  rbRemoveAllData: () => invoke<RbRemoved>("rb_remove_all_data"),
+
   // ---- native channel backup (export / re-import selected channels) ----
   exportChannels: (ids: number[], path: string) =>
-    invoke<number>("export_channels", { ids, path }),
+    invoke<ChannelExportSummary>("export_channels", { ids, path }),
   isChannelBackup: (path: string) =>
     invoke<boolean>("is_channel_backup", { path }),
   previewChannelImport: (path: string) =>

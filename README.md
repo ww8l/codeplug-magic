@@ -78,8 +78,10 @@ bench. If you own one of these and want to help measure or test it, say so on it
 ## Features
 
 - **Master channel database** — one library of repeaters/channels reused across every codeplug.
-- **Import** from RepeaterBook, CHIRP-style CSV, or manual entry with automatic lat/lon geocoding
-  from a city name.
+- **Search RepeaterBook** from inside the app with your own free RepeaterBook token, and import
+  the repeaters you pick — see [Searching RepeaterBook](#searching-repeaterbook).
+- **Import** from a RepeaterBook export file, CHIRP-style CSV, or manual entry with automatic
+  lat/lon geocoding from a city name.
 - **Zones, scan lists, and talkgroups** with per-channel scan-list assignment.
 - **DMR contacts** — a local mirror of the [radioid.net](https://radioid.net) DMR-ID → callsign
   database, with prioritized export and (on the D890UV) direct caller-ID database programming.
@@ -94,6 +96,43 @@ bench. If you own one of these and want to help measure or test it, say so on it
   edited in the app, and written back alongside the channels.
 - **CSV / JSON export** for radios without a direct driver.
 - **Whole-database backup & restore** to a single portable file.
+
+## Searching RepeaterBook
+
+Repeater data courtesy of [RepeaterBook.com](https://www.repeaterbook.com).
+
+The **RepeaterBook** button on the Channels page searches RepeaterBook directly, replacing the
+download-a-file-then-import step. It works the way RepeaterBook asks distributed apps to work:
+
+- **Your own token.** Sign in to RepeaterBook, open *My Dashboard → API Access → API Apps &
+  Tokens*, generate a token for CodePlug Magic (it starts with `rbuapp_`), and paste it into
+  **Settings → RepeaterBook**. It is kept in your operating system's credential store (Keychain,
+  Credential Manager or Secret Service), sent only to RepeaterBook over HTTPS, and never written
+  to the database, a log, or a backup.
+- **One area per search** — a US state or territory, a Canadian province, or one country outside
+  North America — optionally narrowed by band, mode and the filters below. Pick as many bands,
+  modes or services as you like (2 m and 70 cm, DMR and D-STAR); a repeater matching any of them
+  is shown. A search that matches more than 1,000
+  repeaters shows nothing; narrow it and search again.
+- **Nothing is saved until you pick it**, at most 500 per import. Bigger searches import in
+  batches: after each import, "select all" picks up the next 500 not yet imported.
+- **More filters** — county, city, call sign, on the air only, open only, an emergency service
+  (ARES, RACES, SKYWARN, CANWARN), distance from a town in your library, and hiding repeaters
+  you already have. They narrow the answer RepeaterBook already sent, so changing them within
+  10 minutes doesn't send another request.
+- **Gentle on RepeaterBook.** One request at a time, at least 2 seconds apart, at most 20 an
+  hour. The same search again within 10 minutes is answered from memory. If RepeaterBook says
+  it is busy, the app waits (30 s, then 60 s, then 120 s, or as long as RepeaterBook asks) and
+  then stops.
+- **Kept current, not hoarded.** Re-importing a repeater refreshes it rather than duplicating it;
+  each repeater's detail panel can refresh that one record; repeaters not refreshed in a year
+  are flagged so you can refresh or delete them.
+- **For your radios only.** RepeaterBook repeaters leave the app only as radio programming. The
+  channel export file leaves them out, and CHIRP exports mark them "RepeaterBook.com" in the
+  comment. **Settings → Remove RepeaterBook data** deletes every RepeaterBook repeater and your
+  token in one step.
+
+Corrections to repeater listings go to RepeaterBook itself, not to this app.
 
 ## Download
 
