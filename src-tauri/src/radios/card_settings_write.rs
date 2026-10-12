@@ -148,3 +148,31 @@ fn thd75_settings_only_writes_a_new_file_touching_settings_alone() {
         println!("{src:?}: own settings = 0 bytes; {key} flipped = {d:x?}; new file {t2}");
     }
 }
+
+#[test]
+#[ignore = "needs the real card files in scratchpad/"]
+fn ftm300_settings_only_writes_touch_settings_alone() {
+    use crate::radios::yaesu_ftm300::{settings::decode_settings, DRIVER};
+    let ex = DRIVER.as_codeplug_exporter().unwrap();
+    let w = ex.as_card_settings_writer().expect("a card settings writer");
+    for src in files("ftm300/captures", "dat", "ftm300_01") {
+        let orig = std::fs::read(&src).unwrap();
+        let dir = scratch("ftm300");
+        let target = dir.join("CLNFTM300D.dat");
+        std::fs::write(&target, &orig).unwrap();
+        let t = target.to_str().unwrap();
+
+        let own = decode_settings(&orig);
+        w.export_settings(t, own.as_object().unwrap()).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), orig, "{src:?}: own settings changed bytes");
+        assert!(dir.join("CLNFTM300D.dat.orig").exists(), "the .orig is kept");
+
+        let (key, one) = flip_one(&own);
+        w.export_settings(t, &one).unwrap();
+        let after = std::fs::read(&target).unwrap();
+        let d = differing(&orig, &after);
+        assert_eq!(d.len(), 1, "{key}: {d:x?}");
+        assert_eq!(decode_settings(&after)[&key], one[&key]);
+        println!("{src:?}: own settings = 0 bytes; {key} flipped = {d:x?}");
+    }
+}

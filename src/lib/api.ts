@@ -350,6 +350,11 @@ export const api = {
     invoke<void>("set_channel_scan_list", { codeplugId, channelId, scanListId }),
   clearChannelScanList: (codeplugId: number, channelId: number) =>
     invoke<void>("clear_channel_scan_list", { codeplugId, channelId }),
+  // The radio's one user memory group (the FTM-300's M-GRP), chosen per channel.
+  getCodeplugMemoryGroup: (codeplugId: number) =>
+    invoke<number[]>("get_codeplug_memory_group", { codeplugId }),
+  setCodeplugMemoryGroup: (codeplugId: number, channelIds: number[], member: boolean) =>
+    invoke<void>("set_codeplug_memory_group", { codeplugId, channelIds, member }),
 
   // ---- export ----
   exportPreview: (codeplugId: number) =>
@@ -390,6 +395,9 @@ export const api = {
   // card. Same decoded shape again. See radios/kenwood_thd75/settings.rs.
   readThd75SettingsFromCard: (path: string) =>
     invoke<RadioSettingsRead>("read_thd75_settings_from_card", { path }),
+  // The FTM-300's CLNFTM300D.dat; same shape as the FT5D's. See radios/yaesu_ftm300/settings.rs.
+  readFtm300SettingsFromBackup: (path: string) =>
+    invoke<RadioSettingsRead>("read_ftm300_settings_from_backup", { path }),
   // A card radio's settings alone, patched into its own file on the card —
   // every memory left as the file has it. The radio loads it from its menu.
   writeCardSettings: (profileId: number, path: string) =>

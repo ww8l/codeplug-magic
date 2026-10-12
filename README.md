@@ -23,6 +23,7 @@ cable, or its microSD card — or exported as CSV for tools that expect it.
 | **TIDRADIO TD-H3** | Analog FM/NFM/AM | VHF / UHF / 1.25 m | Direct USB — read, write, settings | 200 channels, tri-band |
 | **AnyTone AT-D890UV** | DMR + Analog | VHF / UHF | Direct USB — channels, zones, scan lists, settings, call-sign DB | 4000 channels; full DMR: zones, talkgroups, 308k-entry caller-ID database |
 | **Yaesu FT5D** | C4FM (System Fusion) + Analog | VHF / UHF TX, wideband RX | microSD — patches the radio's own backup file | 900 channels in 24 banks; channels, banks, and menu settings |
+| **Yaesu FTM-300DR** | C4FM (System Fusion) + Analog | 2 m / 70 cm TX, 108–999 MHz RX | microSD — patches the radio's own backup file | 999 memories; memories and 147 menu settings, including the APRS and SmartBeaconing setup |
 | **Icom ID-52** | D-STAR + Analog | VHF / UHF TX, 108–174 / 225–479 MHz RX | microSD — patches the radio's own `.icf` file | 1000 memories in 100 groups; memories and menu settings restore in one operation |
 | **Icom ID-5100** | D-STAR + Analog | 2 m / 70 cm TX, 118–174 / 375–550 MHz RX | Data cable — read, write, settings | 1000 memories in 26 named banks, programmed by Icom's clone protocol over the cable; 292 menu settings including My Call Sign, TX messages and the D-PRS (APRS) position, object, item and weather setup, written in the same upload as the memories |
 | **Kenwood TH-D72** | APRS + Analog | 2 m / 70 cm TX, 118–174 / 320–524 MHz RX | Direct USB — read, write, settings | 1000 memories; 113 menu settings over the radio's own `MU` command |
@@ -68,7 +69,6 @@ settings together, then verify on the actual radio before shipping.
 | **Icom IC-7610** | HF / 6 m SDR base | [#46](https://github.com/ww8l/codeplug-magic/issues/46) |
 | **Quansheng UV-K5** | Analog handheld | [#44](https://github.com/ww8l/codeplug-magic/issues/44) |
 | **Yaesu FT-891** | HF / 6 m mobile | [#53](https://github.com/ww8l/codeplug-magic/issues/53) |
-| **Yaesu FTM-300** | C4FM + Analog mobile | [#48](https://github.com/ww8l/codeplug-magic/issues/48) |
 | **Yaesu FTM-400** | C4FM + Analog mobile | [#52](https://github.com/ww8l/codeplug-magic/issues/52) |
 
 Adding a radio takes hardware to verify against, so the order these land in follows what's on the
