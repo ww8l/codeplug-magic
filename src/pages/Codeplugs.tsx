@@ -44,6 +44,8 @@ import { ExportDialog } from "../components/codeplugs/ExportDialog";
 import { programDialogFor } from "../components/codeplugs/programDialogs";
 import { AssignModal, type AssignItem } from "../components/codeplugs/AssignModal";
 import { ScanListAssignChannelsModal } from "../components/codeplugs/ScanListAssignChannelsModal";
+import { MemoryGroupModal } from "../components/codeplugs/MemoryGroupModal";
+import { memoryGroupFor } from "../lib/radioProgramming";
 
 // ============================================================
 // Codeplug grid
@@ -208,6 +210,8 @@ export function CodeplugDetail() {
   const [editOpen, setEditOpen] = useState(false);
   const [addChannelOpen, setAddChannelOpen] = useState(false);
   const [addScanOpen, setAddScanOpen] = useState(false);
+  const [memoryGroupCount, setMemoryGroupCount] = useState(0);
+  const [memoryGroupOpen, setMemoryGroupOpen] = useState(false);
   const [assignScanList, setAssignScanList] = useState<ScanListSummary | null>(
     null,
   );
@@ -215,7 +219,7 @@ export function CodeplugDetail() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [cp, p, m, cls, sls, allCl, allSl] = await Promise.all([
+      const [cp, p, m, cls, sls, allCl, allSl, mg] = await Promise.all([
         api.getCodeplug(codeplugId),
         api.listRadioProfiles(),
         api.listRadioModels(),
@@ -223,6 +227,7 @@ export function CodeplugDetail() {
         api.getCodeplugScanLists(codeplugId),
         api.listChannelLists(),
         api.listScanLists(),
+        api.getCodeplugMemoryGroup(codeplugId),
       ]);
       setCodeplug(cp);
       setProfiles(p);
@@ -231,6 +236,7 @@ export function CodeplugDetail() {
       setScanLists(sls);
       setAllChannelLists(allCl);
       setAllScanLists(allSl);
+      setMemoryGroupCount(mg.length);
       setProfileId(cp.radio_profile_id);
     } finally {
       setLoading(false);
@@ -250,6 +256,8 @@ export function CodeplugDetail() {
   // `radio_models.programming_ui`, never by the model name — see
   // `components/codeplugs/programDialogs.ts` (Chunk 3.7).
   const ProgramDialog = programDialogFor(model?.programming_ui ?? null);
+  // The radio's one user memory group (the FTM-300's M-GRP), if it has one.
+  const memoryGroup = memoryGroupFor(model ?? null);
 
   const totalChannels = useMemo(
     () => channelLists.reduce((sum, l) => sum + l.channel_count, 0),
@@ -523,6 +531,29 @@ export function CodeplugDetail() {
           </SectionCard>
           )}
 
+          {memoryGroup && (
+            <SectionCard
+              title={memoryGroup.title}
+              icon={<ListChecks size={13} />}
+              action={
+                <Button onClick={() => setMemoryGroupOpen(true)}>
+                  <ListChecks size={13} /> Choose channels
+                </Button>
+              }
+            >
+              <div className="px-4 py-3 text-xs">
+                <div className="font-medium text-slate-700 dark:text-slate-200">
+                  {memoryGroupCount === 0
+                    ? "No channels in the group."
+                    : `${memoryGroupCount} channel${memoryGroupCount === 1 ? "" : "s"} in the group`}
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  {memoryGroup.help}
+                </p>
+              </div>
+            </SectionCard>
+          )}
+
           {/* Channel lists — full width */}
           <div className="lg:col-span-2">
             <SectionCard
@@ -674,6 +705,16 @@ export function CodeplugDetail() {
         scanLists={scanLists}
         onChanged={() => {}}
       />
+      {memoryGroup && (
+        <MemoryGroupModal
+          open={memoryGroupOpen}
+          onClose={() => setMemoryGroupOpen(false)}
+          title={memoryGroup.title}
+          codeplugId={codeplugId}
+          channelListIds={channelLists.map((l) => l.id)}
+          onChanged={setMemoryGroupCount}
+        />
+      )}
     </>
   );
 }

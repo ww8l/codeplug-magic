@@ -197,6 +197,26 @@ const MEDIA_WRITES: Record<string, MediaWrite> = {
     carries:
       "your APRS and D-STAR call signs, your call sign history, your Bluetooth device name, and any APRS positions stored in the radio — beacon objects are held to 1/10000 of a minute, which for a home station is a street address",
   },
+  // The fourth card radio: one fixed file, patched in place like the FT5D's.
+  // Menu path is the FTM-300 Advance Manual's (Setup Menu: SD CARD). ALL is
+  // the backup the writer is measured against; what MEMORY alone reads back
+  // out of the same file is unverified.
+  yaesu_ftm300_sd: {
+    action: "Write to SD card…",
+    pickTitle: "Select FTM300D/BACKUP/CLNFTM300D.dat on the radio’s microSD card",
+    filterName: "FTM-300 backup",
+    extensions: ["dat"],
+    before:
+      "On the radio, save everything to the card: press and hold [F(SETUP)] → SD CARD → 1 BACKUP → WRITE TO SD → ALL → OK. Then put the card in this computer and pick FTM300D/BACKUP/CLNFTM300D.dat below.",
+    after:
+      "Put the card back in the radio and load it: press and hold [F(SETUP)] → SD CARD → 1 BACKUP → READ FROM SD → ALL → OK.",
+    found:
+      "It already holds a backup, so there is nothing to pick — just check it is current (the radio writes it with [F(SETUP)] → SD CARD → 1 BACKUP → WRITE TO SD → ALL).",
+    preserves:
+      "The FTM-300 has no banks, so channel lists become one memory list in order. Everything else already on the radio — Home and PMS channels, APRS, GPS, WIRES-X and every Set Mode item — is left untouched. The first write saves your untouched file beside it as CLNFTM300D.dat.orig; later writes never overwrite that pristine copy.",
+    carries:
+      "your call sign, your APRS call sign and SSID, a fixed My Position if you have set one, and the APRS station list and messages the radio has heard — including other stations' positions",
+  },
 };
 
 /// How a model is programmed from removable media, or null if it is a cable
@@ -209,6 +229,26 @@ export function mediaWriteFor(model: RadioModel | null): MediaWrite | null {
 /// preview carries one but no model row.
 export function mediaWriteForFormat(format: string | null): MediaWrite | null {
   return (format && MEDIA_WRITES[format]) || null;
+}
+
+/// A radio with one user memory group that each memory is either in or out of
+/// (the FTM-300's M-GRP). The codeplug page shows a box for it and the export
+/// carries the chosen channels. Keyed on the format, like `MEDIA_WRITES`.
+export interface MemoryGroup {
+  title: string;
+  /// One line under the box's channel count.
+  help: string;
+}
+
+const MEMORY_GROUPS: Record<string, MemoryGroup> = {
+  yaesu_ftm300_sd: {
+    title: "M-GRP (Memory Group)",
+    help: "The radio's one user group. Pick channels one by one; on the radio, press and hold [BAND] in the memory list to see them.",
+  },
+};
+
+export function memoryGroupFor(model: RadioModel | null): MemoryGroup | null {
+  return MEMORY_GROUPS[model?.export_format ?? ""] ?? null;
 }
 
 /// Fetch a driver's capability flags. They are derived from the Rust trait

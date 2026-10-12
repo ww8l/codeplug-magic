@@ -301,3 +301,38 @@ pub async fn clear_channel_scan_list(
     .estr()?;
     Ok(())
 }
+
+// ---- Memory group (the FTM-300's M-GRP, #48) ----
+// One user group a channel is either in or out of, chosen per codeplug.
+
+#[tauri::command]
+pub async fn get_codeplug_memory_group(
+    state: State<'_, AppState>,
+    codeplug_id: i64,
+) -> Result<Vec<i64>, String> {
+    sqlx::query_scalar("SELECT channel_id FROM codeplug_memory_group WHERE codeplug_id = ?1")
+        .bind(codeplug_id)
+        .fetch_all(&state.pool)
+        .await
+        .estr()
+}
+
+/// Put a batch of channels in (or take them out of) the codeplug's memory group.
+#[tauri::command]
+pub async fn set_codeplug_memory_group(
+    state: State<'_, AppState>,
+    codeplug_id: i64,
+    channel_ids: Vec<i64>,
+    member: bool,
+) -> Result<(), String> {
+    let mut tx = state.pool.begin().await.estr()?;
+    for channel_id in channel_ids {
+        let sql = if member {
+            "INSERT OR IGNORE INTO codeplug_memory_group (codeplug_id, channel_id) VALUES (?1, ?2)"
+        } else {
+            "DELETE FROM codeplug_memory_group WHERE codeplug_id = ?1 AND channel_id = ?2"
+        };
+        sqlx::query(sql).bind(codeplug_id).bind(channel_id).execute(&mut *tx).await.estr()?;
+    }
+    tx.commit().await.estr()
+}

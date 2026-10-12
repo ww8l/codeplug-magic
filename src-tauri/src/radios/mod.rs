@@ -55,3 +55,4 @@ pub(crate) mod tyt_md380;
 #[cfg(test)]
 mod wiring;
 pub(crate) mod yaesu_ft5d;
+pub(crate) mod yaesu_ftm300;

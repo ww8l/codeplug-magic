@@ -628,6 +628,10 @@ pub(crate) struct ExportRequest<'a> {
     /// (`radio_profiles.non_channel_settings`), when it has a profile. Formats
     /// that carry non-channel settings apply them; the CSV formats cannot.
     pub profile_settings: Option<&'a str>,
+    /// Channel ids the codeplug puts in the radio's one user memory group (the
+    /// FTM-300's M-GRP), chosen channel by channel on the codeplug page. Every
+    /// other exporter ignores it.
+    pub memory_group: &'a [i64],
 }
 
 /// Card formats whose file takes the profile's settings ON THEIR OWN: the

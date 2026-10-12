@@ -23,7 +23,7 @@ use crate::models::RadioModel;
 /// Every driver compiled into the app. Order is not significant — lookups are
 /// by `key()`, which is unique. (A static array rather than a slice literal:
 /// references to statics aren't const-promotable inside a returned temporary.)
-static DRIVERS: [&dyn RadioDriver; 11] = [
+static DRIVERS: [&dyn RadioDriver; 12] = [
     &super::baofeng_uv5r::DRIVER,
     &super::binteradio_bt9000::DRIVER,
     &super::tidradio_tdh3::DRIVER,
@@ -35,6 +35,7 @@ static DRIVERS: [&dyn RadioDriver; 11] = [
     &super::kenwood_tmd710::DRIVER,
     &super::icom_id5100::DRIVER,
     &super::tyt_md380::DRIVER,
+    &super::yaesu_ftm300::DRIVER,
 ];
 
 pub(crate) fn all_drivers() -> &'static [&'static dyn RadioDriver] {
@@ -87,6 +88,7 @@ mod tests {
             "kenwood_thd75",
             "kenwood_thd72",
             "kenwood_tmd710",
+            "yaesu_ftm300",
         ] {
             let d = driver_for_key(key).unwrap_or_else(|| panic!("no driver for '{key}'"));
             assert_eq!(d.key(), key);
@@ -119,6 +121,8 @@ mod tests {
                 // its `.icf` and the TH-D75's in its `.d75`, none of which goes
                 // through these traits.
                 "yaesu_ft5d" | "icom_id52" | "kenwood_thd75" => (false, false),
+                // FTM-300 (#48): the fourth card radio, same reason.
+                "yaesu_ftm300" => (false, false),
                 // TH-D72: reads and writes its 19 menu parameters over the
                 // `MU` ASCII command — no clone session involved, which is why
                 // it claims both halves where the card radios claim neither.

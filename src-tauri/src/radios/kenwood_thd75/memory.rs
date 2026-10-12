@@ -1092,6 +1092,7 @@ mod tests {
             groups: &[],
             model,
             profile_settings: None,
+            memory_group: &[],
         }
     }
 
@@ -1191,6 +1192,7 @@ mod tests {
                     groups: &[],
                     model: &model,
                     profile_settings: Some(json),
+                    memory_group: &[],
                 },
             )
             .expect("export");

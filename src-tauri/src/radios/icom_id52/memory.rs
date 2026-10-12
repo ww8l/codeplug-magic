@@ -790,6 +790,7 @@ mod tests {
             groups: &[],
             model,
             profile_settings: settings,
+            memory_group: &[],
         }
     }
 

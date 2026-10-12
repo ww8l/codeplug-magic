@@ -100,6 +100,7 @@ async fn a_real_codeplug_exports_through_the_app_pipeline() {
                 groups: &groups,
                 model: &model,
                 profile_settings: None,
+                memory_group: &[],
             },
         )
         .expect("export");

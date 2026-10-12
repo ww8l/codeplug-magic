@@ -1076,6 +1076,16 @@ pub async fn generate_codeplug(
             (values, _) => values,
         };
 
+    // The codeplug's memory group (the FTM-300's M-GRP), for the formats that
+    // have one. Read before the exporter is borrowed: the registry hands out a
+    // non-Send reference that cannot cross an await.
+    let memory_group: Vec<i64> =
+        sqlx::query_scalar("SELECT channel_id FROM codeplug_memory_group WHERE codeplug_id = ?1")
+            .bind(codeplug_id)
+            .fetch_all(&state.pool)
+            .await
+            .estr()?;
+
     // Format-keyed registry lookup (Chunk 3.8): a model picks its exporter by
     // `export_format`, never by name and never by driver — an export-only model
     // has no driver but still names a format. Unclaimed formats (and NULL) get
@@ -1101,6 +1111,7 @@ pub async fn generate_codeplug(
                 groups: &groups,
                 model: &model,
                 profile_settings: profile_settings.as_deref(),
+                memory_group: &memory_group,
             };
             exporter.export(&target, &req)?;
             target
