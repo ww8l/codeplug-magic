@@ -100,6 +100,10 @@ impl CodeplugExporter for YaesuFtm300 {
         })
     }
 
+    fn has_memory_group(&self) -> bool {
+        true
+    }
+
     fn as_card_settings_writer(&self) -> Option<&dyn CardSettingsWriter> {
         Some(self)
     }
@@ -126,21 +130,12 @@ fn patch_in_place(
     path: &str,
     patch: impl FnOnce(&[u8]) -> Result<(Vec<u8>, usize), String>,
 ) -> Result<usize, String> {
-    let template = std::fs::read(path).map_err(|e| {
-        format!(
-            "Could not read {path}: {e}. Pick FTM300D/BACKUP/CLNFTM300D.dat on the radio's \
-             microSD card — back the radio up first (SD CARD → BACKUP → WRITE TO SD → ALL) \
-             if it is not there."
-        )
-    })?;
-    let (image, count) = patch(&template)?;
-    let orig = format!("{path}.orig");
-    if !std::path::Path::new(&orig).exists() {
-        std::fs::write(&orig, &template)
-            .map_err(|e| format!("Could not save the original as {orig}: {e}"))?;
-    }
-    std::fs::write(path, &image).map_err(|e| format!("Could not write {path}: {e}"))?;
-    Ok(count)
+    crate::radios::card_file::patch_in_place(
+        path,
+        "Pick FTM300D/BACKUP/CLNFTM300D.dat on the radio's microSD card — back the radio \
+         up first (SD CARD → BACKUP → WRITE TO SD → ALL) if it is not there.",
+        patch,
+    )
 }
 
 #[cfg(test)]

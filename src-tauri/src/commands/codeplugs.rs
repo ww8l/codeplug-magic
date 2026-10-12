@@ -305,16 +305,34 @@ pub async fn clear_channel_scan_list(
 // ---- Memory group (the FTM-300's M-GRP, #48) ----
 // One user group a channel is either in or out of, chosen per codeplug.
 
+/// The codeplug's memory-group channels that are still IN the codeplug. A row
+/// for a channel whose list was later removed stays stored (re-adding the list
+/// brings it back) but is not reported here, so the page's count, the checklist
+/// and the export all agree on one set.
+pub(crate) async fn codeplug_memory_group(
+    pool: &sqlx::SqlitePool,
+    codeplug_id: i64,
+) -> Result<Vec<i64>, String> {
+    sqlx::query_scalar(
+        "SELECT mg.channel_id FROM codeplug_memory_group mg
+         WHERE mg.codeplug_id = ?1
+           AND mg.channel_id IN (
+               SELECT cle.channel_id FROM codeplug_channel_lists ccl
+               JOIN channel_list_entries cle ON cle.channel_list_id = ccl.channel_list_id
+               WHERE ccl.codeplug_id = ?1)",
+    )
+    .bind(codeplug_id)
+    .fetch_all(pool)
+    .await
+    .estr()
+}
+
 #[tauri::command]
 pub async fn get_codeplug_memory_group(
     state: State<'_, AppState>,
     codeplug_id: i64,
 ) -> Result<Vec<i64>, String> {
-    sqlx::query_scalar("SELECT channel_id FROM codeplug_memory_group WHERE codeplug_id = ?1")
-        .bind(codeplug_id)
-        .fetch_all(&state.pool)
-        .await
-        .estr()
+    codeplug_memory_group(&state.pool, codeplug_id).await
 }
 
 /// Put a batch of channels in (or take them out of) the codeplug's memory group.

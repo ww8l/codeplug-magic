@@ -49,9 +49,12 @@ fn mask(width: u8) -> u32 {
 fn label_for(labels: &[(u32, &str)], raw: u32) -> Value {
     match labels.iter().find(|(v, _)| *v == raw) {
         Some((_, l)) => Value::String((*l).to_string()),
-        // An unknown stored value comes back as its number rather than a wrong
-        // label, so a write of an untouched profile cannot normalise it away.
-        None => Value::String(raw.to_string()),
+        // An unknown stored value comes back as `#N` rather than a wrong label,
+        // so a write of an untouched profile cannot normalise it away. Not a
+        // bare number: several enums here are LABELLED with numbers that are not
+        // their raw values (DTMF channel "1".."9" is raw 0..8), and "9" would
+        // read back as the label for raw 8.
+        None => Value::String(format!("#{raw}")),
     }
 }
 
@@ -98,8 +101,16 @@ fn raw_for(labels: &[(u32, &str)], v: &Value) -> Option<u32> {
         .iter()
         .find(|(_, l)| *l == s)
         .map(|(raw, _)| *raw)
-        // A raw number handed back by `label_for` round-trips as itself.
-        .or_else(|| s.parse().ok())
+        // An unknown raw value handed back by `label_for` round-trips as itself.
+        .or_else(|| s.strip_prefix('#')?.parse().ok())
+}
+
+/// Whether `s` fits a text field as the radio stores it: at most `len`
+/// characters, every one from the field's charset. Checked, never filtered —
+/// stripping the `-` out of "WW8L-9" would write a different call sign.
+fn text_fits(s: &str, len: u32, punct: bool) -> bool {
+    s.chars().count() <= len as usize
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || (punct && (c == '-' || c == '/')))
 }
 
 /// Write a profile's settings into the image, returning how many fields were
@@ -150,20 +161,16 @@ pub(crate) fn apply_settings(img: &mut [u8], settings: &Map<String, Value>) -> u
                 }
                 _ => false,
             },
+            // A value the field cannot hold is skipped, not cut down to fit.
             SK::Text { len, pad, punct } => match v.as_str() {
-                Some(s) => {
-                    let s: Vec<u8> = s
-                        .to_ascii_uppercase()
-                        .bytes()
-                        .filter(|b| b.is_ascii_alphanumeric() || (*punct && (*b == b'-' || *b == b'/')))
-                        .take(*len as usize)
-                        .collect();
+                Some(s) if text_fits(s, *len, *punct) => {
+                    let s: Vec<u8> = s.to_ascii_uppercase().into_bytes();
                     let field = &mut img[at..at + *len as usize];
                     field.fill(*pad);
                     field[..s.len()].copy_from_slice(&s);
                     true
                 }
-                None => false,
+                _ => false,
             },
         };
         written += usize::from(ok);
@@ -235,6 +242,40 @@ mod tests {
         let mut out = img.clone();
         apply_settings(&mut out, decoded.as_object().unwrap());
         assert_eq!(out, img);
+    }
+
+    /// A call sign the field cannot hold is refused whole, never trimmed.
+    #[test]
+    fn a_text_value_that_does_not_fit_is_not_written() {
+        let base = vec![0u8; super::super::sd_image::IMAGE_LEN];
+        for (key, bad) in [("aprs-callsign", "WW8L-9"), ("aprs-callsign", "WW8LXYZ"), ("callsign", "WW8L 1")] {
+            let mut img = base.clone();
+            let mut m = Map::new();
+            m.insert(key.into(), Value::String(bad.into()));
+            assert_eq!(apply_settings(&mut img, &m), 0, "{key} {bad}");
+            assert_eq!(img, base, "{key} {bad}");
+        }
+        let mut img = base.clone();
+        let mut m = Map::new();
+        m.insert("callsign".into(), Value::String("ww8l/m".into()));
+        assert_eq!(apply_settings(&mut img, &m), 1);
+        assert_eq!(decode_settings(&img)["callsign"], "WW8L/M");
+    }
+
+    /// An unknown stored value survives a round trip as itself, even in an
+    /// enum whose labels are numbers that are not the raw values.
+    #[test]
+    fn an_unknown_raw_value_round_trips_as_itself() {
+        let f = FTM300_SETTINGS_FIELDS.iter().find(|f| f.key == "band-a-dtmf-channel").unwrap();
+        let mut img = vec![0u8; super::super::sd_image::IMAGE_LEN];
+        img[f.byte as usize] = 9; // labels "1".."9" are raw 0..8
+        let v = decode_settings(&img)[f.key].clone();
+        assert_eq!(v, "#9");
+        let mut other = vec![0u8; super::super::sd_image::IMAGE_LEN];
+        let mut m = Map::new();
+        m.insert(f.key.into(), v);
+        apply_settings(&mut other, &m);
+        assert_eq!(other[f.byte as usize], 9);
     }
 
     #[test]

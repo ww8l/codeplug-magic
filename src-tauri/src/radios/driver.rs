@@ -663,6 +663,12 @@ pub(crate) trait CodeplugExporter {
     /// inferred, like every other capability: a format either implements
     /// [`CardSettingsWriter`] or it does not, so the profile page's button and
     /// the write behind it cannot disagree.
+    /// Whether this format writes the codeplug's memory group (the FTM-300's
+    /// M-GRP) — so the export only reads it for the formats that use it.
+    fn has_memory_group(&self) -> bool {
+        false
+    }
+
     fn as_card_settings_writer(&self) -> Option<&dyn CardSettingsWriter> {
         None
     }

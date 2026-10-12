@@ -140,14 +140,22 @@ pub(crate) fn validate_backup(image: &[u8]) -> Result<(), String> {
 /// nibble), and the first byte's HIGH nibble adds the sub-10 kHz part as flags
 /// worth 5, 2.5, 1.25 and 0.625 kHz.
 ///
-/// The remainder is truncated to the 625 Hz grid. That is what RT Systems does
-/// with airband 8.33 kHz channels — 127.80833 stores as `0xD` (8.125 kHz) — and
-/// it is exact for every 5, 6.25 and 12.5 kHz channel.
+/// Exact for every 5, 6.25 and 12.5 kHz channel (all on the 625 Hz grid). Off
+/// that grid only the airband's +8.33 kHz point is known: it stores as `0xD`,
+/// and Tim's radio DISPLAYS 127.80833 for it — the radio special-cases the code
+/// rather than summing its bits. The other 8.33 kHz points (+1.67, +3.33,
+/// +6.67) are not measured: summing bits put 127.81667 on the radio's screen as
+/// 127.81625. [`patch_backup`] refuses those via [`encodable`] rather than write
+/// a frequency the radio shows wrong.
 fn encode_freq(hz: i64) -> [u8; 3] {
     let hz = hz.max(0);
     let tens = (hz / 10_000) as u32; // 10 kHz units, e.g. 14652 for 146.52 MHz
     let mut rem = hz % 10_000;
     let mut fine = 0u8;
+    if is_8k33(rem) {
+        fine = 0xD0;
+        rem = 0;
+    }
     for (bit, add) in [(0x80u8, 5000i64), (0x40, 2500), (0x20, 1250), (0x10, 625)] {
         if rem >= add {
             fine |= bit;
@@ -160,6 +168,18 @@ fn encode_freq(hz: i64) -> [u8; 3] {
         (d(tens / 1000) << 4) | d(tens / 100),
         (d(tens / 10) << 4) | d(tens),
     ]
+}
+
+/// The +8.33 kHz airband point within a 10 kHz step (x.x0833, x.x5833).
+fn is_8k33(rem: i64) -> bool {
+    (8300..=8340).contains(&rem)
+}
+
+/// Whether the radio is known to display `hz` as written: on the 625 Hz grid,
+/// or the measured +8.33 kHz airband point.
+pub(crate) fn encodable(hz: i64) -> bool {
+    let rem = hz.rem_euclid(10_000);
+    rem % 625 == 0 || is_8k33(rem)
 }
 
 #[cfg(test)]
@@ -383,6 +403,20 @@ pub(crate) fn patch_backup(
             channels.len() - MEM_SLOTS
         ));
     }
+    // A frequency the radio would display wrong is refused, not rounded.
+    let unknown: Vec<String> = channels
+        .iter()
+        .filter(|ec| !encodable(hz(ec.channel.rx_freq)) || !encodable(hz(tx_frequency(&ec.channel))))
+        .map(|ec| format!("{:.5} MHz", ec.channel.rx_freq))
+        .collect();
+    if !unknown.is_empty() {
+        return Err(format!(
+            "The FTM-300's code for these 8.33 kHz airband frequencies has not been measured, \
+             so they would show on the radio at a slightly different frequency: {}. Remove them \
+             from this codeplug (127.80833-style channels are fine).",
+            unknown.join(", ")
+        ));
+    }
     let mut img = template.to_vec();
     let names = expanded_names(channels.iter().copied(), model);
     for (slot, (ec, name)) in channels.iter().zip(&names).enumerate() {
@@ -444,6 +478,7 @@ mod tests {
             (446_112_500, [0x44, 0x46, 0x11]),
             (851_012_500, [0x48, 0x51, 0x01]),
             (127_808_330, [0xD1, 0x27, 0x80]),
+            (127_808_333, [0xD1, 0x27, 0x80]),
         ];
         for &(hz, bytes) in cases {
             assert_eq!(encode_freq(hz), bytes, "{hz}");
@@ -451,6 +486,21 @@ mod tests {
         for &(hz, bytes) in &cases[..7] {
             assert_eq!(decode_freq(&bytes), hz, "{hz}");
         }
+    }
+
+    /// Only the measured 8.33 kHz point is written; the rest are refused.
+    #[test]
+    fn unmeasured_airband_points_are_refused() {
+        assert!(encodable(127_808_330) && encodable(446_106_250) && encodable(851_012_500));
+        assert!(!encodable(127_816_670) && !encodable(127_833_330));
+        let mut c = chan(127.81667, None);
+        c.mode = Some("AM".into());
+        let e = ec(c);
+        let mut t = vec![0xFFu8; IMAGE_LEN];
+        t[..6].copy_from_slice(MAGIC);
+        let model = crate::seed::test_model("FTM-300DR");
+        let err = patch_backup(&t, &[&e], &model, &Default::default()).unwrap_err();
+        assert!(err.contains("127.81667"), "{err}");
     }
 
     #[test]

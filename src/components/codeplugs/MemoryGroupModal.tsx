@@ -4,6 +4,7 @@ import { Modal } from "../overlays";
 import { Button, TextInput, Spinner } from "../ui";
 import { api, withToast } from "../../lib/api";
 import type { Channel } from "../../lib/types";
+import { loadCodeplugChannelPool } from "../../lib/codeplugPool";
 
 const channelName = (c: Channel) =>
   c.name_long || c.name_short || c.callsign || `CH ${c.id}`;
@@ -39,21 +40,7 @@ export function MemoryGroupModal({
     setSearch("");
     setLoading(true);
     (async () => {
-      // The codeplug's channel pool: every assigned list, first-seen wins —
-      // the same dedupe the export uses.
-      const lists = await Promise.all(
-        listKey ? listKey.split(",").map((id) => api.getChannelListChannels(Number(id))) : [],
-      );
-      const pool: Channel[] = [];
-      const seen = new Set<number>();
-      for (const list of lists) {
-        for (const c of list) {
-          if (!seen.has(c.id)) {
-            seen.add(c.id);
-            pool.push(c);
-          }
-        }
-      }
+      const pool = await loadCodeplugChannelPool(listKey ? listKey.split(",").map(Number) : []);
       const ids = await api.getCodeplugMemoryGroup(codeplugId);
       setChannels(pool);
       setMembers(new Set(ids));
@@ -67,8 +54,8 @@ export function MemoryGroupModal({
     return channels.filter((c) => channelName(c).toLowerCase().includes(q));
   }, [channels, search]);
 
-  // Only channels still in the codeplug count; a removed list's channels stay
-  // stored but are never written.
+  // The backend reports only members still in the codeplug, so this is the
+  // same count the page shows and the export writes.
   const inPool = useMemo(
     () => channels.filter((c) => members.has(c.id)).length,
     [channels, members],

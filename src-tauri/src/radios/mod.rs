@@ -32,6 +32,7 @@
 pub(crate) mod anytone_atd890uv;
 pub(crate) mod baofeng_uv5r;
 pub(crate) mod binteradio_bt9000;
+pub(crate) mod card_file;
 #[cfg(test)]
 mod card_settings_write;
 pub(crate) mod driver;

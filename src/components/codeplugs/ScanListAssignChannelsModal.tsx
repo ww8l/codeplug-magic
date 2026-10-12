@@ -5,6 +5,7 @@ import { Modal } from "../overlays";
 import { Button, TextInput, Spinner } from "../ui";
 import { api, withToast } from "../../lib/api";
 import type { Channel, ScanListSummary } from "../../lib/types";
+import { loadCodeplugChannelPool } from "../../lib/codeplugPool";
 
 const channelName = (c: Channel) =>
   c.name_long || c.name_short || c.callsign || `CH ${c.id}`;
@@ -47,21 +48,7 @@ export function ScanListAssignChannelsModal({
     setSearch("");
     setLoading(true);
     (async () => {
-      // Codeplug channel pool: every assigned list's channels, first-seen wins
-      // (mirrors the program builder's dedupe).
-      const lists = await Promise.all(
-        channelListIds.map((lid) => api.getChannelListChannels(lid)),
-      );
-      const pool: Channel[] = [];
-      const seen = new Set<number>();
-      for (const list of lists) {
-        for (const c of list) {
-          if (!seen.has(c.id)) {
-            seen.add(c.id);
-            pool.push(c);
-          }
-        }
-      }
+      const pool = await loadCodeplugChannelPool(channelListIds);
       const rows = await api.getCodeplugChannelScanLists(codeplugId);
       setChannels(pool);
       setAssigned(new Map(rows.map((r) => [r.channel_id, r.scan_list_id])));

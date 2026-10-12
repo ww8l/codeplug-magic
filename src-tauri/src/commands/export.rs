@@ -1076,15 +1076,19 @@ pub async fn generate_codeplug(
             (values, _) => values,
         };
 
-    // The codeplug's memory group (the FTM-300's M-GRP), for the formats that
-    // have one. Read before the exporter is borrowed: the registry hands out a
-    // non-Send reference that cannot cross an await.
-    let memory_group: Vec<i64> =
-        sqlx::query_scalar("SELECT channel_id FROM codeplug_memory_group WHERE codeplug_id = ?1")
-            .bind(codeplug_id)
-            .fetch_all(&state.pool)
-            .await
-            .estr()?;
+    // The codeplug's memory group (the FTM-300's M-GRP), only for the formats
+    // that write one. Read before the exporter is borrowed for the export: the
+    // registry hands out a non-Send reference that cannot cross an await.
+    let wants_memory_group = model
+        .export_format
+        .as_deref()
+        .and_then(crate::radios::registry::exporter_for_format)
+        .is_some_and(|e| e.has_memory_group());
+    let memory_group: Vec<i64> = if wants_memory_group {
+        crate::commands::codeplugs::codeplug_memory_group(&state.pool, codeplug_id).await?
+    } else {
+        Vec::new()
+    };
 
     // Format-keyed registry lookup (Chunk 3.8): a model picks its exporter by
     // `export_format`, never by name and never by driver — an export-only model

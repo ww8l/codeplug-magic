@@ -219,7 +219,7 @@ export function CodeplugDetail() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [cp, p, m, cls, sls, allCl, allSl, mg] = await Promise.all([
+      const [cp, p, m, cls, sls, allCl, allSl] = await Promise.all([
         api.getCodeplug(codeplugId),
         api.listRadioProfiles(),
         api.listRadioModels(),
@@ -227,7 +227,6 @@ export function CodeplugDetail() {
         api.getCodeplugScanLists(codeplugId),
         api.listChannelLists(),
         api.listScanLists(),
-        api.getCodeplugMemoryGroup(codeplugId),
       ]);
       setCodeplug(cp);
       setProfiles(p);
@@ -236,7 +235,6 @@ export function CodeplugDetail() {
       setScanLists(sls);
       setAllChannelLists(allCl);
       setAllScanLists(allSl);
-      setMemoryGroupCount(mg.length);
       setProfileId(cp.radio_profile_id);
     } finally {
       setLoading(false);
@@ -258,6 +256,13 @@ export function CodeplugDetail() {
   const ProgramDialog = programDialogFor(model?.programming_ui ?? null);
   // The radio's one user memory group (the FTM-300's M-GRP), if it has one.
   const memoryGroup = memoryGroupFor(model ?? null);
+  // Loaded only for a radio that has one. Re-read when the channel lists change:
+  // the count is of members still in the codeplug.
+  const listIdsKey = channelLists.map((l) => l.id).join(",");
+  useEffect(() => {
+    if (!memoryGroup) return;
+    api.getCodeplugMemoryGroup(codeplugId).then((ids) => setMemoryGroupCount(ids.length));
+  }, [memoryGroup, codeplugId, listIdsKey]);
 
   const totalChannels = useMemo(
     () => channelLists.reduce((sum, l) => sum + l.channel_count, 0),
