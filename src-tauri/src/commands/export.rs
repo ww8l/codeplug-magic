@@ -410,7 +410,8 @@ pub(crate) fn channel_fit(channel: &Channel, model: &RadioModel) -> ChannelFit {
         "FM" | "NFM" | "AM" | "USB" | "LSB" | "CW" => model.analog_capable,
         "DMR" => model.dmr_capable,
         "DSTAR" => model.dstar_capable,
-        "YSF" => model.ysf_capable,
+        // YSF is Fusion digital-narrow (DN); YSF-VW is its full-rate voice mode.
+        "YSF" | "YSF-VW" => model.ysf_capable,
         "NXDN" => model.nxdn_capable,
         "P25" => model.p25_capable,
         "M17" => model.m17_capable,
@@ -2689,6 +2690,23 @@ mod tests {
             ..fm_at(146.940)
         };
         assert!(exclusion_reason(&dmr, &model).unwrap().contains("Mode DMR"));
+    }
+
+    /// Issue #141: VW is a Fusion mode, so it goes where YSF goes — onto a
+    /// Fusion radio, and never onto an analog-only one as plain FM (an unknown
+    /// mode falls through to `analog_capable`).
+    #[test]
+    fn fusion_vw_follows_ysf() {
+        let vw = Channel {
+            mode: Some("YSF-VW".into()),
+            ..fm_at(146.940)
+        };
+        assert_eq!(channel_fit(&vw, &wideband_rx_model()), ChannelFit::Included);
+        let analog = RadioModel {
+            ysf_capable: false,
+            ..wideband_rx_model()
+        };
+        assert!(exclusion_reason(&vw, &analog).unwrap().contains("Mode YSF-VW"));
     }
 
     /// Reference data that will not parse must never quietly empty a codeplug:

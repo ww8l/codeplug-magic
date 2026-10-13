@@ -274,9 +274,13 @@ fn encode_record(ec: &ExpandedChannel, name: &str) -> [u8; MEM_STRIDE] {
         _ => 3,                                          // High, 5 W
     };
     // 0 Analog / 1 AMS / 2 DN / 3 VW. A YSF channel is programmed as DN
-    // (the C4FM mode the FT5D uses for repeaters); analog stays 0.
-    let digmode = if c.mode.as_deref().map(|m| m.eq_ignore_ascii_case("YSF")) == Some(true) {
-        2u8
+    // (the C4FM mode the FT5D uses for repeaters), YSF-VW as VW; analog stays
+    // 0. VW = 3 is CHIRP's ft1d map: none of the backups holds a VW channel.
+    let is = |m: &str| c.mode.as_deref().map(|v| v.eq_ignore_ascii_case(m)) == Some(true);
+    let digmode: u8 = if is("YSF") {
+        2
+    } else if is("YSF-VW") {
+        3
     } else {
         0
     };
@@ -680,6 +684,21 @@ mod tests {
         assert_eq!(&r[8..13], b"W0UPS");
         assert_eq!(r[13], 0xFF, "name is 0xFF-padded");
         assert_eq!(img[FLAG_BASE], 0b0000_0011, "valid + used, sub-VFO allowed");
+    }
+
+    /// DN and VW pin the digital mode, so both turn AMS auto-detect off;
+    /// analog keeps it on. (#141)
+    #[test]
+    fn encodes_the_fusion_modes() {
+        let digmode_and_automode = |mode: &str| {
+            let mut c = chan(1, "C4FM", 438.55);
+            c.mode = Some(mode.into());
+            let r = encode_record(&expanded(c), "C4FM");
+            ((r[5] >> 4) & 3, r[0x1F] & 0x08)
+        };
+        assert_eq!(digmode_and_automode("FM"), (0, 0x08));
+        assert_eq!(digmode_and_automode("YSF"), (2, 0));
+        assert_eq!(digmode_and_automode("YSF-VW"), (3, 0));
     }
 
     /// Issue #32: channels the FT5D can only listen on now reach the encoder,

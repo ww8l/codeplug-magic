@@ -157,6 +157,7 @@ pub(crate) fn build_preview(parsed: &[ParsedChannel]) -> ImportPreview {
 #[derive(sqlx::FromRow)]
 struct ExistingChannel {
     id: i64,
+    mode: Option<String>,
     ctcss_uplink: Option<f64>,
     ctcss_downlink: Option<f64>,
     operational_status: Option<String>,
@@ -234,7 +235,7 @@ pub(crate) async fn insert_parsed_tx(
         // custom names preserved) rather than skipped, so re-importing a fresh
         // export corrects stale data — e.g. a mode wrongly flagged YSF.
         let existing: Option<ExistingChannel> = sqlx::query_as(
-            "SELECT id, ctcss_uplink, ctcss_downlink, operational_status, notes, \
+            "SELECT id, mode, ctcss_uplink, ctcss_downlink, operational_status, notes, \
              ctcss_uplink_overridden, ctcss_downlink_overridden, \
              operational_status_overridden, notes_overridden, \
              tone_mode, cross_mode, dcs_code, dcs_rx_code, \
@@ -344,7 +345,9 @@ pub(crate) async fn insert_parsed_tx(
 /// Merge policy:
 ///   * RB-authoritative technical facts (mode + every digital-mode flag,
 ///     tx_freq/offset/duplex/band, city/county/country) are refreshed from RB —
-///     this is what corrects a stale/mis-flagged mode.
+///     this is what corrects a stale/mis-flagged mode. The one exception is
+///     Fusion's VW: RepeaterBook can only say "Fusion", so an operator's
+///     YSF-VW survives a refresh that still says YSF (#141).
 ///   * The four user-overridable fields (uplink/downlink tone, operational
 ///     status, notes) keep the user's value when overridden; otherwise they
 ///     adopt the fresh RB value. Their `rb_*` snapshots always advance and the
@@ -402,6 +405,14 @@ async fn merge_existing(
     // against the snapshot is the same test the tracked tone fields use. A row
     // predating migration 0019 has NULL snapshots and so reads as the
     // operator's, which preserves whatever it holds.
+    // RepeaterBook's Fusion flag cannot tell DN from VW; an operator who chose
+    // VW keeps it while the machine is still listed as Fusion.
+    let mode = if p.mode == "YSF" && ex.mode.as_deref() == Some("YSF-VW") {
+        "YSF-VW"
+    } else {
+        p.mode.as_str()
+    };
+
     let dcs_curated = ex.dcs_code != ex.rb_dcs_code || ex.dcs_rx_code != ex.rb_dcs_rx_code;
 
     // An export whose tone columns can express DCS describes the machine's
@@ -478,7 +489,7 @@ async fn merge_existing(
     .bind(p.offset)
     .bind(&p.duplex)
     .bind(&p.band)
-    .bind(&p.mode)
+    .bind(mode)
     .bind(&tone_mode)
     .bind(&cross_mode)
     .bind(ctcss_uplink)
@@ -2861,6 +2872,54 @@ mod tests {
                 .await
                 .expect("count");
         assert_eq!(count.0, 1);
+    }
+
+    /// #141: RepeaterBook says only "Fusion", so a refresh must not turn an
+    /// operator's VW back into DN — but a machine that drops Fusion still
+    /// leaves it.
+    #[tokio::test]
+    async fn reimport_keeps_fusion_vw_while_rb_still_says_fusion() {
+        let dir = std::env::temp_dir().join(format!("cpm_vw_{}", std::process::id()));
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        let rb_id = "N2SKY|448.4000|CO|FORT COLLINS";
+        sqlx::query(
+            "INSERT INTO channels (rb_name, callsign, rx_freq, tx_freq, mode, ysf_capable, \
+             source, repeaterbook_id, state, city) \
+             VALUES ('N2SKY Fort Collins', 'N2SKY', 448.4, 443.4, 'YSF-VW', 1, \
+             'repeaterbook', ?1, 'CO', 'Fort Collins')",
+        )
+        .bind(rb_id)
+        .execute(&pool)
+        .await
+        .expect("seed");
+
+        let reimport = |ysf: &str| {
+            let json = format!(
+                r#"{{"records":[{{"freq_mhz":"448.400","input_freq":"443.400",
+                "callsign":"N2SKY","state":"CO","city":"Fort Collins","ysf":"{ysf}"}}]}}"#
+            );
+            let jpath = dir.join(format!("vw_{ysf}.json"));
+            std::fs::write(&jpath, json).expect("write json");
+            parse_repeaterbook_json(jpath.to_str().unwrap()).expect("parse")
+        };
+        let mode = || async {
+            sqlx::query_scalar::<_, String>("SELECT mode FROM channels WHERE repeaterbook_id = ?1")
+                .bind(rb_id)
+                .fetch_one(&pool)
+                .await
+                .expect("row")
+        };
+
+        let still_fusion = reimport("Yes");
+        assert_eq!(still_fusion[0].mode, "YSF");
+        insert_parsed(&pool, &still_fusion).await.expect("merge");
+        assert_eq!(mode().await, "YSF-VW");
+
+        insert_parsed(&pool, &reimport("No")).await.expect("merge");
+        assert_eq!(mode().await, "FM");
     }
 
     #[tokio::test]
