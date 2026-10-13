@@ -6321,7 +6321,7 @@ dependencies = [
 
 [[package]]
 name = "ww8l-codeplug-magic"
-version = "26.10.11"
+version = "26.10.13"
 dependencies = [
  "chrono",
  "csv",
