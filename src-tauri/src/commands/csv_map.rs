@@ -889,7 +889,7 @@ pub(crate) fn parse_mapped_csv(
             // both DMR and YSF, and inventing a second capability from a stray
             // column would put a channel on the radio in the wrong mode.
             dstar_capable: mode == "DSTAR",
-            ysf_capable: mode == "YSF",
+            ysf_capable: mode == "YSF" || mode == "YSF-VW",
             nxdn_capable: mode == "NXDN",
             p25_capable: mode == "P25",
             p25_nac: (mode == "P25").then(|| cell(&rec, "p25_nac")).flatten(),
@@ -1122,7 +1122,8 @@ fn parse_timeslot(v: &str) -> Option<i64> {
 ///
 /// The aliases are the spellings other tools use: CHIRP writes `NFM` for narrow
 /// FM (a bandwidth, not a different mode here), `DV` for D-STAR and `DN` for
-/// Fusion's digital-narrow.
+/// Fusion's digital-narrow; `VW` is Fusion's full-rate voice mode, as Yaesu
+/// and RT Systems name it.
 fn norm_mode(v: &str) -> Option<&'static str> {
     Some(match normalize(v).as_str() {
         "fm" | "nfm" | "fmn" | "wfm" | "analog" | "analogue" => "FM",
@@ -1133,6 +1134,7 @@ fn norm_mode(v: &str) -> Option<&'static str> {
         "dmr" | "dmrtier2" => "DMR",
         "dstar" | "dv" | "dstardv" => "DSTAR",
         "ysf" | "fusion" | "systemfusion" | "c4fm" | "dn" => "YSF",
+        "ysfvw" | "c4fmvw" | "fusionvw" | "vw" => "YSF-VW",
         "nxdn" => "NXDN",
         "p25" | "p25phase1" | "p25phase2" => "P25",
         "m17" => "M17",
@@ -1853,5 +1855,15 @@ mod tests {
                 seen.push((alias.header, alias.shape, field.def.key));
             }
         }
+    }
+
+    /// #141: Fusion's two voice modes stay distinct, including this app's own
+    /// `YSF-VW` coming back in through a library CSV.
+    #[test]
+    fn fusion_vw_is_not_folded_into_dn() {
+        assert_eq!(norm_mode("DN"), Some("YSF"));
+        assert_eq!(norm_mode("YSF"), Some("YSF"));
+        assert_eq!(norm_mode("VW"), Some("YSF-VW"));
+        assert_eq!(norm_mode("YSF-VW"), Some("YSF-VW"));
     }
 }

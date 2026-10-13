@@ -11,6 +11,7 @@ export const MODES = [
   "DMR",
   "DSTAR",
   "YSF",
+  "YSF-VW",
   "NXDN",
   "P25",
   "M17",
@@ -19,7 +20,7 @@ export const MODES = [
 // the digital modes in the order most operators want them, then everything else
 // in MODES order. NFM rides with FM — on the air they're the same thing, so a
 // mixed analog batch stays together at the top.
-const ZONE_MODE_ORDER = ["FM", "NFM", "DMR", "YSF", "DSTAR"];
+const ZONE_MODE_ORDER = ["FM", "NFM", "DMR", "YSF", "YSF-VW", "DSTAR"];
 
 export const OP_STATUSES = ["On Air", "Off Air", "Unknown"];
 export const DUPLEX_OPTIONS = ["+", "-", "none", "split"];

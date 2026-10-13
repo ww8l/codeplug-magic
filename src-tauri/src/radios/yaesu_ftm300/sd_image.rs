@@ -107,7 +107,10 @@ const TMODE_TONE: u8 = 1;
 const TMODE_TSQL: u8 = 2;
 const TMODE_DCS: u8 = 4;
 // Byte 11: DN (0x40), VW (0x20 with 0x40), user CTCSS in Hz/100 (low 5 bits).
+// VW is 0x60 on the one VW channel in Tim's own backup (slot 2), and the
+// radio showed VW for a 0x60 memory the app wrote (#141); DN is 0x40.
 const DIGITAL_DN: u8 = 0x40;
+const DIGITAL_VW: u8 = 0x60;
 const USER_CTCSS_1500: u8 = 15;
 
 /// Largest repeater shift the radio offers (Set Mode RPT SHIFT FREQ, 0.00-99.95
@@ -330,8 +333,15 @@ pub(crate) fn encode_record(ec: &ExpandedChannel) -> [u8; MEM_STRIDE] {
     r[9] = (power_code(c.power.as_deref()) << 6) | tone;
     r[10] = dcs; // clock shift (0x80) stays off
     // A YSF channel is programmed DN-fixed, as the operator's own C4FM
-    // repeater channels are; AMS (byte 1, 0x40) stays off.
-    r[11] = USER_CTCSS_1500 | if is("YSF") { DIGITAL_DN } else { 0 };
+    // repeater channels are, and YSF-VW VW-fixed; AMS (byte 1, 0x40) stays off.
+    let digital = if is("YSF") {
+        DIGITAL_DN
+    } else if is("YSF-VW") {
+        DIGITAL_VW
+    } else {
+        0
+    };
+    r[11] = USER_CTCSS_1500 | digital;
     r[12..14].copy_from_slice(&shift_units.to_be_bytes());
     // 14/15: RX/TX DG-ID 00.
     r
@@ -556,6 +566,10 @@ mod tests {
         c.power = Some("Med".into());
         let r = encode_record(&ec(c));
         assert_eq!((r[1], r[9] >> 6, r[11]), (0x03, 1, 0x4F));
+        let mut c = chan(147.0, Some(147.6));
+        c.mode = Some("YSF-VW".into());
+        let r = encode_record(&ec(c));
+        assert_eq!((r[1], r[11]), (0x03, 0x6F));
     }
 
     #[test]

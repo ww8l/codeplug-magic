@@ -13,9 +13,9 @@
 //! ```
 //!
 //! Three per-channel bits have no column in the channel database, so they are
-//! masked and COUNTED rather than compared: skip, M-GRP and clock shift. VW
-//! mode is the fourth (the database's YSF becomes DN). Everything else must
-//! match byte for byte, names and the name-length table included.
+//! masked and COUNTED rather than compared: skip, M-GRP and clock shift.
+//! Everything else must match byte for byte, names and the name-length table
+//! included.
 
 use super::sd_image::{encode_record, patch_backup, MEM_SLOTS};
 use crate::commands::export::ExpandedChannel;
@@ -26,7 +26,8 @@ fn row_to_channel(cols: &[&str], id: i64) -> Channel {
     let mode = match cols[5] {
         "AM" => "AM",
         "FM Narrow" => "NFM",
-        "DN" | "VW" => "YSF",
+        "DN" => "YSF",
+        "VW" => "YSF-VW",
         _ => "FM",
     };
     let tone_mode = match cols[8] {
@@ -88,7 +89,6 @@ fn reencodes_a_real_radios_memories() {
             let mut m = r.to_vec();
             m[0] &= !0x30; // skip, M-GRP
             m[10] &= !0x80; // clock shift
-            m[11] &= !0x20; // VW
             m
         };
         if mask(&ours) == mask(theirs) {
@@ -97,7 +97,7 @@ fn reencodes_a_real_radios_memories() {
             wrong.push(format!("slot {slot}: ours {ours:02x?}\n         radio {theirs:02x?}"));
         }
     }
-    eprintln!("{exact} exact, {masked_only} differ only in skip/M-GRP/clock-shift/VW, {} wrong", wrong.len());
+    eprintln!("{exact} exact, {masked_only} differ only in skip/M-GRP/clock-shift, {} wrong", wrong.len());
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 
     // Names and the name-length table: every name the radio holds, run through
