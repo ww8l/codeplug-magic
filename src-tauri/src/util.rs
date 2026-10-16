@@ -108,6 +108,33 @@ pub fn truncate(s: &str, max: usize) -> String {
     s.trim().chars().take(max).collect::<String>().trim_end().to_string()
 }
 
+/// Text for a radio field that stores plain single-byte text: accents dropped
+/// (NFD, combining marks removed — René -> Rene), a few letters with no
+/// decomposition spelled out, anything still non-ASCII as `?`, control
+/// characters dropped.
+pub(crate) fn fold_ascii(text: &str) -> Vec<u8> {
+    use unicode_normalization::char::is_combining_mark;
+    use unicode_normalization::UnicodeNormalization;
+    let mut out = Vec::with_capacity(text.len());
+    for c in text.nfd().filter(|c| !is_combining_mark(*c)) {
+        match c {
+            c if c.is_ascii_control() => {}
+            c if c.is_ascii() => out.push(c as u8),
+            'ß' => out.extend_from_slice(b"ss"),
+            'æ' => out.extend_from_slice(b"ae"),
+            'Æ' => out.extend_from_slice(b"AE"),
+            'ø' => out.push(b'o'),
+            'Ø' => out.push(b'O'),
+            'ł' => out.push(b'l'),
+            'Ł' => out.push(b'L'),
+            'đ' => out.push(b'd'),
+            'Đ' => out.push(b'D'),
+            _ => out.push(b'?'),
+        }
+    }
+    out
+}
+
 /// Generate the long (<=16 char) display name from callsign + city.
 pub fn gen_name_long(callsign: &str, city: &str) -> String {
     let combined = format!("{} {}", callsign.trim(), city.trim());

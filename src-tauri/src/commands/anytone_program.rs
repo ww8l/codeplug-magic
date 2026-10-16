@@ -28,8 +28,8 @@ use crate::error::MapErrString;
 use crate::models::RadioModel;
 
 use super::anytone::{
-    check_restore_blocks, diff_dumps, end_session, enter_program_and_ident, open_port, parse_dump,
-    read_block, write_block, AnytoneDumpDiff, AnytonePatchWriteResult,
+    diff_dumps, end_session, enter_program_and_ident_as, open_port, parse_dump, read_block,
+    write_block, AnytoneDumpDiff, AnytonePatchWriteResult, IdentExpect, D890_IDENT,
 };
 // The plan/session half moved into the driver in 3.6b; the DTOs it returns are
 // the generic driver-level ones, so the wire shape (and the frontend) is
@@ -50,6 +50,82 @@ pub struct AnytoneVerifyResult {
     pub ok: bool,
     pub bytes_checked: usize,
     pub mismatches: Vec<AnytoneDumpDiff>,
+}
+
+// ============================================================
+// Family dispatch
+// ============================================================
+
+/// One AnyTone model the program dialog serves. The dialog's Verify, Restore
+/// and "latest program" actions are shared across the family; what differs is
+/// the ident a session must find, which windows a restore may write, and the
+/// file-name prefixes that model's backups carry.
+/// A model's restore guard: refuses a backup holding windows it never writes.
+type RestoreCheck = fn(&[(u32, Vec<u8>)]) -> Result<(), String>;
+
+/// How a model writes one restored block.
+type BlockWrite = fn(&mut dyn serialport::SerialPort, u32, &[u8]) -> Result<(), String>;
+
+struct AnytoneFamily {
+    ident: IdentExpect,
+    check_restore: RestoreCheck,
+    /// The D578 never sends a flash half's marker frame, even from a backup.
+    write: BlockWrite,
+    /// Backups this model writes (newest-first search in `latest_anytone_program`).
+    prefixes: &'static [&'static str],
+}
+
+const D890_FAMILY: AnytoneFamily = AnytoneFamily {
+    ident: D890_IDENT,
+    check_restore: super::anytone::check_restore_blocks,
+    write: write_block,
+    prefixes: &["anytone-program-", "anytone-settings-write-"],
+};
+
+const D578_FAMILY: AnytoneFamily = AnytoneFamily {
+    ident: crate::radios::anytone_atd578uv::D578_IDENT,
+    check_restore: crate::radios::anytone_atd578uv::check_restore_blocks,
+    write: crate::radios::anytone_atd578uv::write_sendable,
+    prefixes: &[
+        crate::radios::anytone_atd578uv::program::PROGRAM_PREFIX,
+        crate::radios::anytone_atd578uv::settings::SETTINGS_PREFIX,
+    ],
+};
+
+/// Every family member, for the cross-model file check.
+const FAMILIES: [(&str, &AnytoneFamily); 2] =
+    [("anytone_atd890uv", &D890_FAMILY), ("anytone_atd578uv", &D578_FAMILY)];
+
+fn family(driver_key: &str) -> Result<&'static AnytoneFamily, String> {
+    FAMILIES
+        .iter()
+        .find(|(k, _)| *k == driver_key)
+        .map(|(_, f)| *f)
+        .ok_or_else(|| format!("'{driver_key}' is not an AnyTone radio this dialog programs"))
+}
+
+/// Refuse a backup or expected image written for a DIFFERENT AnyTone model. The
+/// maps overlap — the D578's zone lists sit at the D890's first channel bank —
+/// so a window check alone would let one radio's backup through onto the other.
+/// A file carrying no family prefix is left to the window check, which keeps
+/// the D890's older backups restorable exactly as before.
+fn check_file_belongs(driver_key: &str, path: &str) -> Result<(), String> {
+    let name = std::path::Path::new(path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    for (key, fam) in FAMILIES {
+        if key != driver_key && fam.prefixes.iter().any(|p| name.starts_with(p)) {
+            return Err(format!(
+                "{name} was written for a different radio ({key}) — refusing to use it here"
+            ));
+        }
+    }
+    let own = family(driver_key)?;
+    if driver_key != "anytone_atd890uv" && !own.prefixes.iter().any(|p| name.starts_with(p)) {
+        return Err(format!("{name} is not a backup this app wrote for this radio"));
+    }
+    Ok(())
 }
 
 // ============================================================
@@ -92,9 +168,12 @@ pub async fn program_anytone_preview(
 /// actually holds after its commit+reboot. Read-only.
 #[tauri::command]
 pub async fn verify_anytone_program(
+    driver_key: String,
     port: String,
     expected_path: String,
 ) -> Result<AnytoneVerifyResult, String> {
+    let fam = family(&driver_key)?;
+    check_file_belongs(&driver_key, &expected_path)?;
     let bytes = std::fs::read(&expected_path)
         .map_err(|e| format!("could not read {expected_path}: {e}"))?;
     let expected = parse_dump(&bytes).map_err(|e| format!("{expected_path}: {e}"))?;
@@ -103,7 +182,7 @@ pub async fn verify_anytone_program(
         // session and releases on the way out, panic included. (#67)
         let _port_guard = crate::radios::port_lock::claim(&port)?;
         let mut p = open_port(&port)?;
-        let _ident = enter_program_and_ident(&mut *p)?;
+        let _ident = enter_program_and_ident_as(&mut *p, fam.ident)?;
         let mut actual = Vec::with_capacity(expected.len());
         for (addr, data) in &expected {
             match read_block(&mut *p, *addr, data.len()) {
@@ -142,31 +221,36 @@ pub struct AnytoneLatestProgram {
 #[tauri::command]
 pub async fn latest_anytone_program(
     app: AppHandle,
+    driver_key: String,
 ) -> Result<Option<AnytoneLatestProgram>, String> {
     let dir = app.path().app_data_dir().estr()?.join("radio-backups");
     // Both the channel-set program and the settings push write a
     // `{prefix}{stamp}.expected.bin` / `{prefix}{stamp}.bin` pair; either is a
-    // valid Verify/Restore target. Track the newest by full base filename.
-    const PREFIXES: &[&str] = &["anytone-program-", "anytone-settings-write-"];
+    // valid Verify/Restore target. Track the newest by full base filename —
+    // among THIS model's prefixes only, so a D578 dialog never offers a D890
+    // backup or the reverse.
+    Ok(newest_program(&dir, family(&driver_key)?.prefixes))
+}
+
+/// The newest `{prefix}{stamp}.expected.bin` / `.bin` pair in `dir` among
+/// `prefixes`, or `None`. Pure file listing; no radio.
+fn newest_program(dir: &std::path::Path, prefixes: &[&str]) -> Option<AnytoneLatestProgram> {
     let mut newest: Option<(String, String)> = None; // (stamp, base filename)
-    let entries = match std::fs::read_dir(&dir) {
-        Ok(e) => e,
-        Err(_) => return Ok(None), // dir may not exist yet
-    };
+    let entries = std::fs::read_dir(dir).ok()?; // the dir may not exist yet
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         let Some(base) = name.strip_suffix(".expected.bin") else {
             continue;
         };
         // The stamp (YYYYMMDD-HHMMSS) sorts lexicographically, so max = newest.
-        let Some(stamp) = PREFIXES.iter().find_map(|p| base.strip_prefix(p)) else {
+        let Some(stamp) = prefixes.iter().find_map(|p| base.strip_prefix(p)) else {
             continue;
         };
         if newest.as_ref().is_none_or(|(cur, _)| stamp > cur.as_str()) {
             newest = Some((stamp.to_string(), base.to_string()));
         }
     }
-    Ok(newest.map(|(stamp, base)| {
+    newest.map(|(stamp, base)| {
         let expected = dir.join(format!("{base}.expected.bin"));
         let backup = dir.join(format!("{base}.bin"));
         AnytoneLatestProgram {
@@ -174,7 +258,7 @@ pub async fn latest_anytone_program(
             expected_path: expected.to_string_lossy().to_string(),
             stamp,
         }
-    }))
+    })
 }
 
 
@@ -183,25 +267,28 @@ pub async fn latest_anytone_program(
 /// captured, then END once. Brick-capable; gated behind the dialog.
 #[tauri::command]
 pub async fn restore_anytone_backup(
+    driver_key: String,
     port: String,
     backup_path: String,
 ) -> Result<AnytonePatchWriteResult, String> {
+    let fam = family(&driver_key)?;
+    check_file_belongs(&driver_key, &backup_path)?;
     let bytes = std::fs::read(&backup_path)
         .map_err(|e| format!("could not read {backup_path}: {e}"))?;
     let blocks = parse_dump(&bytes).map_err(|e| format!("{backup_path}: {e}"))?;
     if blocks.is_empty() {
         return Err(format!("{backup_path} contains no data blocks"));
     }
-    check_restore_blocks(&blocks).map_err(|e| format!("{backup_path}: {e}"))?;
+    (fam.check_restore)(&blocks).map_err(|e| format!("{backup_path}: {e}"))?;
     tauri::async_runtime::spawn_blocking(move || {
         // One radio operation per port: this guard lives for the whole blocking
         // session and releases on the way out, panic included. (#67)
         let _port_guard = crate::radios::port_lock::claim(&port)?;
         let mut p = open_port(&port)?;
-        let _ident = enter_program_and_ident(&mut *p)?;
+        let _ident = enter_program_and_ident_as(&mut *p, fam.ident)?;
         let mut written = Vec::new();
         for (addr, data) in &blocks {
-            write_block(&mut *p, *addr, data)?;
+            (fam.write)(&mut *p, *addr, data)?;
             written.push(format!("0x{addr:08X}"));
         }
         let _ = end_session(&mut *p);
@@ -215,4 +302,66 @@ pub async fn restore_anytone_backup(
     })
     .await
     .estr()?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_dialog_model_finds_only_its_own_backups() {
+        let dir = std::env::temp_dir().join(format!("cpm-anytone-latest-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in [
+            "anytone-program-20261001-090000.expected.bin",
+            "anytone-settings-write-20261002-090000.expected.bin",
+            "atd578uv-program-20260930-090000.expected.bin",
+            "atd578uv-settings-write-20260929-090000.expected.bin",
+        ] {
+            std::fs::write(dir.join(name), b"").unwrap();
+        }
+        let d890 = newest_program(&dir, D890_FAMILY.prefixes).unwrap();
+        assert!(d890.expected_path.ends_with("anytone-settings-write-20261002-090000.expected.bin"));
+        let d578 = newest_program(&dir, D578_FAMILY.prefixes).unwrap();
+        assert!(d578.expected_path.ends_with("atd578uv-program-20260930-090000.expected.bin"));
+        assert!(d578.backup_path.ends_with("atd578uv-program-20260930-090000.bin"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_backup_from_the_other_model_is_refused() {
+        assert!(check_file_belongs("anytone_atd890uv", "/x/anytone-program-20261001-090000.bin").is_ok());
+        assert!(check_file_belongs("anytone_atd890uv", "/x/atd578uv-program-20261001-090000.bin").is_err());
+        assert!(check_file_belongs("anytone_atd578uv", "/x/atd578uv-settings-write-1.bin").is_ok());
+        assert!(check_file_belongs("anytone_atd578uv", "/x/anytone-program-20261001-090000.bin").is_err());
+        assert!(check_file_belongs("anytone_atd578uv", "/x/something-else.bin").is_err());
+        assert!(family("tyt_md380").is_err());
+    }
+
+    /// The gate against the real files: every AnyTone backup on this machine's
+    /// prod and dev app data stays usable by the D890 dialog, and none of them is
+    /// accepted by the D578's. Skips when the directories are absent (CI).
+    #[test]
+    fn real_backups_on_this_machine_keep_their_dialog() {
+        let Some(home) = std::env::var_os("HOME") else { return };
+        let mut seen = 0;
+        for app in ["com.ww8l.codeplugmagic", "com.ww8l.codeplugmagic.dev"] {
+            let dir = std::path::Path::new(&home)
+                .join("Library/Application Support")
+                .join(app)
+                .join("radio-backups");
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for e in entries.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if !D890_FAMILY.prefixes.iter().any(|p| name.starts_with(p)) {
+                    continue;
+                }
+                seen += 1;
+                let path = e.path().to_string_lossy().to_string();
+                assert!(check_file_belongs("anytone_atd890uv", &path).is_ok(), "{name}");
+                assert!(check_file_belongs("anytone_atd578uv", &path).is_err(), "{name}");
+            }
+        }
+        eprintln!("checked {seen} real D890 backups");
+    }
 }

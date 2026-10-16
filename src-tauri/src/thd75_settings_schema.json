@@ -768,13 +768,13 @@
   "key": "bluetooth-enable",
   "label": "Bluetooth Enable",
   "type": "boolean",
-  "group": "Connections"
+  "group": "Bluetooth"
  },
  {
   "key": "bluetooth-auto-connect",
   "label": "Bluetooth Auto Connect",
   "type": "boolean",
-  "group": "Connections"
+  "group": "Bluetooth"
  },
  {
   "key": "pf1-key",
@@ -1199,7 +1199,7 @@
   "key": "bluetooth-device-name",
   "label": "Bluetooth Device Name",
   "type": "text",
-  "group": "Connections",
+  "group": "Bluetooth",
   "max_length": 16
  },
  {

@@ -35,7 +35,7 @@ use crate::radios::driver::{
 use crate::util::truncate;
 
 use super::{
-    commit_channel_writes, ctcss_index, decode_utf16_name, encode_channel_into_record,
+    commit_channel_writes, decode_utf16_name, encode_channel_into_record,
     encode_contact_record, encode_scan_list_record, encode_utf16_field, encode_zone_list_record,
     end_session, enter_program_and_ident, is_empty_record, new_channel_record_template, open_port,
     plans_from_pre_read, read_block, serialize_backup,
@@ -102,7 +102,7 @@ pub(crate) struct AnytoneProgramPlan {
 }
 
 impl AnytoneProgramPlan {
-    fn preview(&self) -> CodeplugPreview {
+    pub(crate) fn preview(&self) -> CodeplugPreview {
         CodeplugPreview {
             radio: self.radio.clone(),
             channels: self.channels.len(),
@@ -126,9 +126,14 @@ impl AnytoneProgramPlan {
 /// DCS code degrades THAT side to no-tone with a warning instead of failing
 /// the whole program. Returns the tone edit plus warnings (unprefixed — the
 /// caller adds the channel name).
-fn ctcss_side(hz: Option<f64>, side: &str, warnings: &mut Vec<String>) -> Option<AnytoneSubTone> {
+fn ctcss_side(
+    hz: Option<f64>,
+    side: &str,
+    table: &[f64],
+    warnings: &mut Vec<String>,
+) -> Option<AnytoneSubTone> {
     let hz = hz?;
-    if ctcss_index(hz).is_none() {
+    if !table.iter().any(|&t| (t - hz).abs() < 0.05) {
         warnings.push(format!(
             "{side} CTCSS {hz} Hz is not in the radio's tone table — dropped"
         ));
@@ -137,12 +142,18 @@ fn ctcss_side(hz: Option<f64>, side: &str, warnings: &mut Vec<String>) -> Option
     Some(AnytoneSubTone::Ctcss(hz))
 }
 
-fn dcs_side(code: Option<&str>, side: &str, warnings: &mut Vec<String>) -> Option<AnytoneSubTone> {
+fn dcs_side(
+    code: Option<&str>,
+    inverted: Option<u16>,
+    side: &str,
+    warnings: &mut Vec<String>,
+) -> Option<AnytoneSubTone> {
     let code = code?;
     // Stored DCS codes are the octal notation (e.g. "411"); the radio wants the
-    // raw binary value (411₈ = 265). HW-confirmed on the D890UV.
+    // raw binary value (411₈ = 265). HW-confirmed on the D890UV. `inverted` is
+    // the offset a reversed-polarity code is stored with (the D578's +512).
     match u16::from_str_radix(code.trim(), 8) {
-        Ok(c) => Some(AnytoneSubTone::Dcs(c)),
+        Ok(c) => Some(AnytoneSubTone::Dcs(c + inverted.unwrap_or(0))),
         Err(_) => {
             warnings.push(format!(
                 "{side} DCS code '{code}' is not a valid octal DCS code — dropped"
@@ -152,7 +163,13 @@ fn dcs_side(code: Option<&str>, side: &str, warnings: &mut Vec<String>) -> Optio
     }
 }
 
+/// `dcs_invert` is the model's stored offset for a reversed-polarity DCS code;
+/// `None` (the D890, never measured) ignores polarity as it always has.
+#[allow(clippy::too_many_arguments)]
 fn invert_tone(
+    ctcss: &[f64],
+    dcs_invert: Option<u16>,
+    polarity: &str,
     tone_mode: Option<&str>,
     cross_mode: &str,
     up: Option<f64>,
@@ -169,9 +186,11 @@ fn invert_tone(
         down,
         dcs_tx,
         dcs_rx,
-        "NN",
-        |hz, side, w| ctcss_side(Some(hz), side, w),
-        |code, _inverted, side, w| dcs_side(Some(code), side, w),
+        if dcs_invert.is_some() { polarity } else { "NN" },
+        |hz, side, w| ctcss_side(Some(hz), side, ctcss, w),
+        |code, inverted, side, w| {
+            dcs_side(Some(code), dcs_invert.filter(|_| inverted), side, w)
+        },
     );
     (AnytoneToneEdit { tx: sides.tx, rx: sides.rx }, warnings)
 }
@@ -296,6 +315,7 @@ fn invert_channel(
     ec: &ExpandedChannel,
     name: String,
     contact_index: u16,
+    limits: &PlanLimits,
     warnings: &mut Vec<String>,
 ) -> AnytoneChannelEdit {
     let c = &ec.channel;
@@ -306,6 +326,9 @@ fn invert_channel(
         AnytoneToneEdit::default()
     } else {
         let (tone, tone_warnings) = invert_tone(
+            limits.ctcss,
+            limits.dcs_invert,
+            &c.dcs_polarity,
             c.tone_mode.as_deref(),
             &c.cross_mode,
             c.ctcss_uplink,
@@ -356,11 +379,50 @@ fn invert_channel(
 /// without either. Errors only on structural problems (wrong model, over
 /// capacity); per-channel issues become `skipped` entries or `warnings`.
 pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<AnytoneProgramPlan, String> {
+    plan_program_for(payload, &D890_LIMITS)
+}
+
+/// What the shared planner needs to know about one AnyTone model: which model
+/// row it accepts, the radio's CTCSS table (the D578's has no 150.0 Hz, the
+/// D890's does), and its record capacities. The plan itself is model-neutral —
+/// slots, channel edits, member lists — and each driver encodes it onto its own
+/// memory map.
+pub(crate) struct PlanLimits {
+    pub model: &'static str,
+    pub ctcss: &'static [f64],
+    /// Offset a reversed-polarity DCS code is stored with, or `None` to ignore
+    /// polarity (the D890: its encoding of an inverted code was never measured).
+    pub dcs_invert: Option<u16>,
+    pub max_channels: usize,
+    pub max_zones: usize,
+    pub zone_max_channels: usize,
+    pub max_scan_lists: usize,
+    pub scan_max_channels: usize,
+    pub max_contacts: usize,
+}
+
+pub(crate) const D890_LIMITS: PlanLimits = PlanLimits {
+    model: "AT-D890UV",
+    ctcss: super::CTCSS,
+    dcs_invert: None,
+    max_channels: NUM_BANKS * CH_PER_BANK,
+    max_zones: MAX_ZONES,
+    zone_max_channels: ZONE_MAX_CHANNELS,
+    max_scan_lists: MAX_SCAN_LISTS,
+    scan_max_channels: SCAN_MAX_CHANNELS,
+    max_contacts: MAX_CONTACTS_READ,
+};
+
+/// [`plan_program`] for any family member.
+pub(crate) fn plan_program_for(
+    payload: &CodeplugPayload,
+    limits: &PlanLimits,
+) -> Result<AnytoneProgramPlan, String> {
     let model = payload.model;
-    if model.model != "AT-D890UV" {
+    if model.model != limits.model {
         return Err(format!(
-            "direct programming is only wired up for the AT-D890UV (codeplug targets {})",
-            model.display_name
+            "this planner programs the {} (codeplug targets {})",
+            limits.model, model.display_name
         ));
     }
 
@@ -379,7 +441,7 @@ pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<AnytoneProgramPl
     // membership (a DMR channel with N talkgroups owns N slots).
     let mut slots_by_channel: HashMap<i64, Vec<u16>> = HashMap::new();
 
-    let max_slots = (model.memory_channels.unwrap_or(4000) as usize).min(NUM_BANKS * CH_PER_BANK);
+    let max_slots = (model.memory_channels.unwrap_or(4000) as usize).min(limits.max_channels);
     let planned_names = plan_channel_names(expanded, model);
     for (i, ec) in expanded.iter().enumerate() {
         if let Some(reason) = exclusion_reason(&ec.channel, model) {
@@ -429,7 +491,13 @@ pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<AnytoneProgramPl
             }
         };
 
-        let edit = invert_channel(ec, planned_names[i].clone(), contact_index, &mut warnings);
+        let edit = invert_channel(
+            ec,
+            planned_names[i].clone(),
+            contact_index,
+            limits,
+            &mut warnings,
+        );
         slots_by_channel
             .entry(ec.channel.id)
             .or_default()
@@ -437,10 +505,11 @@ pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<AnytoneProgramPl
         channels.push(PlannedChannel { slot, edit });
     }
 
-    if contacts.len() > MAX_CONTACTS_READ {
+    if contacts.len() > limits.max_contacts {
         return Err(format!(
-            "codeplug references {} talkgroups (radio limit {MAX_CONTACTS_READ})",
-            contacts.len()
+            "codeplug references {} talkgroups (radio limit {})",
+            contacts.len(),
+            limits.max_contacts
         ));
     }
     sort_contact_bank(&mut contacts, &mut channels);
@@ -460,13 +529,14 @@ pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<AnytoneProgramPl
             ));
             continue;
         }
-        if members.len() > ZONE_MAX_CHANNELS {
+        if members.len() > limits.zone_max_channels {
             warnings.push(format!(
-                "zone '{}' has {} channels — truncated to the radio's {ZONE_MAX_CHANNELS}",
+                "zone '{}' has {} channels — truncated to the radio's {}",
                 g.list_name,
-                members.len()
+                members.len(),
+                limits.zone_max_channels
             ));
-            members.truncate(ZONE_MAX_CHANNELS);
+            members.truncate(limits.zone_max_channels);
         }
         if g.list_name.chars().count() > ZONE_NAME_CHARS {
             warnings.push(format!(
@@ -479,12 +549,13 @@ pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<AnytoneProgramPl
             member_slots: members,
         });
     }
-    if zones.len() > MAX_ZONES {
+    if zones.len() > limits.max_zones {
         warnings.push(format!(
-            "codeplug has {} zones — only the first {MAX_ZONES} are programmed",
-            zones.len()
+            "codeplug has {} zones — only the first {} are programmed",
+            zones.len(),
+            limits.max_zones
         ));
-        zones.truncate(MAX_ZONES);
+        zones.truncate(limits.max_zones);
     }
 
     // Scan lists assigned to the codeplug (resolver hands them over in id order
@@ -516,12 +587,13 @@ pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<AnytoneProgramPl
             ));
             continue;
         }
-        if members.len() > SCAN_MAX_CHANNELS {
+        if members.len() > limits.scan_max_channels {
             warnings.push(format!(
-                "scan list '{list_name}' has {} channels — truncated to the radio's {SCAN_MAX_CHANNELS}",
-                members.len()
+                "scan list '{list_name}' has {} channels — truncated to the radio's {}",
+                members.len(),
+                limits.scan_max_channels
             ));
-            members.truncate(SCAN_MAX_CHANNELS);
+            members.truncate(limits.scan_max_channels);
         }
         // Resolve priority channels to slots; if the select byte enables a
         // priority whose channel isn't in this codeplug, downgrade + warn rather
@@ -559,13 +631,14 @@ pub(crate) fn plan_program(payload: &CodeplugPayload) -> Result<AnytoneProgramPl
         });
         scan_list_ids.push(list_id);
     }
-    if scan_lists.len() > MAX_SCAN_LISTS {
+    if scan_lists.len() > limits.max_scan_lists {
         warnings.push(format!(
-            "codeplug has {} scan lists — only the first {MAX_SCAN_LISTS} are programmed",
-            scan_lists.len()
+            "codeplug has {} scan lists — only the first {} are programmed",
+            scan_lists.len(),
+            limits.max_scan_lists
         ));
-        scan_lists.truncate(MAX_SCAN_LISTS);
-        scan_list_ids.truncate(MAX_SCAN_LISTS);
+        scan_lists.truncate(limits.max_scan_lists);
+        scan_list_ids.truncate(limits.max_scan_lists);
     }
     // DB scan_list id → planned slot byte (index into `scan_lists`).
     let index_by_list_id: HashMap<i64, u8> = scan_list_ids
@@ -754,7 +827,7 @@ fn zone_count_in(name_window: &[u8]) -> usize {
 /// A present-bitmap for `n` records: bits `0..n` set (LSB = record 1), all
 /// higher bits cleared so stale records are removed. Shared by the zone bitmap
 /// at `ZONE_BITMAP_BASE` and the scan-list bitmap at `SCAN_BITMAP_BASE`.
-fn present_bitmap(n: usize, bytes: usize) -> Vec<u8> {
+pub(crate) fn present_bitmap(n: usize, bytes: usize) -> Vec<u8> {
     let mut bitmap = vec![0u8; bytes];
     for z in 0..n.min(bytes * 8) {
         bitmap[z / 8] |= 1 << (z % 8);
@@ -765,7 +838,7 @@ fn present_bitmap(n: usize, bytes: usize) -> Vec<u8> {
 /// The contact twin of [`present_bitmap`], but **inverted**: the contact bitmap
 /// at `CONTACT_BITMAP_BASE` marks a record present with a CLEAR bit, so absent
 /// records are 1s (the flash erase state). See that constant for the HW proof.
-fn contact_present_bitmap(n: usize, bytes: usize) -> Vec<u8> {
+pub(crate) fn contact_present_bitmap(n: usize, bytes: usize) -> Vec<u8> {
     let mut bitmap = vec![0xFFu8; bytes];
     for z in 0..n.min(bytes * 8) {
         bitmap[z / 8] &= !(1 << (z % 8));
@@ -1080,6 +1153,18 @@ mod tests {
 
     // --- tone inversion ---------------------------------------------------
 
+    /// The planner's tone inversion against the D890's own CTCSS table.
+    fn invert_d890_tone(
+        tone_mode: Option<&str>,
+        cross_mode: &str,
+        up: Option<f64>,
+        down: Option<f64>,
+        dcs_tx: Option<&str>,
+        dcs_rx: Option<&str>,
+    ) -> (AnytoneToneEdit, Vec<String>) {
+        invert_tone(super::super::CTCSS, None, "NN", tone_mode, cross_mode, up, down, dcs_tx, dcs_rx)
+    }
+
     /// `invert_tone` must be the exact inverse of the import's
     /// `map_anytone_tone` for every branch of its truth table: radio sub-tones
     /// → CHIRP columns → back to the same sub-tones, warning-free.
@@ -1101,7 +1186,7 @@ mod tests {
         ];
         for (tx, rx) in cases {
             let (mode, up, down, dcs_tx, dcs_rx, cross) = map_anytone_tone(&tx, &rx);
-            let (tone, warnings) = invert_tone(
+            let (tone, warnings) = invert_d890_tone(
                 Some(&mode),
                 &cross,
                 up,
@@ -1118,27 +1203,27 @@ mod tests {
     #[test]
     fn tone_inversion_degrades_bad_input_with_warnings() {
         // Off-table CTCSS: that side dropped, warned.
-        let (tone, w) = invert_tone(Some("Tone"), "Tone->Tone", Some(101.0), None, None, None);
+        let (tone, w) = invert_d890_tone(Some("Tone"), "Tone->Tone", Some(101.0), None, None, None);
         assert_eq!((tone.tx, tone.rx), (None, None));
         assert_eq!(w.len(), 1);
         // Non-numeric DCS: dropped, warned.
-        let (tone, w) = invert_tone(Some("DTCS"), "Tone->Tone", None, None, Some("D23N"), None);
+        let (tone, w) = invert_d890_tone(Some("DTCS"), "Tone->Tone", None, None, Some("D23N"), None);
         assert_eq!((tone.tx, tone.rx), (None, None));
         assert!(!w.is_empty());
         // DCS codes are octal: digits 8/9 are invalid → dropped, warned.
-        let (tone, w) = invert_tone(Some("DTCS"), "Tone->Tone", None, None, Some("298"), None);
+        let (tone, w) = invert_d890_tone(Some("DTCS"), "Tone->Tone", None, None, Some("298"), None);
         assert_eq!((tone.tx, tone.rx), (None, None));
         assert!(!w.is_empty());
         // Octal parse: stored "411" (the printed code) → raw 265 on the radio.
-        let (tone, w) = invert_tone(Some("DTCS"), "Tone->Tone", None, None, Some("411"), None);
+        let (tone, w) = invert_d890_tone(Some("DTCS"), "Tone->Tone", None, None, Some("411"), None);
         assert_eq!(tone.tx, Some(AnytoneSubTone::Dcs(265)));
         assert!(w.is_empty());
         // Unknown tone mode: off + warned.
-        let (tone, w) = invert_tone(Some("Sepulcher"), "Tone->Tone", None, None, None, None);
+        let (tone, w) = invert_d890_tone(Some("Sepulcher"), "Tone->Tone", None, None, None, None);
         assert_eq!((tone.tx, tone.rx), (None, None));
         assert_eq!(w.len(), 1);
         // Plain off: silent.
-        let (tone, w) = invert_tone(None, "Tone->Tone", Some(100.0), None, None, None);
+        let (tone, w) = invert_d890_tone(None, "Tone->Tone", Some(100.0), None, None, None);
         assert_eq!((tone.tx, tone.rx), (None, None));
         assert!(w.is_empty());
     }

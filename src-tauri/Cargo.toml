@@ -55,6 +55,10 @@ md-5 = "0.11"
 # over `reqwest`'s `bytes_stream()`. reqwest already depends on it, so naming it
 # here adds no new code to the build.
 futures-util = { version = "0.3", default-features = false }
+# The AnyTone D578's call-sign database is plain single-byte text: library names
+# are folded to ASCII (René -> Rene) by decomposing and dropping the accents.
+# Already in the tree as a transitive dependency, so this adds no new code.
+unicode-normalization = "0.1"
 # The RepeaterBook API token (#136) is the user's own credential and lives in
 # the OS credential store, never in SQLite, settings or a backup: Keychain on
 # macOS, Credential Manager on Windows, Secret Service on Linux. The Linux

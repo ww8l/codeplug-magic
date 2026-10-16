@@ -695,6 +695,65 @@ fn models() -> Vec<ModelSeed> {
             non_channel_settings_schema: include_str!("anytone_settings_schema.json"),
         },
         // --------------------------------------------------------
+        // 3b. AnyTone AT-D578UV — DMR Tier I/II + analog FM tri-band
+        //     MOBILE (issue #47). Same clone protocol as the D890UV over
+        //     its USB port, but the D868/D878-family memory map with D578
+        //     overrides — see radios/anytone_atd578uv/. 4000 channels,
+        //     250 zones of up to 250 channels, 250 scan lists of 50,
+        //     16-char ASCII names, 10,000 contacts. APRS (FM + DMR), GPS,
+        //     Bluetooth, cross-band repeat, air-band AM receive (a separate
+        //     100-channel memory, not channel slots).
+        //     Bands: the anchor radio's band byte is 0x0E, which qdmr maps to
+        //     TX and RX on 136-174, 220-225 and 400-520 (an unlocked unit; a
+        //     US-locked 0x12 unit transmits on less, and refuses the rest on
+        //     its own). The 174-220 and 225-400 gaps are real, so a channel
+        //     there is not programmable. UNVERIFIED until the step-7 band probe.
+        // --------------------------------------------------------
+        ModelSeed {
+            manufacturer: "AnyTone",
+            model: "AT-D578UV",
+            driver_key: Some("anytone_atd578uv"),
+            programming_ui: Some("anytone"),
+            display_name: "AnyTone AT-D578UV",
+            analog_capable: true,
+            dmr_capable: true,
+            dstar_capable: false,
+            ysf_capable: false,
+            nxdn_capable: false,
+            p25_capable: false,
+            m17_capable: false,
+            aprs_capable: true,
+            covers_hf: false,
+            covers_vhf: true,
+            covers_uhf: true,
+            covers_220: true,
+            covers_900: false,
+            freq_min: 136.0,
+            freq_max: 520.0,
+            tx_bands: Some("[[136.0,174.0],[220.0,225.0],[400.0,520.0]]"),
+            // 108-136 is the air band: AM receive only, in its own memory (the
+            // PLUS model; others ignore it). Listed so the codeplug screens call
+            // an air channel receive-only rather than out of range; the D578
+            // planner routes AM there and skips anything else in that span.
+            rx_bands: Some("[[108.0,136.0],[136.0,174.0],[220.0,225.0],[400.0,520.0]]"),
+            memory_channels: 4000,
+            zones_supported: true,
+            max_zones: Some(250),
+            channels_per_zone: Some(250),
+            scan_lists_supported: true,
+            max_scan_lists: Some(250),
+            banks_supported: false,
+            max_name_length: 16,
+            export_format: "anytone_csv",
+            connection_type: "USB (CPS cable)",
+            // 264 of the 323 fields in the general, boot, APRS and extension
+            // blocks, GENERATED with the Rust table from the dmr-tools d578uv
+            // v1.21 descriptor (scratchpad/anytone_atd578uv/gen_d578_settings.py),
+            // plus the radio's own DMR ID and name. The 59 withheld are melodies,
+            // raw channel indices and one field the two sources disagree on.
+            non_channel_settings_schema: include_str!("anytone_d578_settings_schema.json"),
+        },
+        // --------------------------------------------------------
         // 4. Yaesu FT5D — C4FM (System Fusion) + analog FM dual-band
         //    HT, 900 memories in 24 banks, 16-char alpha tags, 5 W.
         //    Covers the FT5DR (US/Asia/AU) and FT5DE (EU) variants;

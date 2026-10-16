@@ -6340,6 +6340,7 @@ dependencies = [
  "tauri-plugin-opener",
  "thiserror 2.0.21",
  "tokio",
+ "unicode-normalization",
  "windows-sys 0.61.2",
 ]
 

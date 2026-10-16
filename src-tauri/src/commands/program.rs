@@ -923,7 +923,33 @@ pub async fn write_callsign_db(
         .and_then(|d| d.as_callsign_db_writer())
         .ok_or_else(|| format!("{} has no on-board call-sign database", model.display_name))?;
 
-    let mut records = user_records(&state.pool, max_count, &priority_countries).await?;
+    let records = callsign_records(&state.pool, max_count, &priority_countries).await?;
+
+    // Checked on the COMBINED set, not on the users alone: a codeplug with
+    // talkgroups but no downloaded user library is still worth writing — it is
+    // exactly what gives the TX screen its names.
+    if records.is_empty() {
+        return Err(crate::radios::driver::NO_DMR_USERS.to_string());
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        // One radio operation per port: this guard lives for the whole blocking
+        // session and releases on the way out, panic included. (#67)
+        let _port_guard = crate::radios::port_lock::claim(&port)?;
+        db_writer.write_callsign_db(&port, &records)
+    })
+    .await
+    .estr()?
+}
+
+/// Everything a call-sign database write carries: the library's users, capped
+/// and prioritized, then the talkgroup library as group-call entries.
+pub(crate) async fn callsign_records(
+    pool: &sqlx::SqlitePool,
+    max_count: Option<i64>,
+    priority_countries: &[String],
+) -> Result<Vec<CallsignRecord>, String> {
+    let mut records = user_records(pool, max_count, priority_countries).await?;
 
     // Append the talkgroup library as GROUP-call entries (issue #30). The
     // caller-ID DB is what the radio's TX screen resolves a talkgroup ID
@@ -937,7 +963,7 @@ pub async fn write_callsign_db(
     // few dozen entries the user actually cares about naming.
     let talkgroups: Vec<(i64, String, String)> =
         sqlx::query_as("SELECT tg_number, name, call_type FROM talkgroups ORDER BY tg_number")
-            .fetch_all(&state.pool)
+            .fetch_all(pool)
             .await
             .estr()?;
     records.extend(talkgroups.into_iter().map(|(tg_number, name, call_type)| {
@@ -959,22 +985,7 @@ pub async fn write_callsign_db(
             comment: None,
         }
     }));
-
-    // Checked on the COMBINED set, not on the users alone: a codeplug with
-    // talkgroups but no downloaded user library is still worth writing — it is
-    // exactly what gives the TX screen its names.
-    if records.is_empty() {
-        return Err(crate::radios::driver::NO_DMR_USERS.to_string());
-    }
-
-    tauri::async_runtime::spawn_blocking(move || {
-        // One radio operation per port: this guard lives for the whole blocking
-        // session and releases on the way out, panic included. (#67)
-        let _port_guard = crate::radios::port_lock::claim(&port)?;
-        db_writer.write_callsign_db(&port, &records)
-    })
-    .await
-    .estr()?
+    Ok(records)
 }
 
 /// The library's DMR users, capped and prioritized, as call-sign records.

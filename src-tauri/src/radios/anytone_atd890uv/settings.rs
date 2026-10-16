@@ -146,6 +146,17 @@ pub(crate) enum SK {
     Text { len: u16 },
     /// Fixed-length UTF-16LE text (`chars` characters = 2×bytes), NUL-terminated.
     Utf16 { chars: u16 },
+    /// A frequency as 4 bytes of big-endian packed BCD in 10 Hz units (the
+    /// D578UV's FM APRS frequencies), shown as MHz text. Unset reads as blank.
+    #[allow(dead_code)]
+    FreqBcd,
+    /// A frequency as a little-endian u32 in 10 Hz units (the D578UV's VFO-scan
+    /// and auto-repeater limits), shown as MHz text.
+    #[allow(dead_code)]
+    FreqLe,
+    /// A DMR ID as 4 bytes of big-endian packed BCD, shown as a number.
+    #[allow(dead_code)]
+    BcdId,
 }
 
 include!("anytone_settings_table.rs");
@@ -177,53 +188,7 @@ pub fn decode_anytone_settings(windows: &[(u32, Vec<u8>)]) -> Value {
     };
     let mut map = Map::new();
     for f in ANYTONE_SETTINGS_FIELDS {
-        let buf = region(f.base);
-        let off = f.byte as usize;
-        let v = match &f.kind {
-            SK::Uint { width } => Value::from(read_le(buf, off, *width as usize)),
-            SK::Bool => Value::from(buf.get(off).copied().unwrap_or(0) != 0),
-            SK::BoolBit { lsb } => {
-                Value::from((buf.get(off).copied().unwrap_or(0) >> lsb) & 1 == 1)
-            }
-            SK::Bits { lsb, bits } => {
-                let raw = (buf.get(off).copied().unwrap_or(0) >> lsb) & ((1u8 << bits) - 1);
-                Value::from(raw)
-            }
-            SK::Enum { width, labels } => {
-                let raw = read_le(buf, off, *width as usize);
-                let label = labels
-                    .iter()
-                    .find(|(v, _)| *v == raw)
-                    .map(|(_, l)| l.to_string())
-                    .unwrap_or_else(|| raw.to_string());
-                Value::from(label)
-            }
-            SK::Text { len } => {
-                let end = (off + *len as usize).min(buf.len());
-                let s: String = buf
-                    .get(off..end)
-                    .unwrap_or(&[])
-                    .iter()
-                    .take_while(|&&b| b != 0)
-                    .map(|&b| b as char)
-                    .collect();
-                Value::from(s)
-            }
-            SK::Utf16 { chars } => {
-                let end = (off + *chars as usize * 2).min(buf.len());
-                let units: Vec<u16> = buf
-                    .get(off..end)
-                    .unwrap_or(&[])
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|c| u16::from_le_bytes([c[0], c[1]]))
-                    .take_while(|&u| u != 0)
-                    .collect();
-                Value::from(String::from_utf16_lossy(&units))
-            }
-        };
-        map.insert(f.key.to_string(), v);
+        map.insert(f.key.to_string(), decode_field(region(f.base), f.byte as usize, &f.kind));
     }
 
     // The radio's own DMR ID + name live in a separate region (Radio Id element
@@ -242,6 +207,85 @@ pub fn decode_anytone_settings(windows: &[(u32, Vec<u8>)]) -> Value {
     }
 
     Value::Object(map)
+}
+
+/// Four bytes of 10 Hz BCD or LE frequency → MHz text: three decimals at least,
+/// trailing zeros past that dropped ("145.000", "144.39125").
+pub(crate) fn mhz_text(units_10hz: u32) -> String {
+    let s = format!("{:.5}", units_10hz as f64 / 100_000.0);
+    let (whole, frac) = s.split_once('.').unwrap_or((&s, ""));
+    let frac = frac.trim_end_matches('0');
+    format!("{whole}.{frac:0<3}")
+}
+
+/// MHz text → 10 Hz units, or `None` for anything that is not a frequency.
+pub(crate) fn parse_mhz(s: &str) -> Option<u32> {
+    let mhz: f64 = s.trim().parse().ok()?;
+    if !(0.0..=999.999_99).contains(&mhz) {
+        return None;
+    }
+    Some((mhz * 100_000.0).round() as u32)
+}
+
+/// Decode one field from its region buffer. Missing bytes read as zero, so a
+/// short or absent buffer never panics.
+pub(crate) fn decode_field(buf: &[u8], off: usize, kind: &SK) -> Value {
+    match kind {
+        SK::Uint { width } => Value::from(read_le(buf, off, *width as usize)),
+        SK::Bool => Value::from(buf.get(off).copied().unwrap_or(0) != 0),
+        SK::BoolBit { lsb } => {
+            Value::from((buf.get(off).copied().unwrap_or(0) >> lsb) & 1 == 1)
+        }
+        SK::Bits { lsb, bits } => {
+            let raw = (buf.get(off).copied().unwrap_or(0) >> lsb) & ((1u8 << bits) - 1);
+            Value::from(raw)
+        }
+        SK::Enum { width, labels } => {
+            let raw = read_le(buf, off, *width as usize);
+            let label = labels
+                .iter()
+                .find(|(v, _)| *v == raw)
+                .map(|(_, l)| l.to_string())
+                .unwrap_or_else(|| raw.to_string());
+            Value::from(label)
+        }
+        SK::Text { len } => {
+            let end = (off + *len as usize).min(buf.len());
+            let s: String = buf
+                .get(off..end)
+                .unwrap_or(&[])
+                .iter()
+                .take_while(|&&b| b != 0)
+                .map(|&b| b as char)
+                .collect();
+            Value::from(s)
+        }
+        SK::Utf16 { chars } => {
+            let end = (off + *chars as usize * 2).min(buf.len());
+            let units: Vec<u16> = buf
+                .get(off..end)
+                .unwrap_or(&[])
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .take_while(|&u| u != 0)
+                .collect();
+            Value::from(String::from_utf16_lossy(&units))
+        }
+        SK::FreqBcd => {
+            let b = buf.get(off..off + 4).unwrap_or(&[]);
+            match bcd_be_decode(b) {
+                Some(0) | None => Value::from(""),
+                Some(v) => Value::from(mhz_text(v)),
+            }
+        }
+        SK::FreqLe => match read_le(buf, off, 4) {
+            0 | u32::MAX => Value::from(""),
+            v => Value::from(mhz_text(v)),
+        },
+        SK::BcdId => Value::from(bcd_be_decode(buf.get(off..off + 4).unwrap_or(&[])).unwrap_or(0)),
+    }
 }
 
 /// Write `width` little-endian bytes of `v` at `off` into `buf` (bounds-safe).
@@ -329,10 +373,29 @@ pub(crate) fn encode_field_into(buf: &mut [u8], off: usize, kind: &SK, v: &Value
             if let Some(s) = v.as_str() {
                 let n = *len as usize;
                 if off + n <= buf.len() {
-                    let bytes = s.as_bytes();
+                    // Folded rather than filtered: a non-ASCII byte written as 0
+                    // would END the string there ("Zürich" stored as "Z").
+                    let bytes = crate::util::fold_ascii(s);
                     for i in 0..n {
-                        buf[off + i] = bytes.get(i).copied().filter(u8::is_ascii).unwrap_or(0);
+                        buf[off + i] = bytes.get(i).copied().unwrap_or(0);
                     }
+                }
+            }
+        }
+        SK::FreqBcd => {
+            if let (Some(units), true) = (v.as_str().and_then(parse_mhz), off + 4 <= buf.len()) {
+                buf[off..off + 4].copy_from_slice(&bcd_be_encode(units));
+            }
+        }
+        SK::FreqLe => {
+            if let Some(units) = v.as_str().and_then(parse_mhz) {
+                write_le(buf, off, 4, units);
+            }
+        }
+        SK::BcdId => {
+            if let (Some(id), true) = (as_u32(v), off + 4 <= buf.len()) {
+                if id <= 99_999_999 {
+                    buf[off..off + 4].copy_from_slice(&bcd_be_encode(id));
                 }
             }
         }

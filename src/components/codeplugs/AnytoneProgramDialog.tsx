@@ -26,7 +26,11 @@ import type {
 import { FooterClose, Modal } from "../overlays";
 import { DmrUserPicker, useDmrUserPick } from "./DmrUserPicker";
 import { Button, Spinner, Select } from "../ui";
-import type { ProgramDialogProps } from "../../lib/radioProgramming";
+import {
+  driverKeyOf,
+  useDriverCapabilities,
+  type ProgramDialogProps,
+} from "../../lib/radioProgramming";
 
 type Payload = "channels" | "userdb" | "profile";
 
@@ -40,7 +44,7 @@ function fileName(path: string): string {
 }
 
 /**
- * Direct AnyTone AT-D890UV programming from the database: a FULL REPLACE of
+ * Direct AnyTone programming (AT-D890UV, AT-D578UV) from the database: a FULL REPLACE of
  * the radio's channel set (channels + zones + scan lists + DMR contacts) in
  * one PC-mode session. The radio commits on END and reboots (USB
  * re-enumerates), so Verify runs as a separate step after a rescan.
@@ -60,6 +64,10 @@ export function AnytoneProgramDialog({
   model,
 }: ProgramDialogProps) {
   const modelName = model?.display_name ?? "this radio";
+  const driverKey = driverKeyOf(model);
+  // The payloads past the channel set are capabilities a model may not have
+  // yet; offering one its driver lacks would only fail at the radio.
+  const caps = useDriverCapabilities(driverKey || null);
   // Shown on every exit the dialog refuses while a radio operation is running —
   // the ✕ and the footer Close both.
   const LOCKED_HINT = `Closing now would hide the write, not stop it — the ${modelName} is still being written to.`;
@@ -97,7 +105,9 @@ export function AnytoneProgramDialog({
   // settings backup described as "the last program" contradicts the filename
   // right above it in the confirm, which is the one place that has to be exact.
   const latestKind =
-    latest && fileName(latest.backup_path).startsWith("anytone-settings-write-")
+    // Every model's settings backup carries "-settings-write-" after its own
+    // prefix (`anytone-` on the D890, `atd578uv-` on the D578).
+    latest && fileName(latest.backup_path).includes("-settings-write-")
       ? "settings write"
       : "channel-set program";
   const backupSource = result
@@ -134,13 +144,13 @@ export function AnytoneProgramDialog({
     setRestored(null);
     setCallsignResult(null);
     refreshPorts();
-    api.latestAnytoneProgram().then(setLatest).catch(() => {});
+    if (driverKey) api.latestAnytoneProgram(driverKey).then(setLatest).catch(() => {});
     api
       .programAnytonePreview(codeplugId)
       .then(setPreview)
       .catch((e) => setPreviewError(typeof e === "string" ? e : String(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, driverKey]);
 
 
   const run = async (kind: Exclude<Busy, null>, fn: () => Promise<void>) => {
@@ -199,14 +209,14 @@ export function AnytoneProgramDialog({
       setBusy(null);
       // Refresh the newest on-disk image so Verify/Restore are reachable even
       // if the result above never came back.
-      api.latestAnytoneProgram().then(setLatest).catch(() => {});
+      if (driverKey) api.latestAnytoneProgram(driverKey).then(setLatest).catch(() => {});
     }
   };
 
   const doVerify = () =>
     run("verify", async () => {
       if (!expectedPath) return;
-      setVerify(await api.verifyAnytoneProgram(port, expectedPath));
+      setVerify(await api.verifyAnytoneProgram(driverKey, port, expectedPath));
     });
 
   /// Restore is a FULL write that commits and reboots the radio, and it was the
@@ -236,11 +246,11 @@ export function AnytoneProgramDialog({
     if (!ok) return;
     await run("restore", async () => {
       setVerify(null);
-      setRestored(await api.restoreAnytoneBackup(port, backupPath));
+      setRestored(await api.restoreAnytoneBackup(driverKey, port, backupPath));
     });
   };
 
-  const payloads: {
+  const allPayloads: {
     id: Payload;
     icon: typeof ListChecks;
     label: string;
@@ -260,16 +270,17 @@ export function AnytoneProgramDialog({
       label: "Call-sign DB",
       detail:
         "DMR caller-ID database from your DMR Contacts library — prioritized, capacity-capped. Includes your talkgroups, which name them on the TX screen.",
-      disabled: false,
+      disabled: !caps?.write_callsign_db,
     },
     {
       id: "profile",
       icon: Settings2,
       label: "Profile",
       detail: "Radio menu settings + DMR ID from the profile — read-modify-write, channels untouched.",
-      disabled: false,
+      disabled: !caps?.write_settings,
     },
   ];
+  const payloads = allPayloads.filter((p) => !p.disabled);
 
   return (
     <Modal
@@ -374,7 +385,7 @@ export function AnytoneProgramDialog({
         <div className="flex items-start gap-2 border-b border-sky-200 bg-sky-50 px-5 py-2.5 text-xs text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/40 dark:text-sky-300">
           <ShieldCheck size={15} className="mt-px shrink-0" />
           <span>
-            Power the {modelName} on and connect its USB-C port. Programming is a{" "}
+            Power the {modelName} on and connect it over USB. Programming is a{" "}
             <strong>full replace</strong> of the selected payload — a backup of every
             region touched is saved first. When the write commits, the radio{" "}
             <strong>reboots and drops off USB</strong>: rescan, reselect the port, then

@@ -1305,7 +1305,7 @@
     "key": "section-bluetooth-and-headset",
     "label": "Bluetooth and Headset",
     "type": "section",
-    "group": "Connections"
+    "group": "Bluetooth"
   },
   {
     "key": "bluetooth-on",
