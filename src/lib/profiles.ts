@@ -138,6 +138,7 @@ export const SETTINGS_GROUPS = [
   "Digital",
   "GPS",
   "APRS",
+  "Bluetooth",
   "Connections",
 ] as const;
 

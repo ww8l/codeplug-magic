@@ -344,7 +344,7 @@
   "key": "section-bluetooth",
   "label": "Bluetooth",
   "type": "section",
-  "group": "Connections"
+  "group": "Bluetooth"
  },
  {
   "key": "bluetooth-bluetooth",
@@ -360,7 +360,7 @@
   "key": "section-bluetooth-headset-set",
   "label": "Bluetooth - Headset Set",
   "type": "section",
-  "group": "Connections"
+  "group": "Bluetooth"
  },
  {
   "key": "bluetooth-headset-set-af-output",
@@ -436,7 +436,7 @@
   "key": "section-bluetooth-icom-headset",
   "label": "Bluetooth - Icom Headset",
   "type": "section",
-  "group": "Connections"
+  "group": "Bluetooth"
  },
  {
   "key": "bluetooth-icom-headset-power-save",
@@ -573,7 +573,7 @@
   "key": "section-bluetooth-data-device",
   "label": "Bluetooth - Data Device",
   "type": "section",
-  "group": "Connections"
+  "group": "Bluetooth"
  },
  {
   "key": "bluetooth-data-device-serialport-function",

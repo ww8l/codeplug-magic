@@ -23,11 +23,12 @@ use crate::models::RadioModel;
 /// Every driver compiled into the app. Order is not significant — lookups are
 /// by `key()`, which is unique. (A static array rather than a slice literal:
 /// references to statics aren't const-promotable inside a returned temporary.)
-static DRIVERS: [&dyn RadioDriver; 12] = [
+static DRIVERS: [&dyn RadioDriver; 13] = [
     &super::baofeng_uv5r::DRIVER,
     &super::binteradio_bt9000::DRIVER,
     &super::tidradio_tdh3::DRIVER,
     &super::anytone_atd890uv::DRIVER,
+    &super::anytone_atd578uv::DRIVER,
     &super::yaesu_ft5d::DRIVER,
     &super::icom_id52::DRIVER,
     &super::kenwood_thd75::DRIVER,
@@ -83,6 +84,7 @@ mod tests {
             "binteradio_bt9000",
             "tidradio_tdh3",
             "anytone_atd890uv",
+            "anytone_atd578uv",
             "yaesu_ft5d",
             "icom_id52",
             "kenwood_thd75",
@@ -180,11 +182,11 @@ mod tests {
     /// call-sign DB, so `write_callsign_db` must reject the others by name
     /// rather than opening their port.
     #[test]
-    fn only_the_anytone_and_md380_write_a_callsign_db() {
+    fn only_the_anytones_and_md380_write_a_callsign_db() {
         for d in all_drivers() {
             assert_eq!(
                 d.as_callsign_db_writer().is_some(),
-                matches!(d.key(), "anytone_atd890uv" | "tyt_md380"),
+                matches!(d.key(), "anytone_atd890uv" | "anytone_atd578uv" | "tyt_md380"),
                 "{} call-sign DB capability",
                 d.key()
             );

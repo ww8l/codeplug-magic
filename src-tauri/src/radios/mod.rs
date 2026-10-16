@@ -29,6 +29,7 @@
 //! first with no serial port: the radio enumerates as an STM32 DFU device and
 //! its 256 KiB codeplug moves over USB control transfers.
 
+pub(crate) mod anytone_atd578uv;
 pub(crate) mod anytone_atd890uv;
 pub(crate) mod baofeng_uv5r;
 pub(crate) mod binteradio_bt9000;

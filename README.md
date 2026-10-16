@@ -22,6 +22,7 @@ cable, or its microSD card — or exported as CSV for tools that expect it.
 | **Baofeng UV-5R** | Analog FM | VHF / UHF | Direct USB — read, write, settings | 128 channels, flat memory |
 | **TIDRADIO TD-H3** | Analog FM/NFM/AM | VHF / UHF / 1.25 m | Direct USB — read, write, settings | 200 channels, tri-band |
 | **AnyTone AT-D890UV** | DMR + Analog | VHF / UHF | Direct USB — channels, zones, scan lists, settings, call-sign DB | 4000 channels; full DMR: zones, talkgroups, 308k-entry caller-ID database |
+| **AnyTone AT-D578UV** | DMR + Analog mobile | 2 m / 1.25 m / 70 cm | Direct USB — channels, zones, scan lists, talkgroups, settings, call-sign DB | 4000 channels in 250 zones; 264 menu settings including the FM and DMR APRS setup; 500k-entry caller-ID database. AM channels in 108–136 MHz go to the air-band memory, which only the D578UV **PLUS** receives — that part is written to the published map but has not been checked on a PLUS. Same protocol as the D890UV over a different memory map |
 | **Yaesu FT5D** | C4FM (System Fusion) + Analog | VHF / UHF TX, wideband RX | microSD — patches the radio's own backup file | 900 channels in 24 banks; channels, banks, and menu settings |
 | **Yaesu FTM-300DR** | C4FM (System Fusion) + Analog | 2 m / 70 cm TX, 108–999 MHz RX | microSD — patches the radio's own backup file | 999 memories; memories and 147 menu settings, including the APRS and SmartBeaconing setup |
 | **Icom ID-52** | D-STAR + Analog | VHF / UHF TX, 108–174 / 225–479 MHz RX | microSD — patches the radio's own `.icf` file | 1000 memories in 100 groups; memories and menu settings restore in one operation |
@@ -62,7 +63,6 @@ settings together, then verify on the actual radio before shipping.
 
 | Radio | Modes | Issue |
 |-------|-------|-------|
-| **AnyTone AT-D578UV** | DMR + Analog mobile | [#47](https://github.com/ww8l/codeplug-magic/issues/47) |
 | **AnyTone AT-D868UV** | DMR + Analog handheld | [#51](https://github.com/ww8l/codeplug-magic/issues/51) |
 | **Icom ID-51** | D-STAR + Analog handheld | [#50](https://github.com/ww8l/codeplug-magic/issues/50) |
 | **Icom IC-9100** | HF / VHF / UHF base | [#45](https://github.com/ww8l/codeplug-magic/issues/45) |

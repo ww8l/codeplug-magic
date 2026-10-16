@@ -390,7 +390,7 @@
     "key": "section-bluetooth",
     "label": "Bluetooth",
     "type": "section",
-    "group": "Connections"
+    "group": "Bluetooth"
   },
   {
     "key": "bluetooth-save",

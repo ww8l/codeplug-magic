@@ -453,12 +453,14 @@ export const api = {
   // ---- "Program radio" from the DB (AT-D890UV full-replace channel set) ----
   programAnytonePreview: (codeplugId: number) =>
     invoke<AnytoneProgramPreview>("program_anytone_preview", { codeplugId }),
-  verifyAnytoneProgram: (port: string, expectedPath: string) =>
-    invoke<AnytoneVerifyResult>("verify_anytone_program", { port, expectedPath }),
-  restoreAnytoneBackup: (port: string, backupPath: string) =>
-    invoke<AnytonePatchWriteResult>("restore_anytone_backup", { port, backupPath }),
-  latestAnytoneProgram: () =>
-    invoke<AnytoneLatestProgram | null>("latest_anytone_program"),
+  // The AnyTone dialog serves more than one model; each names its driver so
+  // a session refuses the wrong radio and only that model's backups are found.
+  verifyAnytoneProgram: (driverKey: string, port: string, expectedPath: string) =>
+    invoke<AnytoneVerifyResult>("verify_anytone_program", { driverKey, port, expectedPath }),
+  restoreAnytoneBackup: (driverKey: string, port: string, backupPath: string) =>
+    invoke<AnytonePatchWriteResult>("restore_anytone_backup", { driverKey, port, backupPath }),
+  latestAnytoneProgram: (driverKey: string) =>
+    invoke<AnytoneLatestProgram | null>("latest_anytone_program", { driverKey }),
 };
 
 // Wrap an async action so any rejection surfaces as a toast. Returns the

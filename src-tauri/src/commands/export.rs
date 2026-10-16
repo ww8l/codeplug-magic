@@ -122,6 +122,7 @@ async fn codeplug_channels(
 /// expands into N of these (one channel per talkgroup x timeslot), because a
 /// real radio channel holds exactly one talkgroup. Everything else (and a DMR
 /// repeater with no assigned talkgroups) is a single passthrough row.
+#[derive(Clone)]
 pub(crate) struct ExpandedChannel {
     pub(crate) channel: Channel,
     /// Talkgroup label appended to the channel name, e.g. "Colorado". Also used

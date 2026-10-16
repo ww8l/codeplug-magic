@@ -637,13 +637,42 @@ pub(crate) fn read_exact(p: &mut dyn SerialPort, n: usize) -> Result<Vec<u8>, St
 /// real failure — clear the buffer and try again over a few-second window, the
 /// same approach the UV-5R driver uses (`reident_with_retry`).
 pub(crate) fn enter_program_and_ident(p: &mut dyn SerialPort) -> Result<Vec<u8>, String> {
+    enter_program_and_ident_as(p, D890_IDENT)
+}
+
+/// The model a session expects to find on the port: the token its ident must
+/// carry, and the name its messages use. The handshake and the frames are shared
+/// across the AnyTone family; the memory maps are not, so every session names
+/// the one model whose map it is about to read or write.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct IdentExpect {
+    pub token: &'static str,
+    pub name: &'static str,
+    /// The hardware/firmware revision the driver's memory map was built for
+    /// (the ident's `Vnnn` field), when it must match exactly. `None` accepts
+    /// any revision.
+    pub revision: Option<&'static str>,
+}
+
+pub(crate) const D890_IDENT: IdentExpect = IdentExpect {
+    token: "890",
+    name: "D890UV",
+    revision: None,
+};
+
+/// [`enter_program_and_ident`] for any family member: retry the handshake, and
+/// refuse a radio whose ident does not carry `expect.token`.
+pub(crate) fn enter_program_and_ident_as(
+    p: &mut dyn SerialPort,
+    expect: IdentExpect,
+) -> Result<Vec<u8>, String> {
     const ATTEMPTS: usize = 4;
     let mut last = String::from("no response");
     for attempt in 0..ATTEMPTS {
         let _ = p.clear(ClearBuffer::All);
         // Let the port settle after the clear before talking.
         std::thread::sleep(Duration::from_millis(200));
-        match try_enter_program_and_ident(p) {
+        match try_enter_program_and_ident(p, expect) {
             Ok(ident) => return Ok(ident),
             Err(e) => {
                 last = e;
@@ -655,14 +684,18 @@ pub(crate) fn enter_program_and_ident(p: &mut dyn SerialPort) -> Result<Vec<u8>,
     }
     Err(format!(
         "could not enter PC mode after {ATTEMPTS} tries ({last}). \
-         Make sure the D890UV is powered on and idle — if its screen already \
-         shows \"PC Mode\", power-cycle the radio and try again."
+         Make sure the {} is powered on and idle — if its screen already \
+         shows \"PC Mode\", power-cycle the radio and try again.",
+        expect.name
     ))
 }
 
 /// One handshake attempt: `PROGRAM`, verify the `QX\x06` reply, send `0x02`, and
 /// read the ident terminated by `0x06`.
-pub(crate) fn try_enter_program_and_ident(p: &mut dyn SerialPort) -> Result<Vec<u8>, String> {
+pub(crate) fn try_enter_program_and_ident(
+    p: &mut dyn SerialPort,
+    expect: IdentExpect,
+) -> Result<Vec<u8>, String> {
     p.write_all(PROGRAM).estr()?;
     let ack = read_exact(p, PROGRAM_ACK.len())?;
     if ack != PROGRAM_ACK {
@@ -685,18 +718,36 @@ pub(crate) fn try_enter_program_and_ident(p: &mut dyn SerialPort) -> Result<Vec<
     if ident.is_empty() {
         return Err("no ident returned after entering PC mode".into());
     }
-    if !ident_is_d890(&ident) {
+    if !ident_is(&ident, expect) {
         return Err(format!(
-            "connected radio identified as '{}', not a D890UV",
-            ascii(&ident).trim_end_matches('.')
+            "connected radio identified as '{}', not a {}",
+            ascii(&ident).trim_end_matches('.'),
+            expect.name
         ));
+    }
+    if let Some(rev) = expect.revision {
+        if !ascii(&ident).contains(rev) {
+            return Err(format!(
+                "this {} identifies as '{}', but the app's memory map is for revision {rev} \
+                 (firmware 1.21). Other firmware keeps some settings at different addresses, so \
+                 nothing will be read or written.",
+                expect.name,
+                ascii(&ident).trim_end_matches('.')
+            ));
+        }
     }
     Ok(ident)
 }
 
 /// Does the ident name a D890UV? The token is ASCII like `ID890UV...`.
+#[cfg(test)]
 pub(crate) fn ident_is_d890(ident: &[u8]) -> bool {
-    ascii(ident).contains("890")
+    ident_is(ident, D890_IDENT)
+}
+
+/// Does the ident carry the expected model token?
+pub(crate) fn ident_is(ident: &[u8], expect: IdentExpect) -> bool {
+    ascii(ident).contains(expect.token)
 }
 
 /// Probe one region: read it in `READ_FRAME`-sized frames until done or the
@@ -2448,6 +2499,13 @@ mod tests {
         // Still rejects misalignment, with the original wording.
         let e = check_restore_blocks(&[(CHANNEL_BASE + 0x10, vec![0u8; win])]).unwrap_err();
         assert!(e.contains("not 0x4000-aligned"), "{e}");
+    }
+
+    #[test]
+    fn a_required_revision_is_checked() {
+        let expect = IdentExpect { token: "578", name: "D578UV", revision: Some("V111") };
+        assert!(ascii(b"ID578UV\0\x0eV111\0\0").contains(expect.revision.unwrap()));
+        assert!(!ascii(b"ID578UV\0\x0eV110\0\0").contains(expect.revision.unwrap()));
     }
 
     #[test]
