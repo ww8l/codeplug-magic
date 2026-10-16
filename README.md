@@ -84,9 +84,10 @@ bench. If you own one of these and want to help measure or test it, say so on it
   lat/lon geocoding from a city name.
 - **Zones, scan lists, and talkgroups** with per-channel scan-list assignment.
 - **DMR contacts** — a local mirror of the [radioid.net](https://radioid.net) DMR-ID → callsign
-  database, with prioritized export and (on the D890UV) direct caller-ID database programming.
-- **Direct radio programming** over USB or a programming cable (Icom ID-5100, Kenwood TM-D710)
-  with backup, write, and byte-level verify.
+  database, with prioritized export and direct caller-ID database programming (AnyTone D890UV and
+  D578UV; TYT MD-380 with patched firmware).
+- **Direct radio programming** over USB or a programming cable (AnyTone D890UV and D578UV, Icom
+  ID-5100, Kenwood TM-D710) with backup, write, and byte-level verify.
 - **microSD programming** for radios that take a card instead of a cable (Yaesu FT5D, Icom ID-52,
   Kenwood TH-D75), patching the radio's own backup/settings file so its menus and memories come
   back together.
@@ -188,7 +189,11 @@ ID-5100 memory, bank and bitmap layout (from `id5100.py`); and the TH-D75 channe
 The AnyTone AT-D890UV driver takes its call-sign database per-field length limits from qdmr's
 `d868uv_callsigndb` encoder and its contact-index semantics, both in
 `radios/anytone_atd890uv/callsign_db.rs`, plus the scan-list value table in
-`radios/anytone_atd890uv/mod.rs`.
+`radios/anytone_atd890uv/mod.rs`. The AnyTone AT-D578UV driver (`radios/anytone_atd578uv/`) takes
+its memory map, channel-record tail layout, programmable-key function codes and call-sign database
+format from qdmr's `d578uv_codeplug`, `d878uv_codeplug` and `d878uv2_callsigndb`; every offset was
+checked against a real radio, and two of qdmr's choices (the call-sign database end address and
+name length) were measured to differ and are not used.
 
 **[dmr-tools/codeplugs](https://github.com/dmr-tools/codeplugs)** — **no LICENSE file**, therefore
 all-rights-reserved by default. Its `d890uv v1.05` descriptor is the source of the 209-entry
@@ -196,8 +201,11 @@ AnyTone settings table (`radios/anytone_atd890uv/anytone_settings_table.rs`, mec
 from it), and of the flash region map, channel-record layout, CTCSS tone-table ordering, scan-list
 record and call-sign DB layout. Byte offsets are facts and carry no copyright, and every offset
 here was validated against a golden dump from a real radio — but the generated table is a
-mechanical transform of one upstream file and is the concentrated exposure. Asking upstream to
-add an explicit licence is an open action, not something already done.
+mechanical transform of one upstream file and is the concentrated exposure. The same applies to
+its `d578uv v1.21` descriptor: the 264-entry AT-D578UV settings table
+(`radios/anytone_atd578uv/settings_table.rs`) is mechanically generated from it, cross-checked
+offset by offset against qdmr (189 of 191 agree) and decoded against a real radio. Asking upstream
+to add an explicit licence is an open action, not something already done.
 
 **[reald/anytone-flash-tools](https://github.com/reald/anytone-flash-tools)** — bare
 **GPL-2.0-only**, with no "or any later version" grant, which cannot be combined into a GPLv3 work.
