@@ -1,0 +1,117 @@
+/* Print stylesheet for the Codeplug Magic user guide. Rendered to PDF by
+   build.mjs with headless Chrome. Colours stay in blue and neutral grey, and
+   every callout is named in text, never told apart by hue alone. */
+
+:root {
+  --ink: #1f2933;
+  --muted: #52606d;
+  --rule: #d9e2ec;
+  --tint: #f0f4f8;
+  --accent: #0b5cad;
+  --accent-tint: #e8f1fb;
+}
+
+@page {
+  size: Letter;
+  margin: 0.8in 0.85in 0.85in;
+  @top-right {
+    content: "WW8L Codeplug Magic · User Guide";
+    font: 8pt "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: #7b8794;
+  }
+  @bottom-center {
+    content: counter(page);
+    font: 9pt "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: #7b8794;
+  }
+}
+@page cover {
+  margin: 0;
+  @top-right { content: none; }
+  @bottom-center { content: none; }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body {
+  margin: 0;
+  font: 10.5pt/1.5 "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: var(--ink);
+  background: #fff;
+}
+
+/* ---- cover ---- */
+.cover {
+  page: cover;
+  height: 11in;
+  padding: 1.6in 1in 1in;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(160deg, #0b2a4a 0%, #0b5cad 100%);
+  color: #fff;
+  break-after: page;
+}
+.cover img { width: 1.3in; height: 1.3in; border-radius: 0.25in; }
+.cover .app { margin-top: 0.5in; font-size: 13pt; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.85; }
+.cover h1 { margin: 0.15in 0 0; font-size: 38pt; line-height: 1.05; font-weight: 700; }
+.cover .sub { margin-top: 0.3in; font-size: 15pt; line-height: 1.4; max-width: 5.4in; opacity: 0.92; }
+.cover .foot { margin-top: auto; font-size: 10pt; opacity: 0.8; }
+
+/* ---- contents ---- */
+.toc { break-after: page; }
+.toc ol { list-style: none; padding: 0; margin: 0.2in 0 0; counter-reset: ch; }
+.toc li { counter-increment: ch; display: flex; gap: 0.15in; padding: 0.11in 0; border-bottom: 1px solid var(--rule); font-size: 12pt; }
+.toc li::before { content: counter(ch); width: 0.3in; color: var(--accent); font-weight: 700; }
+.toc li span { color: var(--muted); font-size: 10pt; margin-left: auto; }
+
+/* ---- chapters ---- */
+section.chapter { break-before: page; }
+section.chapter.cont { break-before: auto; margin-top: 0.35in; }
+.kicker { color: var(--accent); font-size: 9pt; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+h1 { font-size: 22pt; line-height: 1.15; margin: 0.04in 0 0.18in; }
+h2 { font-size: 13pt; margin: 0.28in 0 0.08in; break-after: avoid; }
+h3 { font-size: 11pt; margin: 0.2in 0 0.05in; break-after: avoid; }
+p { margin: 0 0 0.11in; }
+.lede { font-size: 12pt; color: var(--muted); }
+strong.ui, .ui { font-weight: 600; color: var(--ink); }
+code { font: 9pt Menlo, monospace; background: var(--tint); padding: 0.01in 0.04in; border-radius: 3px; }
+
+ol.steps { padding-left: 0.25in; margin: 0.06in 0 0.14in; }
+ol.steps li { margin-bottom: 0.06in; }
+
+figure { margin: 0.12in 0 0.18in; break-inside: avoid; }
+figure img { display: block; max-width: 100%; border: 1px solid var(--rule); border-radius: 6px; }
+figure.narrow img { max-width: 4.6in; margin: 0 auto; }
+figure.mid img { max-width: 5.4in; margin: 0 auto; }
+figure.small img { max-width: 3.6in; margin: 0 auto; }
+.example { break-inside: avoid; }
+figcaption { margin-top: 0.06in; font-size: 8.5pt; color: var(--muted); text-align: center; }
+
+.trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.12in; margin: 0.12in 0 0.16in; break-inside: avoid; }
+.trio figure { margin: 0; }
+.trio figcaption { text-align: left; }
+
+.callout {
+  border-left: 4px solid var(--accent);
+  background: var(--accent-tint);
+  padding: 0.1in 0.14in;
+  margin: 0.12in 0 0.16in;
+  border-radius: 0 6px 6px 0;
+  break-inside: avoid;
+}
+.callout.plain { border-left-color: #7b8794; background: var(--tint); }
+.callout b.label { display: block; font-size: 8.5pt; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.02in; }
+
+table { width: 100%; border-collapse: collapse; margin: 0.1in 0 0.18in; font-size: 9pt; break-inside: auto; }
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+th { text-align: left; font-size: 8pt; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); border-bottom: 1.5px solid var(--ink); padding: 0.05in 0.06in; }
+td { border-bottom: 1px solid var(--rule); padding: 0.06in; vertical-align: top; }
+td.m { font: 8.5pt Menlo, monospace; white-space: nowrap; }
+.tag { display: inline-block; font-size: 7.5pt; font-weight: 700; letter-spacing: 0.04em; padding: 0 0.05in; border-radius: 3px; border: 1px solid currentColor; }
+.tag.in { color: var(--accent); }
+.tag.rx { color: var(--ink); background: var(--tint); }
+.tag.out { color: #7b8794; text-decoration: line-through; }
+
+.diagram { margin: 0.2in 0 0.1in; break-inside: avoid; }
+.diagram svg { width: 100%; height: auto; }

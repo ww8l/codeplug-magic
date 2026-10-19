@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Codeplug Magic User Guide</title>
+<link rel="stylesheet" href="manual.css">
+</head>
+<body>
+
+<!-- ================================================================ cover -->
+<div class="cover">
+  <img src="img/icon.png" alt="">
+  <div class="app">WW8L Codeplug Magic</div>
+  <h1>One Programmer.<br>One Database.<br>Every Radio.</h1>
+  <div class="sub">Keep every repeater, list and radio setting in one place, and program all your radios from it: AnyTone, Yaesu, Icom, Kenwood, Baofeng and more, over USB, a programming cable or the radio's own microSD card.</div>
+  <div class="foot">User guide · for Codeplug Magic v26.10.16</div>
+</div>
+
+<!-- ============================================================= contents -->
+<div class="toc">
+  <div class="kicker">Contents</div>
+  <h1>In this guide</h1>
+  <ol>
+    <li>One programmer for every radio <span>What Codeplug Magic replaces</span></li>
+    <li>The building blocks <span>Channels, lists, codeplugs, profiles</span></li>
+    <li>Your channel library <span>RepeaterBook, CSV import, standard lists</span></li>
+    <li>Talkgroups and DMR contacts <span>Talkgroups, caller-ID database</span></li>
+    <li>Set up each radio once <span>Radio profiles</span></li>
+    <li>Build a codeplug <span>Name it, add lists, set the order</span></li>
+    <li>One codeplug, many radios <span>Switch the profile, program the next radio</span></li>
+    <li>What adapts automatically <span>Modes, bands, names, zones, tones</span></li>
+    <li>How each radio is programmed <span>Cable, microSD, or file</span></li>
+    <li>Backing up <span>One file for everything; radio backups</span></li>
+    <li>Tips <span>Habits that keep it painless</span></li>
+  </ol>
+</div>
+
+<!-- ============================================================ chapter 1 -->
+<section class="chapter">
+  <div class="kicker">Chapter 1</div>
+  <h1>One programmer for every radio</h1>
+  <p class="lede">Every radio maker ships its own programming software, with its own file format, its own channel editor and its own idea of a zone. Own four radios and you keep four copies of the same repeaters, in four programs, and fix every typo four times. Codeplug Magic replaces that shelf of programs with one.</p>
+
+  <div class="diagram">
+    <svg viewBox="0 0 700 270" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#52606d"/></marker>
+      </defs>
+      <rect x="0" y="10" width="210" height="250" rx="12" fill="#f0f4f8" stroke="#bcccdc"/>
+      <text x="105" y="36" text-anchor="middle" font-size="11" font-weight="700" fill="#0b5cad" letter-spacing="1">ONE DATABASE</text>
+      <g font-size="12" fill="#1f2933">
+        <rect x="14" y="50" width="182" height="28" rx="6" fill="#fff" stroke="#d9e2ec"/><text x="26" y="69">Channels &amp; repeaters</text>
+        <rect x="14" y="84" width="182" height="28" rx="6" fill="#fff" stroke="#d9e2ec"/><text x="26" y="103">Zones/Groups</text>
+        <rect x="14" y="118" width="182" height="28" rx="6" fill="#fff" stroke="#d9e2ec"/><text x="26" y="137">Scan lists</text>
+        <rect x="14" y="152" width="182" height="28" rx="6" fill="#fff" stroke="#d9e2ec"/><text x="26" y="171">Talkgroups &amp; DMR contacts</text>
+        <rect x="14" y="186" width="182" height="28" rx="6" fill="#fff" stroke="#d9e2ec"/><text x="26" y="205">Codeplugs</text>
+        <rect x="14" y="220" width="182" height="28" rx="6" fill="#fff" stroke="#d9e2ec"/><text x="26" y="239">Radio profiles &amp; settings</text>
+      </g>
+      <line x1="210" y1="135" x2="238" y2="135" stroke="#52606d" stroke-width="1.5" marker-end="url(#ar)"/>
+      <rect x="240" y="85" width="128" height="100" rx="12" fill="#0b5cad"/>
+      <text x="304" y="126" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">Codeplug</text>
+      <text x="304" y="145" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">Magic</text>
+      <text x="304" y="166" text-anchor="middle" font-size="11" fill="#dbeafe">one programmer</text>
+      <path d="M368 135 C 385 135, 385 55, 400 55" fill="none" stroke="#0b5cad" stroke-width="2" marker-end="url(#ar)"/>
+      <path d="M368 135 C 385 135, 385 160, 400 160" fill="none" stroke="#0b5cad" stroke-width="2" marker-end="url(#ar)"/>
+      <path d="M368 135 C 385 135, 385 238, 400 238" fill="none" stroke="#0b5cad" stroke-width="2" marker-end="url(#ar)"/>
+      <g font-size="11" fill="#52606d">
+        <rect x="402" y="10" width="296" height="90" rx="10" fill="#fff" stroke="#bcccdc"/>
+        <text x="416" y="30" font-size="11.5" font-weight="700" fill="#1f2933">USB or programming cable</text>
+        <text x="416" y="48">AnyTone AT-D578UV · AT-D890UV · TYT MD-380</text>
+        <text x="416" y="64">Baofeng UV-5R · TIDRADIO TD-H3 · Binteradio BT-9000</text>
+        <text x="416" y="80">Kenwood TH-D72 · TM-D710 · Icom ID-5100</text>
+        <rect x="402" y="115" width="296" height="90" rx="10" fill="#fff" stroke="#bcccdc"/>
+        <text x="416" y="135" font-size="11.5" font-weight="700" fill="#1f2933">The radio's own microSD card</text>
+        <text x="416" y="153">Yaesu FT5D · FTM-300DR</text>
+        <text x="416" y="169">Icom ID-52 · Kenwood TH-D75</text>
+        <text x="416" y="187" font-style="italic">no vendor software involved</text>
+        <rect x="402" y="218" width="296" height="42" rx="10" fill="#fff" stroke="#bcccdc"/>
+        <text x="416" y="236" font-size="11.5" font-weight="700" fill="#1f2933">Anything else</text>
+        <text x="416" y="252">CHIRP CSV or AnyTone CSV export</text>
+      </g>
+    </svg>
+  </div>
+
+  <h2>What one database buys you</h2>
+  <ul>
+    <li><b>Enter a repeater once.</b> Add it by hand, import it from RepeaterBook or a CSV file, and it's available to every radio you own. Fix a tone once and every radio gets the fix the next time you program it.</li>
+    <li><b>Every radio's settings in one place.</b> Each radio gets a profile holding its menu settings (display, sounds, APRS, DMR ID…), edited with the same screen whatever the brand.</li>
+    <li><b>The same steps for every radio.</b> Pick a codeplug, click <strong class="ui">Program Radio</strong>. Whether the radio wants a USB cable, a serial cable or its microSD card, the workflow doesn't change.</li>
+    <li><b>The app knows each radio's limits.</b> Modes, transmit and receive bands, name length, memory count, zones and banks are built in, so it never writes something a radio can't use, and it tells you what it left out and why.</li>
+    <li><b>One file to back up.</b> <strong class="ui">Settings → Database → Back up database…</strong> saves every channel, list, codeplug, radio profile, talkgroup and DMR contact in a single file. Radios are backed up before every cable write.</li>
+    <li><b>One codeplug, many radios.</b> A codeplug isn't locked to one radio: switch its radio profile and the same channels program into another (Chapter 7).</li>
+  </ul>
+
+</section>
+
+<!-- ============================================================ chapter 2 -->
+<section class="chapter">
+  <div class="kicker">Chapter 2</div>
+  <h1>The building blocks</h1>
+  <p class="lede">Four things, each with one job. Knowing which one owns what makes the rest of this guide obvious.</p>
+
+  <table>
+    <thead><tr><th style="width:22%">Piece</th><th style="width:22%">Where in the app</th><th>What it owns</th></tr></thead>
+    <tbody>
+      <tr><td><b>Channel</b></td><td>Channels</td><td>One frequency pair with its mode, tones or DMR settings, and both a long and a short name. Shared by every codeplug and every radio.</td></tr>
+      <tr><td><b>Channel list</b></td><td>Zones/Groups</td><td>An ordered group of channels. On the radio it becomes a zone, bank or memory group, depending on what that radio has.</td></tr>
+      <tr><td><b>Codeplug</b></td><td>Codeplugs</td><td>A name, an <em>ordered</em> set of channel lists, any scan lists, and <b>one</b> radio profile at a time.</td></tr>
+      <tr><td><b>Radio profile</b></td><td>Radio Profiles</td><td>One physical radio you own: its model, and that radio's menu settings (display, sounds, APRS, DMR ID…).</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Why channels aren't tied to a radio</h2>
+  <p>A channel describes the repeater, not your radio. A DMR repeater is still a DMR repeater when you're holding an analog handheld; the handheld simply can't use it. So Codeplug Magic never asks you to keep a separate “UV-5R channel list”. You keep one library, and each radio takes what it can when you program it.</p>
+  <p>That's also why a channel carries two names. Radios with room for 16 characters show the long one (“AC0KC Fort Lupto”). A radio that can only show 7 shows the short one (“AC0KC”) rather than a chopped-off stump of the long name.</p>
+
+  <h2>One profile per radio, not per model</h2>
+  <p>If you own two FT5Ds set up differently (one for hiking with APRS beaconing, one for the house), make two profiles. The profile carries that individual radio's menu settings, so the codeplug can stay the same while each radio keeps its own personality.</p>
+</section>
+
+<!-- ====================================================== channel library -->
+<section class="chapter">
+  <div class="kicker">Chapter 3</div>
+  <h1>Your channel library</h1>
+  <p class="lede">Everything starts in <strong class="ui">Channels</strong>: one table of every repeater and simplex frequency you use, whatever radio it's for. Fill it once from RepeaterBook, a file, or by hand.</p>
+
+  <figure>
+    <img src="img/channels-library.png" alt="Channels page">
+    <figcaption>The Channels page. Filter by band, mode, state, status or source, or by distance from a town.</figcaption>
+  </figure>
+
+  <p>Four buttons at the top fill the library:</p>
+  <table>
+    <thead><tr><th style="width:24%">Button</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><strong class="ui">RepeaterBook</strong></td><td>Searches RepeaterBook from inside the app and imports the repeaters you tick.</td></tr>
+      <tr><td><strong class="ui">Import</strong></td><td>Reads a file: a RepeaterBook export (CSV or JSON), a CSV from CHIRP or anything else, or a Codeplug Magic channel backup.</td></tr>
+      <tr><td><strong class="ui">Standard Lists</strong></td><td>Adds ready-made service channels: GMRS, FRS, MURS, Marine VHF, NOAA Weather and CB.</td></tr>
+      <tr><td><strong class="ui">Add Repeater</strong></td><td>Enter one by hand. Type a city and its coordinates are filled in for you.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Search RepeaterBook</h2>
+  <p>Get a free token from RepeaterBook (<em>API Apps &amp; Tokens</em> on their site) and paste it into <strong class="ui">Settings → RepeaterBook</strong>. Then click <strong class="ui">RepeaterBook</strong> on the Channels page and do the following:</p>
+  <ol class="steps">
+    <li>Choose an area: one state, province or country.</li>
+    <li>Narrow the search by band and mode, or open <strong class="ui">More filters</strong>.</li>
+    <li>Click <strong class="ui">Search</strong>, then tick the repeaters you want.</li>
+    <li>Click <strong class="ui">Import Selected</strong>.</li>
+  </ol>
+  <p>Repeaters already in your library are marked. Importing one again refreshes it instead of making a copy. RepeaterBook limits how often you can search, so the dialog shows how many searches you've used this hour.</p>
+  <figure class="mid">
+    <img src="img/repeaterbook-search.png" alt="Search RepeaterBook dialog">
+    <figcaption>Search RepeaterBook: pick an area, narrow it by band and mode, and search.</figcaption>
+  </figure>
+
+  <h2>Import a CSV file</h2>
+  <p>A RepeaterBook export is recognised and goes straight to a preview. Any other CSV, from CHIRP for example, opens the column mapper first. The app guesses which column is which and shows you sample values from each, so you can confirm a column really holds frequencies before anything is imported. Anything left as <em>Not imported</em> is skipped.</p>
+  <figure>
+    <img src="img/import-mapper.png" alt="Import Channels column mapper">
+    <figcaption>A CHIRP CSV in the column mapper. The right-hand column shows real values from the file.</figcaption>
+  </figure>
+  <p>Click <strong class="ui">Preview</strong> to see every row as it will be imported, then <strong class="ui">Import</strong>. Channels you already have (same name and frequencies) are skipped, not merged, so importing the same file twice does no harm.</p>
+  <figure class="mid">
+    <img src="img/import-preview.png" alt="Import Channels preview">
+    <figcaption>The preview: 71 rows from the file, with band, mode and tones already worked out.</figcaption>
+  </figure>
+
+  <h2>Standard lists</h2>
+  <p>For the services everyone programs the same way, <strong class="ui">Standard Lists</strong> adds the whole set in one go. Tick <em>Also create a channel list</em> to get a ready-made Zones/Groups list too. Channels already in your library are skipped, not duplicated.</p>
+  <figure class="mid">
+    <img src="img/standard-lists.png" alt="Add a standard channel list dialog">
+    <figcaption>GMRS: 22 simplex channels plus the 8 repeater pairs, with power levels.</figcaption>
+  </figure>
+
+  <h2>Group channels into lists</h2>
+  <p><strong class="ui">Zones/Groups</strong> holds your channel lists. Select channels on the Channels page and click <strong class="ui">Add to channel list</strong>, or open a list and use <strong class="ui">Add Channels</strong>. Drag rows to set the order. The order here is the order on the radio.</p>
+  <figure>
+    <img src="img/zones-groups.png" alt="Zones/Groups page">
+    <figcaption>A channel list mixes modes freely. Each radio takes the channels it can use when you program it.</figcaption>
+  </figure>
+</section>
+
+<!-- ================================================ talkgroups & contacts -->
+<section class="chapter">
+  <div class="kicker">Chapter 4</div>
+  <h1>Talkgroups and DMR contacts</h1>
+  <p class="lede">DMR needs two more kinds of data: the talkgroups each repeater carries, and the caller-ID list that puts a name on the screen when someone keys up. Both live in the same database and are shared by every DMR radio you own.</p>
+
+  <h2>Talkgroups</h2>
+  <p>The <strong class="ui">Talkgroups</strong> page is your talkgroup library. Click <strong class="ui">BrandMeister</strong> to pull the current BrandMeister list. <strong class="ui">Import</strong> reads a CSV for other networks, and <strong class="ui">New Talkgroup</strong> adds one by hand.</p>
+  <figure>
+    <img src="img/talkgroups.png" alt="Talkgroups page">
+    <figcaption>The Talkgroups page, filtered by network and type.</figcaption>
+  </figure>
+
+  <h2>Talkgroups on a repeater</h2>
+  <p>Open a DMR repeater on the Channels page and scroll to <em>Talkgroups on this repeater</em>. Add each talkgroup it carries, with its timeslot. A radio can hold only one talkgroup per channel, so each assignment becomes its own channel on the radio, and the panel tells you how many that will be.</p>
+  <figure class="small">
+    <img src="img/channel-talkgroups.png" alt="Channel panel with talkgroups">
+    <figcaption>N0SZ Boulder carries RMH East on TS1 and RMH Boulder on TS2, so it exports as 2 channels.</figcaption>
+  </figure>
+
+  <h2>DMR contacts (caller ID)</h2>
+  <p><strong class="ui">DMR Contacts</strong> keeps a local copy of the RadioID.net user list (over 300,000 operators). Click <strong class="ui">Refresh from RadioID.net</strong> now and then to update it. Most radios can't hold the whole list, so you choose what goes in:</p>
+  <ul>
+    <li><b>Directly to the radio:</b> AnyTone radios have a <strong class="ui">Call-sign DB</strong> option in their Program Radio dialog. The TYT MD-380 can fill its spare contacts from the library.</li>
+    <li><b>As a file:</b> <strong class="ui">Export…</strong> writes a CSV. Set a maximum and a priority order of countries or continents. The priority matches are written first, and everyone else fills any space that's left.</li>
+  </ul>
+  <figure class="small">
+    <img src="img/dmr-export.png" alt="Export DMR contacts dialog">
+    <figcaption>Capped at 50,000 contacts with the United States first: 50,000 of 312,284 will be exported.</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ chapter 3 -->
+<section class="chapter">
+  <div class="kicker">Chapter 5</div>
+  <h1>Set up each radio once</h1>
+  <p class="lede">Make a profile for every radio you'll program. You do this once per radio, not once per codeplug.</p>
+
+  <ol class="steps">
+    <li>Open <strong class="ui">Radio Profiles</strong> in the sidebar and click <strong class="ui">New Profile</strong>.</li>
+    <li>Find your radio in the list. Type in <strong class="ui">Search radio models…</strong> to narrow it. Each model shows its bands and modes.</li>
+    <li>Give it a <strong class="ui">Profile name</strong> that says which radio it is, for example “Truck mobile (AT-D578UV)”, then click <strong class="ui">Create Profile</strong>.</li>
+  </ol>
+
+  <figure class="mid">
+    <img src="img/new-profile.png" alt="New Radio Profile dialog">
+    <figcaption>The New Radio Profile dialog. Pick the model; the name is yours.</figcaption>
+  </figure>
+
+  <h2>Fill in the radio's settings</h2>
+  <p>The profile editor's <strong class="ui">Settings</strong> tab holds that radio's menu settings, grouped the way the radio groups them. The quickest way to fill it is to read the radio itself:</p>
+  <ul>
+    <li><b>Cable radios:</b> connect the radio, choose its port, and click <strong class="ui">Download from radio</strong>.</li>
+    <li><b>microSD radios</b> (FT5D, FTM-300DR, ID-52, TH-D75): save the radio's backup to its card from the radio's own menu. Put the card in the computer and click <strong class="ui">Load from microSD</strong>.</li>
+  </ul>
+  <p>Change what you like and click <strong class="ui">Save</strong>. The <strong class="ui">Capabilities</strong> tab shows what the model supports: memory count, name length, zones or banks, and bands.</p>
+
+  <figure>
+    <img src="img/profile-ft5d.png" alt="Radio Profiles page with the FT5D profile open">
+    <figcaption>A Yaesu FT5D profile. Its settings travel on the radio's own microSD file, so there is a Load from microSD button rather than a cable download.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <b class="label">A blank setting means “leave it alone”</b>
+    Any setting you leave empty is left as the radio already has it. A brand-new profile with nothing filled in changes nothing on the radio except its channels, so you can't wipe a radio's setup by programming it from a fresh profile.
+  </div>
+</section>
+
+<!-- ============================================================ chapter 4 -->
+<section class="chapter">
+  <div class="kicker">Chapter 6</div>
+  <h1>Build a codeplug</h1>
+  <p class="lede">A codeplug is a short list of channel lists in the order you want them on the radio. Build it for a purpose (a trip, home, an event), not for a radio.</p>
+
+  <ol class="steps">
+    <li>Open <strong class="ui">Codeplugs</strong> and click <strong class="ui">New Codeplug</strong>.</li>
+    <li>Give it a <strong class="ui">Name</strong>. You can pick a <strong class="ui">Radio Profile</strong> now or leave it on <em>No profile (assign later)</em>. Click <strong class="ui">Create Codeplug</strong>.</li>
+    <li>On the codeplug's page, click <strong class="ui">Add</strong> on the <strong class="ui">Channel Lists</strong> card and tick the lists you want.</li>
+    <li>Drag the lists into order. The first list becomes the radio's first zone or bank, and its channels take the first memories.</li>
+    <li>Optionally, add <strong class="ui">Scan Lists</strong>. That card only appears when the selected radio supports scan lists.</li>
+  </ol>
+
+  <figure class="small">
+    <img src="img/new-codeplug.png" alt="New Codeplug dialog">
+    <figcaption>The New Codeplug dialog. The profile can wait.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="img/codeplug-detail.png" alt="Codeplug detail page for Colorado Road Trip">
+    <figcaption>“Colorado Road Trip”: three channel lists (106 channels) and two scan lists, currently pointed at the truck's AT-D578UV.</figcaption>
+  </figure>
+
+  <div class="callout plain">
+    <b class="label">A channel in two lists</b>
+    You can put the same channel in more than one list. On radios where a memory belongs to just one bank or group, it is placed with the <em>first</em> list that contains it, so list order also decides that.
+  </div>
+</section>
+
+<!-- ============================================================ chapter 5 -->
+<section class="chapter">
+  <div class="kicker">Chapter 7 · Feature</div>
+  <h1>One codeplug, many radios</h1>
+  <p class="lede">A codeplug points at one radio profile at a time, and you can change it whenever you like. Build a codeplug once, then program the truck's mobile, your handheld and the spare you lend out from it, switching the profile between each.</p>
+
+  <ol class="steps">
+    <li>Open the codeplug. In the <strong class="ui">Radio Profile</strong> card, choose the radio you're about to program. It saves immediately and you'll see <em>Radio profile updated</em>.</li>
+    <li>Glance at the summary under the dropdown: the radio's bands, its modes, and <em>memory channels · max name</em> length.</li>
+    <li>Click <strong class="ui">Program Radio</strong> (or <strong class="ui">Export</strong> for a file). Before anything is written, the dialog shows exactly what this radio will get: how many channels, which are receive-only, which are skipped and why.</li>
+    <li>Program it. Then pick the next radio in the dropdown and repeat.</li>
+  </ol>
+
+  <div class="trio">
+    <figure><img src="img/profile-card-d578.png" alt=""><figcaption>Truck mobile: VHF, 220 and UHF; analog and DMR; 4000 memories, 16-character names.</figcaption></figure>
+    <figure><img src="img/profile-card-ft5d.png" alt=""><figcaption>Hiking HT: VHF and UHF; analog and System Fusion; 900 memories.</figcaption></figure>
+    <figure><img src="img/profile-card-uv5r.png" alt=""><figcaption>Spare HT: analog only, 128 memories, 7-character names.</figcaption></figure>
+  </div>
+
+  <p>Without a profile, <strong class="ui">Export</strong> and <strong class="ui">Program Radio</strong> stay disabled. The app needs to know the target radio before it can fit anything to it.</p>
+
+  <h2>Worked example: one codeplug, three radios</h2>
+  <p>The figures that follow are the real previews for the “Colorado Road Trip” codeplug: 106 channels across three lists, mixing analog FM, DMR, System Fusion, D-STAR and P25 repeaters on 6 m, 2 m, 1.25 m and 70 cm.</p>
+
+  <div class="example">
+  <h3>1 · Truck mobile: AnyTone AT-D578UV</h3>
+  <p>The AnyTone speaks analog and DMR, so DMR repeaters go in. Each one becomes one channel per talkgroup you've assigned to it. The three channel lists become three zones and both scan lists come along. It can't use the System Fusion, D-STAR or P25 repeaters, or the 6 m one below its 136 MHz range, so those 19 are skipped, each with its reason.</p>
+  <figure class="mid">
+    <img src="img/program-d578.png" alt="Program Radio dialog for the AT-D578UV">
+    <figcaption>AT-D578UV: 101 channels, 3 zones, 2 scan lists, 18 talkgroups; 19 skipped.</figcaption>
+  </figure>
+  </div>
+
+  <div class="example">
+  <h3>2 · Hiking HT: Yaesu FT5D</h3>
+  <p>Switch the profile to the FT5D and open Program Radio again. Now System Fusion is in and DMR is out. The FT5D's receiver also covers 6 m and 220 MHz, where its transmitter can't go, so those six channels are programmed <b>receive-only</b>: you can listen to them, and the radio won't key up on them. With the card in the computer, the app finds it and offers <strong class="ui">Write to “FT5D”</strong>.</p>
+  <figure class="mid">
+    <img src="img/program-ft5d.png" alt="Program Radio dialog for the FT5D">
+    <figcaption>FT5D: 81 channels, 6 of them receive-only; 39 skipped. Channel lists become banks.</figcaption>
+  </figure>
+  </div>
+
+  <div class="example">
+  <h3>3 · Spare HT: Baofeng UV-5R</h3>
+  <p>Switch once more. The UV-5R is analog only, so every digital repeater is skipped. Its 7-character display gets the short names: “AC0KC” instead of “AC0KC Fort Lupto”. With no banks, the lists are laid out one after another in a single run of memories.</p>
+  <figure class="mid">
+    <img src="img/program-uv5r.png" alt="Program Radio dialog for the UV-5R">
+    <figcaption>UV-5R: 71 channels; 49 skipped. Download backup and Restore backup are right there.</figcaption>
+  </figure>
+  </div>
+
+  <h2>The same channels, side by side</h2>
+  <table>
+    <thead><tr><th>Channel</th><th>Mode · MHz</th><th>AT-D578UV</th><th>FT5D</th><th>UV-5R</th></tr></thead>
+    <tbody>
+      <tr><td>AC0KC Fort Lupto</td><td class="m">FM 224.960</td><td><span class="tag in">IN</span> AC0KC Fort Lupto</td><td><span class="tag rx">RX ONLY</span> AC0KC Fort Lupto</td><td><span class="tag in">IN</span> AC0KC</td></tr>
+      <tr><td>W0TX Lakewood</td><td class="m">FM 53.090</td><td><span class="tag out">SKIPPED</span> below 136 MHz</td><td><span class="tag rx">RX ONLY</span> W0TX Lakewood 09</td><td><span class="tag in">IN</span> W0TX 09</td></tr>
+      <tr><td>K0PRA Idaho Spri</td><td class="m">FM 145.250</td><td><span class="tag in">IN</span> K0PRA Idaho Sp V</td><td><span class="tag in">IN</span> K0PRA Idaho Spri</td><td><span class="tag in">IN</span> K0PRA</td></tr>
+      <tr><td>N0SZ Boulder<br><small>2 talkgroups</small></td><td class="m">DMR 445.050</td><td><span class="tag in">IN ×2</span> N0SZ RMH East U<br>N0SZ RMH Boulder</td><td><span class="tag out">SKIPPED</span> no DMR</td><td><span class="tag out">SKIPPED</span> no DMR</td></tr>
+    </tbody>
+  </table>
+  <p>Names ending in a letter or number (“V”, “09”) were marked by the app to tell apart two channels that would otherwise have had the same name on that radio. See Chapter 8.</p>
+</section>
+
+<!-- ============================================================ chapter 6 -->
+<section class="chapter">
+  <div class="kicker">Chapter 8</div>
+  <h1>What adapts automatically</h1>
+  <p class="lede">Every time you Export or Program Radio, the codeplug is fitted fresh to the profile's radio. Nothing is stored per radio, so switching back and forth never leaves anything stale behind.</p>
+
+  <table>
+    <thead><tr><th style="width:24%">Situation</th><th style="width:38%">What the app does</th><th>What you'll see</th></tr></thead>
+    <tbody>
+      <tr><td><b>Mode the radio doesn't have</b><br>(DMR on an analog radio, Fusion on an AnyTone…)</td><td>The channel is skipped.</td><td>Listed under <em>will be skipped</em>, e.g. “Mode DMR not supported by Yaesu FT5D”.</td></tr>
+      <tr><td><b>Radio can hear it but not transmit</b><br>(GMRS, 220, 6 m, marine, NOAA, air band)</td><td>Programmed <b>receive-only</b>, not dropped. Where the radio has a per-channel transmit inhibit, it is set.</td><td>Listed under <em>are receive-only</em> with the radio's transmit range.</td></tr>
+      <tr><td><b>Outside the receiver too</b></td><td>Skipped, never written into an empty slot.</td><td>“Frequency … is outside the … range”.</td></tr>
+      <tr><td><b>Gaps left by skipped channels</b></td><td>The remaining channels close up with no empty memories. On radios with fixed-size zones, they close up within each zone.</td><td>“These are dropped and the remaining channels close up with no gaps.”</td></tr>
+      <tr><td><b>Channel lists</b></td><td>Become zones (AnyTone, MD-380, BT-9000), banks (FT5D, ID-5100), or memory groups (ID-52, TH-D75). Radios with none get one flat run in list order.</td><td>The zone count and zone names in the preview.</td></tr>
+      <tr><td><b>DMR repeater with talkgroups</b></td><td>One channel per talkgroup and timeslot, named with the talkgroup. When the long name plus talkgroup won't fit, the short name is used instead.</td><td>Repeater “N0SZ Boulder” with talkgroups RMH East and RMH Boulder becomes “N0SZ RMH East” and “N0SZ RMH Boulder”. A DMR channel with no talkgroup is flagged under <em>Warnings</em>.</td></tr>
+      <tr><td><b>Name length</b></td><td>Uses the long name if it fits; otherwise the short name, then cuts it to the radio's limit.</td><td>“AC0KC Fort Lupto” on 16 characters, “AC0KC” on 7.</td></tr>
+      <tr><td><b>Two channels, same name</b></td><td>Adds the band letter (U/V…); for two on the same band, the frequency's first two decimals (“09” for 53.09); as a last resort, a counter.</td><td>“K0PRA Idaho Sp V”, “W0TX 09”.</td></tr>
+      <tr><td><b>Cross-tone channel on a radio without cross-tone</b></td><td>Keeps the transmit tone so you can still open the repeater, and drops the receive side.</td><td>The channel is programmed; squelch opens on carrier.</td></tr>
+      <tr><td><b>Menu settings</b></td><td>Taken from the profile you selected. Blank settings are left as the radio has them.</td><td>On microSD radios the settings ride in the same file as the channels.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Preview before you commit</h2>
+  <p><strong class="ui">Export</strong> shows the same fit as a table: every channel, its frequency and mode, and whether it's included or excluded and why. Use it to sanity-check a new radio before you plug it in.</p>
+  <figure class="mid">
+    <img src="img/export-uv5r.png" alt="Export dialog for the UV-5R">
+    <figcaption>The Export dialog for the UV-5R: 71 included, 49 excluded, each with a reason.</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ chapter 7 -->
+<section class="chapter">
+  <div class="kicker">Chapter 9</div>
+  <h1>How each radio is programmed</h1>
+  <p class="lede">The workflow is the same for every radio. Only the last step differs: a cable, the radio's own microSD card, or a file.</p>
+
+  <table>
+    <thead><tr><th style="width:23%">Radio</th><th style="width:20%">Modes</th><th style="width:24%">Connection</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><b>Baofeng UV-5R</b></td><td>Analog</td><td>USB programming cable</td><td>128 memories, flat. Channels and settings.</td></tr>
+      <tr><td><b>TIDRADIO TD-H3</b></td><td>Analog</td><td>USB programming cable</td><td>200 memories. Its Program dialog adds a Radio Options tab.</td></tr>
+      <tr><td><b>AnyTone AT-D890UV</b></td><td>DMR + analog</td><td>USB</td><td>Channels, zones, scan lists, talkgroups, settings, call-sign database.</td></tr>
+      <tr><td><b>AnyTone AT-D578UV</b></td><td>DMR + analog</td><td>USB</td><td>4000 channels in 250 zones; settings incl. APRS; call-sign database.</td></tr>
+      <tr><td><b>TYT MD-380</b></td><td>DMR + analog</td><td>USB (the radio itself)</td><td>Zones of 16, talkgroup contacts, scan lists.</td></tr>
+      <tr><td><b>Binteradio BT-9000</b></td><td>Analog</td><td>USB programming cable</td><td>960 memories in 15 fixed zones. Also sold as Radtel RT-950 Pro.</td></tr>
+      <tr><td><b>Kenwood TH-D72</b></td><td>APRS + analog</td><td>USB</td><td>1000 memories; menu settings.</td></tr>
+      <tr><td><b>Kenwood TM-D710</b></td><td>APRS + analog</td><td>Serial, operation-panel port</td><td>Programmed one memory at a time; settings incl. APRS.</td></tr>
+      <tr><td><b>Icom ID-5100</b></td><td>D-STAR + analog</td><td>Data cable</td><td>1000 memories in named banks A–Z; settings in the same upload.</td></tr>
+      <tr><td><b>Yaesu FT5D</b></td><td>Fusion + analog</td><td>microSD: <code>BACKUP.dat</code></td><td>900 memories in 24 banks; settings.</td></tr>
+      <tr><td><b>Yaesu FTM-300DR</b></td><td>Fusion + analog</td><td>microSD: <code>CLNFTM300D.dat</code></td><td>999 memories, no banks; one M-GRP memory group; settings incl. APRS.</td></tr>
+      <tr><td><b>Icom ID-52</b></td><td>D-STAR + analog</td><td>microSD: <code>.icf</code></td><td>1000 memories in 100 groups; settings.</td></tr>
+      <tr><td><b>Kenwood TH-D75</b></td><td>D-STAR + APRS + analog</td><td>microSD: <code>.d75</code></td><td>1000 memories in 30 groups; settings incl. APRS.</td></tr>
+      <tr><td><b>Anything else</b></td><td>—</td><td>Export a CHIRP CSV</td><td>Program it with CHIRP.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Cable radios</h2>
+  <p>Choose the serial port and click <strong class="ui">Program radio</strong>. Every cable write saves a backup of the radio first. Where the radio offers them, <strong class="ui">Identify</strong>, <strong class="ui">Download backup</strong> and <strong class="ui">Restore backup…</strong> sit beside it. AnyTone radios reboot after a write; rescan the port and run <strong class="ui">Verify</strong>.</p>
+
+  <h2>microSD radios</h2>
+  <p>On the radio, save its backup to the card from its SD menu. Put the card in the computer and open Program Radio: the app finds the card, patches the file the radio wrote, and keeps the untouched original beside it. Put the card back and load it from the radio's menu. The dialog shows the exact menu steps for your model.</p>
+  <div class="callout plain">
+    <b class="label">Note</b>
+    A microSD file carries the radio's settings as well as its channels, so on these radios the codeplug and the profile travel together in one write.
+  </div>
+</section>
+
+<!-- =============================================================== backup -->
+<section class="chapter">
+  <div class="kicker">Chapter 10</div>
+  <h1>Backing up</h1>
+  <p class="lede">Because everything lives in one database, backing up is one file. Radios are backed up too, automatically, every time the app reads or writes them.</p>
+
+  <h2>Back up the database</h2>
+  <p>Go to <strong class="ui">Settings → Database</strong> and click <strong class="ui">Back up database…</strong>. The backup holds every channel, list, codeplug, radio profile, talkgroup and DMR contact.</p>
+  <p>Before writing anything, the app lists what the file will contain and flags anything worth thinking about before you share it: your call sign, DMR ID and APRS positions in your radio profiles, and other operators' names from RadioID.net. Then you choose where to save it.</p>
+  <figure class="mid">
+    <img src="img/settings-database.png" alt="Settings Database section">
+    <figcaption>Settings → Database: one file holds all of your data.</figcaption>
+  </figure>
+  <p><strong class="ui">Restore from backup…</strong> replaces everything currently in the app with the backup. Before it does, it saves your current data to a separate file, so a restore can be undone. This is also how you move to a new computer: back up on the old one, restore on the new one.</p>
+
+  <h2>Radio backups</h2>
+  <p>Every time the app reads a radio or writes to one, it first saves a copy of that radio's memory. That's what lets you put a radio back exactly as it was. These copies are never deleted for you. Under <strong class="ui">Settings → Radio backups</strong> you can choose how many to keep per radio and clean up older ones. The copies hold each radio's own data, including your call sign, DMR ID and any stored position, unencrypted, so treat them like the database backup.</p>
+</section>
+
+<!-- ============================================================ chapter 8 -->
+<section class="chapter">
+  <div class="kicker">Chapter 11</div>
+  <h1>Tips</h1>
+  <ul>
+    <li><b>Name codeplugs for a purpose, profiles for a radio.</b> “Colorado Road Trip”, “Home”, “Field Day”; “Truck mobile”, “Hiking HT”. You'll pick codeplug-then-profile without thinking.</li>
+    <li><b>Read the skipped list before you write.</b> If a channel you expected is missing, the reason is right there, usually a mode or band the radio doesn't have.</li>
+    <li><b>Don't trim channels for small radios.</b> Keep the codeplug complete; the UV-5R simply takes what it can. Trimming by hand means keeping two lists in sync forever.</li>
+    <li><b>Put the lists you use most first.</b> On radios with zones or banks they become zone 1 and bank 1, and on flat radios they take the lowest memory numbers.</li>
+    <li><b>Keep backups.</b> Cable programming saves one before it writes, and microSD writes keep the radio's original file beside the patched one. On cable radios that offer it, <strong class="ui">Download backup</strong> takes a fresh one any time.</li>
+    <li><b>Lending a radio?</b> Make a profile for it with the owner's settings, switch the codeplug to it, and program. Your own radios' profiles are untouched.</li>
+  </ul>
+</section>
+
+</body>
+</html>

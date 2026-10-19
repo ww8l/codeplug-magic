@@ -11,6 +11,10 @@ whichever radio you own. Channels can be imported from RepeaterBook, geocoded fr
 organized into zones and scan lists, and pushed straight to the radio over USB, a programming
 cable, or its microSD card — or exported as CSV for tools that expect it.
 
+**User guide:** [Codeplug Magic User Guide](docs/manual/Codeplug-Magic-Guide.pdf) (PDF) covers
+setting up your radios, building codeplugs, and programming each radio from the one database,
+including programming several different radios from the same codeplug.
+
 > **Status:** working prototype, actively developed. Programming paths for the radios below have
 > been verified on real hardware, but this is early software — always keep a backup of your
 > radio's existing codeplug before writing to it.

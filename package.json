@@ -14,7 +14,8 @@
     "preview": "vite preview",
     "ci": "./scripts/ci-local.sh",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json"
+    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "manual": "node docs/manual/build.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.13",
