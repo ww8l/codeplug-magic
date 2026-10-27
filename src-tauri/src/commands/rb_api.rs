@@ -933,7 +933,7 @@ async fn library_count(pool: &SqlitePool) -> Result<i64, String> {
 }
 
 /// API records not refreshed within 12 months.
-const STALE_WHERE: &str = "source = 'repeaterbook_api' \
+pub(crate) const STALE_WHERE: &str = "source = 'repeaterbook_api' \
      AND (last_rb_update IS NULL OR last_rb_update < datetime('now', '-12 months'))";
 
 // ============================================================
