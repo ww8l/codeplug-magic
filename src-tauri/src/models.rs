@@ -402,6 +402,30 @@ pub struct DashboardStats {
     pub total_talkgroups: i64,
 }
 
+/// One record a dashboard warning points at: enough to name it and open it.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DashboardWarningItem {
+    pub id: i64,
+    pub label: String,
+}
+
+/// Problems worth seeing before program time, grouped by the stat card they
+/// belong to. An empty list means that card shows no warning.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardWarnings {
+    /// DMR channels that would program with no talkgroup — the same test the
+    /// direct programmers warn on (no `repeater_talkgroups` row and no inline
+    /// `dmr_talkgroup`).
+    pub dmr_channels_without_talkgroup: Vec<DashboardWarningItem>,
+    /// Zones/groups not included in any codeplug.
+    pub unused_channel_lists: Vec<DashboardWarningItem>,
+    /// Scan lists not included in any codeplug, nor assigned to any channel
+    /// within one.
+    pub unused_scan_lists: Vec<DashboardWarningItem>,
+    /// Codeplugs with no radio profile, which cannot be programmed.
+    pub codeplugs_without_profile: Vec<DashboardWarningItem>,
+}
+
 // ============================================================
 // export
 // ============================================================

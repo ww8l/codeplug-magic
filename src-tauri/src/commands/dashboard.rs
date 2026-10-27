@@ -2,7 +2,7 @@ use tauri::State;
 
 use crate::db::AppState;
 use crate::error::MapErrString;
-use crate::models::{CodeplugSummary, DashboardStats};
+use crate::models::{CodeplugSummary, DashboardStats, DashboardWarningItem, DashboardWarnings};
 
 #[tauri::command]
 pub async fn get_dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStats, String> {
@@ -38,6 +38,75 @@ pub async fn get_dashboard_stats(state: State<'_, AppState>) -> Result<Dashboard
         total_codeplugs: total_codeplugs.0,
         total_radio_profiles: total_radio_profiles.0,
         total_talkgroups: total_talkgroups.0,
+    })
+}
+
+#[tauri::command]
+pub async fn get_dashboard_warnings(
+    state: State<'_, AppState>,
+) -> Result<DashboardWarnings, String> {
+    let items = |sql: &'static str| {
+        sqlx::query_as::<_, DashboardWarningItem>(sql).fetch_all(&state.pool)
+    };
+
+    // Matches `expand_for_export`: a DMR channel expands to nothing when it has
+    // neither curated talkgroups nor an inline one.
+    let dmr_channels_without_talkgroup = items(
+        r#"
+        SELECT c.id,
+               COALESCE(NULLIF(c.name_long, ''), NULLIF(c.name_short, ''),
+                        NULLIF(c.rb_name, ''), NULLIF(c.callsign, ''), 'Unnamed')
+                 || ' · ' || printf('%.4f', c.rx_freq) AS label
+        FROM channels c
+        WHERE c.mode = 'DMR'
+          AND c.dmr_talkgroup IS NULL
+          AND NOT EXISTS (SELECT 1 FROM repeater_talkgroups r WHERE r.channel_id = c.id)
+        ORDER BY label
+        "#,
+    )
+    .await
+    .estr()?;
+
+    let unused_channel_lists = items(
+        r#"
+        SELECT l.id, l.name AS label
+        FROM channel_lists l
+        WHERE NOT EXISTS (SELECT 1 FROM codeplug_channel_lists x WHERE x.channel_list_id = l.id)
+        ORDER BY l.name
+        "#,
+    )
+    .await
+    .estr()?;
+
+    let unused_scan_lists = items(
+        r#"
+        SELECT s.id, s.name AS label
+        FROM scan_lists s
+        WHERE NOT EXISTS (SELECT 1 FROM codeplug_scan_lists x WHERE x.scan_list_id = s.id)
+          AND NOT EXISTS (SELECT 1 FROM codeplug_channel_scan_lists y WHERE y.scan_list_id = s.id)
+        ORDER BY s.name
+        "#,
+    )
+    .await
+    .estr()?;
+
+    let codeplugs_without_profile = items(
+        r#"
+        SELECT cp.id, cp.name AS label
+        FROM codeplugs cp
+        WHERE cp.radio_profile_id IS NULL
+           OR NOT EXISTS (SELECT 1 FROM radio_profiles rp WHERE rp.id = cp.radio_profile_id)
+        ORDER BY cp.name
+        "#,
+    )
+    .await
+    .estr()?;
+
+    Ok(DashboardWarnings {
+        dmr_channels_without_talkgroup,
+        unused_channel_lists,
+        unused_scan_lists,
+        codeplugs_without_profile,
     })
 }
 

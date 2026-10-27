@@ -287,6 +287,16 @@ export function Channels() {
     }
   }, [searchParams, setSearchParams]);
 
+  // Open one channel when navigated from a dashboard warning (?open=<id>).
+  useEffect(() => {
+    const id = Number(searchParams.get("open"));
+    if (!id || allChannels.length === 0) return;
+    const c = allChannels.find((ch) => ch.id === id);
+    if (c) openEdit(c);
+    searchParams.delete("open");
+    setSearchParams(searchParams, { replace: true });
+  }, [searchParams, setSearchParams, allChannels]);
+
   // Filter dropdown options — only values actually present in the data.
   const bands = useMemo(
     () => presentFacet(allChannels.map((c) => c.band), BANDS),

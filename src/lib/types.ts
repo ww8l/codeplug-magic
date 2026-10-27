@@ -471,6 +471,18 @@ export interface DashboardStats {
   total_talkgroups: number;
 }
 
+export interface DashboardWarningItem {
+  id: number;
+  label: string;
+}
+
+export interface DashboardWarnings {
+  dmr_channels_without_talkgroup: DashboardWarningItem[];
+  unused_channel_lists: DashboardWarningItem[];
+  unused_scan_lists: DashboardWarningItem[];
+  codeplugs_without_profile: DashboardWarningItem[];
+}
+
 export interface ExportPreviewRow {
   channel_id: number;
   name: string;
