@@ -1214,10 +1214,17 @@ pub async fn program_radio(
     // Every block ack'd, so record this as the codeplug's last program time (the
     // Codeplugs screen shows "Programmed <date>"). Verification is best-effort
     // and deliberately does not gate the stamp.
+    // The digest lets the dashboard say when the radio has fallen behind; a
+    // failure to compute it must not fail a write that already succeeded.
+    let fingerprint = crate::commands::export::codeplug_fingerprint(&state.pool, codeplug_id)
+        .await
+        .ok();
     sqlx::query(
-        "UPDATE codeplugs SET last_exported = CURRENT_TIMESTAMP, last_export_kind = 'radio' WHERE id = ?1",
+        "UPDATE codeplugs SET last_exported = CURRENT_TIMESTAMP, last_export_kind = 'radio', \
+         programmed_fingerprint = ?2 WHERE id = ?1",
     )
     .bind(codeplug_id)
+    .bind(fingerprint)
     .execute(&state.pool)
     .await
     .estr()?;

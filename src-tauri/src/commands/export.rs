@@ -376,6 +376,108 @@ pub(crate) async fn resolve_codeplug_payload(
     })
 }
 
+/// Channel columns that never reach a radio and change without the operator
+/// touching the channel — a RepeaterBook refresh, an edit stamp. Left out of
+/// [`codeplug_fingerprint`] so they cannot mark a codeplug as changed.
+const FINGERPRINT_SKIPPED_CHANNEL_FIELDS: &[&str] = &[
+    "operational_status",
+    "operational_status_overridden",
+    "rb_dcs_code",
+    "rb_dcs_rx_code",
+    "rb_ctcss_uplink",
+    "rb_ctcss_downlink",
+    "rb_operational_status",
+    "rb_notes",
+    "ctcss_uplink_overridden",
+    "ctcss_downlink_overridden",
+    "notes_overridden",
+    "has_overrides",
+    "last_rb_update",
+    "last_user_edit",
+    "created_at",
+    "updated_at",
+];
+
+/// A digest of everything programming a codeplug hands a driver: the payload
+/// from [`resolve_codeplug_payload`], the profile's radio settings, and the
+/// memory group. Stamped when a codeplug is programmed or exported; the
+/// dashboard recomputes it to say the radio is out of date.
+pub(crate) async fn codeplug_fingerprint(
+    pool: &sqlx::SqlitePool,
+    codeplug_id: i64,
+) -> Result<String, String> {
+    use md5::{Digest, Md5};
+
+    let resolved = resolve_codeplug_payload(pool, codeplug_id).await?;
+    let settings: Option<String> = sqlx::query_scalar(
+        "SELECT rp.non_channel_settings FROM codeplugs cp \
+         JOIN radio_profiles rp ON rp.id = cp.radio_profile_id WHERE cp.id = ?1",
+    )
+    .bind(codeplug_id)
+    .fetch_optional(pool)
+    .await
+    .estr()?
+    .flatten();
+    let memory_group: Vec<i64> = sqlx::query_scalar(
+        "SELECT channel_id FROM codeplug_memory_group WHERE codeplug_id = ?1 ORDER BY channel_id",
+    )
+    .bind(codeplug_id)
+    .fetch_all(pool)
+    .await
+    .estr()?;
+
+    let channel = |c: &Channel| {
+        let mut v = serde_json::to_value(c).unwrap_or_default();
+        if let Some(m) = v.as_object_mut() {
+            for k in FINGERPRINT_SKIPPED_CHANNEL_FIELDS {
+                m.remove(*k);
+            }
+        }
+        v
+    };
+    let mut overrides: Vec<(i64, i64)> = resolved
+        .scan_list_overrides
+        .iter()
+        .map(|o| (o.channel_id, o.scan_list_id))
+        .collect();
+    overrides.sort_unstable();
+
+    let doc = serde_json::json!({
+        "model": resolved.model.id,
+        "settings": settings,
+        "groups": resolved.groups.iter().map(|g| serde_json::json!([
+            g.list_id,
+            g.list_name,
+            g.channels.iter().map(|c| c.id).collect::<Vec<_>>(),
+        ])).collect::<Vec<_>>(),
+        "channels": resolved.channels.iter().map(|ec| serde_json::json!([
+            channel(&ec.channel),
+            ec.tg_label,
+            ec.timeslot,
+            ec.tg_number,
+            ec.tg_call_type,
+            ec.tg_inline,
+        ])).collect::<Vec<_>>(),
+        "scan_lists": resolved.scan_lists.iter().map(|s| serde_json::json!([
+            s.id,
+            s.name,
+            s.priority_channel_id,
+            s.priority_channel_2_id,
+            s.priority_select,
+            s.look_back_a,
+            s.look_back_b,
+            s.dropout_delay,
+            s.dwell_time,
+            s.revert_channel,
+            s.member_channel_ids,
+        ])).collect::<Vec<_>>(),
+        "scan_list_overrides": overrides,
+        "memory_group": memory_group,
+    });
+    let digest = Md5::digest(doc.to_string().as_bytes());
+    Ok(digest.iter().map(|b| format!("{b:02x}")).collect())
+}
+
 /// How a channel fits a radio: programmed, programmed but muted on transmit, or
 /// not programmed at all.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1130,10 +1232,15 @@ pub async fn generate_codeplug(
         }
     };
 
+    // Best-effort: a digest that fails to compute leaves the dashboard unable
+    // to say "changed since", never fails an export that already happened.
+    let fingerprint = codeplug_fingerprint(&state.pool, codeplug_id).await.ok();
     sqlx::query(
-        "UPDATE codeplugs SET last_exported = CURRENT_TIMESTAMP, last_export_kind = 'file' WHERE id = ?1",
+        "UPDATE codeplugs SET last_exported = CURRENT_TIMESTAMP, last_export_kind = 'file', \
+         programmed_fingerprint = ?2 WHERE id = ?1",
     )
     .bind(codeplug_id)
+    .bind(fingerprint)
     .execute(&state.pool)
     .await
     .estr()?;
@@ -2731,5 +2838,57 @@ mod tests {
         assert_eq!(channel_fit(&fm_at(146.940), &model), ChannelFit::Included);
         assert!(exclusion_reason(&fm_at(600.0), &model).is_some());
         assert!(exclusion_reason(&fm_at(224.840), &model).is_some());
+    }
+
+    /// The programmed-fingerprint is what the dashboard's "changed since last
+    /// programmed" compares against, so it must be stable when nothing changed,
+    /// move when a programmed field does, ignore a RepeaterBook refresh stamp,
+    /// and come back when an edit is put back.
+    #[tokio::test]
+    async fn codeplug_fingerprint_tracks_programmed_content_only() {
+        let dir = std::env::temp_dir().join(format!("cpm_fp_{}", std::process::id()));
+        let db_path = dir.join("test.sqlite3");
+        let _ = std::fs::remove_file(&db_path);
+        let pool = crate::db::init_pool(&db_path).await.expect("init_pool");
+
+        for sql in [
+            "INSERT INTO channels (id, name_long, rx_freq, mode, source) \
+             VALUES (1, 'K0FM Boulder', 146.94, 'FM', 'manual')",
+            "INSERT INTO channel_lists (id, name) VALUES (1, 'Local')",
+            "INSERT INTO channel_list_entries (channel_list_id, channel_id, position) VALUES (1, 1, 0)",
+            "INSERT INTO radio_profiles (id, display_name, radio_model_id) \
+             SELECT 1, 'Test', id FROM radio_models ORDER BY id LIMIT 1",
+            "INSERT INTO codeplugs (id, name, radio_profile_id) VALUES (1, 'Truck', 1)",
+            "INSERT INTO codeplug_channel_lists (codeplug_id, channel_list_id, position) VALUES (1, 1, 0)",
+        ] {
+            sqlx::query(sql).execute(&pool).await.unwrap();
+        }
+
+        let original = codeplug_fingerprint(&pool, 1).await.unwrap();
+        assert_eq!(codeplug_fingerprint(&pool, 1).await.unwrap(), original);
+
+        sqlx::query("UPDATE channels SET last_rb_update = '2026-01-01 00:00:00' WHERE id = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(codeplug_fingerprint(&pool, 1).await.unwrap(), original);
+
+        sqlx::query("UPDATE channels SET rx_freq = 146.97 WHERE id = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_ne!(codeplug_fingerprint(&pool, 1).await.unwrap(), original);
+
+        sqlx::query("UPDATE channels SET rx_freq = 146.94 WHERE id = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(codeplug_fingerprint(&pool, 1).await.unwrap(), original);
+
+        sqlx::query("UPDATE channel_lists SET name = 'Home' WHERE id = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_ne!(codeplug_fingerprint(&pool, 1).await.unwrap(), original);
     }
 }

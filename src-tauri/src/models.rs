@@ -402,6 +402,52 @@ pub struct DashboardStats {
     pub total_talkgroups: i64,
 }
 
+/// One record a dashboard warning points at: enough to name it and open it.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DashboardWarningItem {
+    pub id: i64,
+    pub label: String,
+}
+
+/// Problems worth seeing before program time, grouped by the stat card they
+/// belong to. An empty list means that check has nothing to say.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardWarnings {
+    /// DMR channels a codeplug will program with no talkgroup — the same test
+    /// the direct programmers warn on at program time.
+    pub dmr_without_talkgroup_in_codeplug: Vec<DashboardWarningItem>,
+    /// The same, for channels no codeplug includes yet.
+    pub dmr_without_talkgroup_unused: Vec<DashboardWarningItem>,
+    /// DMR channels in a codeplug with no color code.
+    pub dmr_without_color_code: Vec<DashboardWarningItem>,
+    /// Channels in a codeplug that are marked Off Air.
+    pub off_air_in_codeplug: Vec<DashboardWarningItem>,
+    /// RepeaterBook records not refreshed within a year (#136).
+    pub stale_repeaterbook: Vec<DashboardWarningItem>,
+    /// Zones/groups not included in any codeplug.
+    pub unused_channel_lists: Vec<DashboardWarningItem>,
+    /// Zones/groups with no channels.
+    pub empty_channel_lists: Vec<DashboardWarningItem>,
+    /// Scan lists not included in any codeplug, nor assigned to any channel
+    /// within one.
+    pub unused_scan_lists: Vec<DashboardWarningItem>,
+    /// Scan lists with no channels.
+    pub empty_scan_lists: Vec<DashboardWarningItem>,
+    /// A codeplug's scan list naming channels that codeplug does not program;
+    /// one item per (codeplug, scan list).
+    pub scan_list_channels_outside_zones: Vec<DashboardWarningItem>,
+    /// Codeplugs with no radio profile, which cannot be programmed.
+    pub codeplugs_without_profile: Vec<DashboardWarningItem>,
+    /// Codeplugs with no zones/groups, so nothing to program.
+    pub codeplugs_without_zones: Vec<DashboardWarningItem>,
+    /// Codeplugs whose content differs from what was last programmed or
+    /// exported. Only codeplugs stamped since migration 0021 can say.
+    pub codeplugs_changed_since_programmed: Vec<DashboardWarningItem>,
+    /// What programming each codeplug would warn about, skip, or refuse —
+    /// one item per message, from the driver's own preview where it has one.
+    pub codeplugs_program_problems: Vec<DashboardWarningItem>,
+}
+
 // ============================================================
 // export
 // ============================================================

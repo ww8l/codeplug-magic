@@ -17,6 +17,7 @@ import type {
   BackupTable,
   TalkgroupRefreshSummary,
   DashboardStats,
+  DashboardWarnings,
   GeoPoint,
   ExportPreview,
   ImportPreview,
@@ -77,6 +78,7 @@ import type {
 export const api = {
   // ---- dashboard ----
   getDashboardStats: () => invoke<DashboardStats>("get_dashboard_stats"),
+  getDashboardWarnings: () => invoke<DashboardWarnings>("get_dashboard_warnings"),
   getRecentCodeplugs: () => invoke<CodeplugSummary[]>("get_recent_codeplugs"),
 
   // ---- channels ----

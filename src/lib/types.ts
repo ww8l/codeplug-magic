@@ -471,6 +471,28 @@ export interface DashboardStats {
   total_talkgroups: number;
 }
 
+export interface DashboardWarningItem {
+  id: number;
+  label: string;
+}
+
+export interface DashboardWarnings {
+  dmr_without_talkgroup_in_codeplug: DashboardWarningItem[];
+  dmr_without_talkgroup_unused: DashboardWarningItem[];
+  dmr_without_color_code: DashboardWarningItem[];
+  off_air_in_codeplug: DashboardWarningItem[];
+  stale_repeaterbook: DashboardWarningItem[];
+  unused_channel_lists: DashboardWarningItem[];
+  empty_channel_lists: DashboardWarningItem[];
+  unused_scan_lists: DashboardWarningItem[];
+  empty_scan_lists: DashboardWarningItem[];
+  scan_list_channels_outside_zones: DashboardWarningItem[];
+  codeplugs_without_profile: DashboardWarningItem[];
+  codeplugs_without_zones: DashboardWarningItem[];
+  codeplugs_changed_since_programmed: DashboardWarningItem[];
+  codeplugs_program_problems: DashboardWarningItem[];
+}
+
 export interface ExportPreviewRow {
   channel_id: number;
   name: string;

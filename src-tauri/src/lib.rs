@@ -110,6 +110,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // dashboard
             commands::dashboard::get_dashboard_stats,
+            commands::dashboard::get_dashboard_warnings,
             commands::dashboard::get_recent_codeplugs,
             // channels
             commands::channels::list_channels,
