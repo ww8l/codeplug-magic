@@ -1319,7 +1319,8 @@ fn models() -> Vec<ModelSeed> {
         //    510 has PMG, not the FTM-300's M-GRP, so no memory group. (b)
         //    tx_bands is the DR's US 144–148 / 430–450; the DE is 144–146 /
         //    430–440. (c) rx_bands is the Operating Manual's continuous
-        //    108–550 MHz — unverified until the ladder's band probe.
+        //    108–550 MHz — hardware-proven: the ladder's band probe landed all
+        //    11 edges and boundaries (2026-11-03).
         // --------------------------------------------------------
         ModelSeed {
             manufacturer: "Yaesu",

@@ -24,14 +24,26 @@
 //! goes to 999), and the 8.33 kHz airband code — measured on the FTM-300's screen —
 //! has not been seen on a 510, so every off-grid airband point is refused here.
 //!
-//! ## Open on the radio
+//! ## Hardware-proven (2026-11-03, Tim's radio, `ladder.rs`)
 //!
-//! - **Name-length table.** The FTM-300 radio writes `(1 << (16 - len)) - 1` and
-//!   shows a name blank when the entry says `0xFFFF`. ADMS-18 writes `0x0000` for
-//!   any name on the 510. Both are presumably accepted; this writes the radio's
-//!   own rule, and ladder step 2 (one renamed memory) is what confirms it.
-//! - **Checksum.** None was found on the FTM-300; that is not evidence for this
-//!   file. Ladder step 2 is the checksum test.
+//! All five ladder steps passed, each loaded with 107 BACKUP → READ FROM SD → ALL
+//! from a file placed beside the radio's own as `CLNFTM510D01`-`05` — the radio
+//! lists and loads numbered files it did not write itself.
+//!
+//! 1. Identity copy: loaded, call sign and memories intact.
+//! 2. One renamed memory: loaded and showed `LADDER 2` — **no checksum is
+//!    checked on load**, and the radio reads names with the FTM-300's
+//!    `(1 << (16 - len)) - 1` length rule (ADMS-18 writes `0x0000`; both load).
+//! 3. Full codeplug, 61 memories from the app's pipeline: names, shifts, DN,
+//!    narrow FM and the count all as written.
+//! 4. Band probe: all 11 edges of 108-550 MHz landed, both sides of each
+//!    internal boundary.
+//! 5. Settings: LCD MID, beep HIGH, **Sub Band Mute ON = 3** (ADMS-18 was right;
+//!    CHIRP's FTM-300 reading is inverted) and **S-DX AUTO** across its three
+//!    scattered bits (the screen showed AUTO-A, SPU-1 fitted).
+//!
+//! ## Still open
+//!
 //! - **Memory-group flag.** The FTM-300's M-GRP is byte 0 bit 4; the 510 has
 //!   PMG instead, and an FTM-500 file carries an unexplained byte 0 bit 3. Neither
 //!   is set here.
@@ -146,6 +158,8 @@ fn patch_in_place(
 mod dev_export;
 #[cfg(test)]
 mod gate;
+#[cfg(test)]
+mod ladder;
 
 #[cfg(test)]
 mod tests {
