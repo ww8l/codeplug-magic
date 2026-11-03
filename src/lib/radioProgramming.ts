@@ -217,6 +217,24 @@ const MEDIA_WRITES: Record<string, MediaWrite> = {
     carries:
       "your call sign, your APRS call sign and SSID, a fixed My Position if you have set one, and the APRS station list and messages the radio has heard — including other stations' positions",
   },
+  // The FTM-300's sibling: same arrangement, its own folder and file. Menu
+  // path is the FTM-510 Advance Manual's (107 BACKUP).
+  yaesu_ftm510_sd: {
+    action: "Write to SD card…",
+    pickTitle: "Select FTM510D/BACKUP/CLNFTM510D.dat on the radio’s microSD card",
+    filterName: "FTM-510 backup",
+    extensions: ["dat"],
+    before:
+      "On the radio, save everything to the card: press and hold the FUNC knob → 107 BACKUP → WRITE TO SD → ALL → OK. Then put the card in this computer and pick FTM510D/BACKUP/CLNFTM510D.dat below.",
+    after:
+      "Put the card back in the radio and load it: press and hold the FUNC knob → 107 BACKUP → READ FROM SD → ALL → pick CLNFTM510D → OK. The radio restarts when it has loaded.",
+    found:
+      "It already holds a backup, so there is nothing to pick — just check it is current (the radio writes it with the FUNC knob → 107 BACKUP → WRITE TO SD → ALL).",
+    preserves:
+      "The FTM-510 has no banks, so channel lists become one memory list in order. Everything else already on the radio — Home, VFO and PMS channels, APRS, GPS, WIRES-X and every Setup Menu item your profile does not set — is left untouched. The first write saves your untouched file beside it as CLNFTM510D.dat.orig; later writes never overwrite that pristine copy.",
+    carries:
+      "your call sign, your APRS call sign and SSID, a fixed My Position if you have set one, and the APRS station list and messages the radio has heard — including other stations' positions",
+  },
 };
 
 /// How a model is programmed from removable media, or null if it is a cable

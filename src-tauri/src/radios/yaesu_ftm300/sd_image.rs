@@ -364,7 +364,7 @@ fn name_len_code(len: usize) -> u16 {
 /// Printable ASCII, trailing spaces dropped (they would count toward the
 /// length code), at most 16 characters. Lower case is kept — the radio stores
 /// and displays it.
-pub(super) fn tag(name: &str) -> String {
+pub(crate) fn tag(name: &str) -> String {
     let s: String = name
         .chars()
         .filter(|c| c.is_ascii_graphic() || *c == ' ')
@@ -374,7 +374,7 @@ pub(super) fn tag(name: &str) -> String {
 }
 
 /// A cleaned tag's two stored forms: the 16-byte name field and its length code.
-pub(super) fn name_fields(name: &str) -> ([u8; NAME_LEN], u16) {
+pub(crate) fn name_fields(name: &str) -> ([u8; NAME_LEN], u16) {
     let mut field = [0xFFu8; NAME_LEN];
     field[..name.len()].copy_from_slice(name.as_bytes());
     (field, name_len_code(name.len()))

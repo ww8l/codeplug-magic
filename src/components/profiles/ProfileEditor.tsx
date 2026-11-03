@@ -236,6 +236,7 @@ const CARD_SETTINGS_READERS: Record<
   icom_id52_icf: api.readId52SettingsFromCard,
   kenwood_thd75_sd: api.readThd75SettingsFromCard,
   yaesu_ftm300_sd: api.readFtm300SettingsFromBackup,
+  yaesu_ftm510_sd: api.readFtm510SettingsFromBackup,
 };
 
 /**

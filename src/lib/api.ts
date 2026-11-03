@@ -400,6 +400,9 @@ export const api = {
   // The FTM-300's CLNFTM300D.dat; same shape as the FT5D's. See radios/yaesu_ftm300/settings.rs.
   readFtm300SettingsFromBackup: (path: string) =>
     invoke<RadioSettingsRead>("read_ftm300_settings_from_backup", { path }),
+  // The FTM-510's CLNFTM510D.dat; same shape again. See radios/yaesu_ftm510/settings.rs.
+  readFtm510SettingsFromBackup: (path: string) =>
+    invoke<RadioSettingsRead>("read_ftm510_settings_from_backup", { path }),
   // A card radio's settings alone, patched into its own file on the card —
   // every memory left as the file has it. The radio loads it from its menu.
   writeCardSettings: (profileId: number, path: string) =>

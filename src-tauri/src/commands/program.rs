@@ -520,6 +520,7 @@ pub async fn find_memory_cards(format: String) -> Vec<MemoryCard> {
         "icom_id52_icf" => id52_cards(),
         "kenwood_thd75_sd" => thd75_cards(),
         "yaesu_ftm300_sd" => ftm300_cards(),
+        "yaesu_ftm510_sd" => ftm510_cards(),
         _ => Vec::new(),
     })
     .await
@@ -559,6 +560,28 @@ fn ftm300_cards() -> Vec<MemoryCard> {
             continue;
         };
         if crate::radios::yaesu_ftm300::sd_image::validate_backup(&image).is_err() {
+            continue;
+        }
+        out.push(MemoryCard {
+            has_original: path.with_extension("dat.orig").exists(),
+            volume: volume_name(&root),
+            path: path.to_string_lossy().into_owned(),
+        });
+    }
+    out
+}
+
+/// The FTM-510 is the FTM-300's arrangement under its own folder and name:
+/// Setup Menu 107 BACKUP → WRITE TO SD → ALL writes this path, READ FROM SD
+/// → ALL loads it back.
+fn ftm510_cards() -> Vec<MemoryCard> {
+    let mut out = Vec::new();
+    for root in mounted_roots() {
+        let path = root.join("FTM510D").join("BACKUP").join("CLNFTM510D.dat");
+        let Ok(image) = std::fs::read(&path) else {
+            continue;
+        };
+        if crate::radios::yaesu_ftm510::sd_image::validate_backup(&image).is_err() {
             continue;
         }
         out.push(MemoryCard {
@@ -693,6 +716,31 @@ pub async fn read_ftm300_settings_from_backup(path: String) -> Result<RadioSetti
         })?;
         crate::radios::yaesu_ftm300::sd_image::validate_backup(&image)?;
         let settings = crate::radios::yaesu_ftm300::settings::decode_settings(&image);
+        let count = settings.as_object().map(|o| o.len()).unwrap_or(0);
+        Ok(RadioSettingsRead {
+            settings,
+            count,
+            backup_path: path,
+        })
+    })
+    .await
+    .estr()?
+}
+
+/// The FTM-510's version of [`read_ftm300_settings_from_backup`], reading the
+/// `CLNFTM510D.dat` the radio writes with Setup Menu 107 BACKUP → WRITE TO SD →
+/// ALL.
+#[tauri::command]
+pub async fn read_ftm510_settings_from_backup(path: String) -> Result<RadioSettingsRead, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let image = std::fs::read(&path).map_err(|e| {
+            format!(
+                "Could not read {path}: {e}. Pick FTM510D/BACKUP/CLNFTM510D.dat from the \
+                 radio's microSD card."
+            )
+        })?;
+        crate::radios::yaesu_ftm510::sd_image::validate_backup(&image)?;
+        let settings = crate::radios::yaesu_ftm510::settings::decode_settings(&image);
         let count = settings.as_object().map(|o| o.len()).unwrap_or(0);
         Ok(RadioSettingsRead {
             settings,

@@ -58,3 +58,4 @@ pub(crate) mod tyt_md380;
 mod wiring;
 pub(crate) mod yaesu_ft5d;
 pub(crate) mod yaesu_ftm300;
+pub(crate) mod yaesu_ftm510;
