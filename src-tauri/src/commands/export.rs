@@ -53,6 +53,17 @@ pub(crate) struct CodeplugGroup {
     pub channels: Vec<Channel>,
 }
 
+/// A channel with no mode is FM — what [`channel_fit`] assumes when it lets the
+/// channel through. Filled in here, where every path to a radio loads its
+/// channels, so no driver has to agree on a default: the TD-H3 encoder, for
+/// one, writes anything that is not literally "FM" as *narrow*.
+fn with_default_mode(mut c: Channel) -> Channel {
+    if c.mode.as_deref().is_none_or(|m| m.trim().is_empty()) {
+        c.mode = Some("FM".to_string());
+    }
+    c
+}
+
 /// Resolve a codeplug's assigned channel lists into ordered groups, preserving
 /// list membership. Lists come back in codeplug assignment order; channels
 /// within each in the list's position order. The building block for zone/bank
@@ -91,7 +102,11 @@ pub(crate) async fn resolve_codeplug_groups(
         .estr()?;
 
         let mut seen = HashSet::new();
-        let channels = rows.into_iter().filter(|c| seen.insert(c.id)).collect();
+        let channels = rows
+            .into_iter()
+            .filter(|c| seen.insert(c.id))
+            .map(with_default_mode)
+            .collect();
         groups.push(CodeplugGroup {
             list_id,
             list_name,
@@ -510,7 +525,15 @@ pub(crate) fn channel_fit(channel: &Channel, model: &RadioModel) -> ChannelFit {
     // so this is a hard exclusion — receive-only does not apply.
     let mode = channel.mode.as_deref().unwrap_or("FM").to_uppercase();
     let mode_ok = match mode.as_str() {
-        "FM" | "NFM" | "AM" | "USB" | "LSB" | "CW" => model.analog_capable,
+        // An analog mode passes only if this radio's encoder writes it as
+        // itself — every encoder falls back to FM otherwise, which made a USB or
+        // AM channel a silent dead FM memory. A model with no driver is a file
+        // export, whose formats carry the mode through as text.
+        "FM" | "NFM" | "AM" | "USB" | "LSB" | "CW" => {
+            model.analog_capable
+                && crate::radios::registry::driver_for_model(model)
+                    .is_none_or(|d| d.analog_modes().contains(&mode.as_str()))
+        }
         "DMR" => model.dmr_capable,
         "DSTAR" => model.dstar_capable,
         // YSF is Fusion digital-narrow (DN); YSF-VW is its full-rate voice mode.
@@ -1450,6 +1473,9 @@ fn render_chirp_csv(channels: &[&ExpandedChannel], model: &RadioModel) -> Result
             .unwrap_or_else(|| "023".to_string());
         let chirp_mode = match c.mode.as_deref().unwrap_or("FM").to_uppercase().as_str() {
             "AM" => "AM",
+            "USB" => "USB",
+            "LSB" => "LSB",
+            "CW" => "CW",
             "DSTAR" => "DV",
             "NFM" => "NFM",
             _ => "FM",
@@ -2726,6 +2752,79 @@ mod tests {
             rx_freq,
             mode: Some("FM".into()),
             ..Default::default()
+        }
+    }
+
+    fn mode_at(rx_freq: f64, mode: &str) -> Channel {
+        Channel { mode: Some(mode.into()), ..fm_at(rx_freq) }
+    }
+
+    /// Every encoder here falls back to FM for a mode it does not handle, so a
+    /// USB or AM channel used to reach a UV-5R and program as a dead FM memory.
+    /// `channel_fit` now asks the radio's driver what it actually encodes.
+    #[test]
+    fn an_analog_mode_the_driver_does_not_encode_is_excluded_with_a_reason() {
+        let uv5r = RadioModel {
+            display_name: "Baofeng UV-5R".into(),
+            driver_key: Some("baofeng_uv5r".into()),
+            analog_capable: true,
+            tx_bands: Some("[[136.0,174.0],[400.0,520.0]]".into()),
+            ..Default::default()
+        };
+        assert_eq!(channel_fit(&mode_at(146.52, "FM"), &uv5r), ChannelFit::Included);
+        assert_eq!(channel_fit(&mode_at(146.52, "NFM"), &uv5r), ChannelFit::Included);
+        for mode in ["AM", "USB", "LSB", "CW", "usb"] {
+            match channel_fit(&mode_at(146.52, mode), &uv5r) {
+                ChannelFit::Excluded(why) => assert!(
+                    why.contains(&format!("Mode {} not supported by Baofeng UV-5R", mode.to_uppercase())),
+                    "{why}"
+                ),
+                other => panic!("{mode} on a UV-5R should be excluded, got {other:?}"),
+            }
+        }
+
+        // A driver that does encode AM keeps it; SSB is still out.
+        let ft5d = RadioModel { driver_key: Some("yaesu_ft5d".into()), ..wideband_rx_model() };
+        assert_eq!(channel_fit(&mode_at(146.52, "AM"), &ft5d), ChannelFit::Included);
+        assert!(matches!(channel_fit(&mode_at(146.52, "USB"), &ft5d), ChannelFit::Excluded(_)));
+        // The FT5D's encoder has no narrow bit, so NFM is refused, not sent wide.
+        assert!(matches!(channel_fit(&mode_at(146.52, "NFM"), &ft5d), ChannelFit::Excluded(_)));
+    }
+
+    /// A channel with no mode reaches every radio as FM — the TD-H3's encoder
+    /// would otherwise write it narrow, while `channel_fit` had passed it as FM.
+    #[test]
+    fn a_channel_with_no_mode_is_loaded_as_fm() {
+        for blank in [None, Some(""), Some("  ")] {
+            let c = Channel { mode: blank.map(str::to_string), ..fm_at(146.52) };
+            assert_eq!(with_default_mode(c).mode.as_deref(), Some("FM"), "{blank:?}");
+        }
+        for kept in ["NFM", "AM", "DMR"] {
+            assert_eq!(with_default_mode(mode_at(146.52, kept)).mode.as_deref(), Some(kept));
+        }
+    }
+
+    /// With no driver the model is a file export, and the CHIRP CSV carries
+    /// USB/LSB/CW through as themselves — so nothing is excluded for its mode.
+    #[test]
+    fn a_model_with_no_driver_keeps_every_analog_mode() {
+        let model = wideband_rx_model();
+        assert!(model.driver_key.is_none());
+        for mode in ["AM", "USB", "LSB", "CW"] {
+            assert_eq!(channel_fit(&mode_at(146.52, mode), &model), ChannelFit::Included, "{mode}");
+        }
+    }
+
+    /// The list is the channel library's own vocabulary, upper case, and FM is
+    /// always on it — a typo here would exclude every channel of that mode.
+    #[test]
+    fn every_drivers_analog_modes_are_library_modes_and_include_fm() {
+        for d in crate::radios::registry::all_drivers() {
+            let modes = d.analog_modes();
+            assert!(modes.contains(&"FM"), "{}", d.key());
+            for m in modes {
+                assert!(["FM", "NFM", "AM", "USB", "LSB", "CW"].contains(m), "{}: {m}", d.key());
+            }
         }
     }
 

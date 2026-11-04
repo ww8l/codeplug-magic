@@ -70,6 +70,11 @@ pub(crate) struct KenwoodThd75;
 pub(crate) static DRIVER: KenwoodThd75 = KenwoodThd75;
 
 impl RadioDriver for KenwoodThd75 {
+    /// `memory.rs` encodes AM. The radio also has LSB/USB/CW; the encoder does not, so they stay off this list.
+    fn analog_modes(&self) -> &'static [&'static str] {
+        &["FM", "NFM", "AM"]
+    }
+
     fn key(&self) -> &'static str {
         "kenwood_thd75"
     }

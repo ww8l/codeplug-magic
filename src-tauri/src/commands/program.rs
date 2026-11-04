@@ -23,7 +23,7 @@
 //! model row already carries the key.
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::commands::dmr_users::select_prioritized_dmr_users;
 use crate::commands::export;
@@ -195,6 +195,23 @@ pub struct DownloadResult {
     pub channels: Vec<DecodedChannelSample>,
 }
 
+/// The dialog's view of a radio session: every [`crate::radios::operator`]
+/// step becomes a `radio-operator-step` event. Built inside the blocking
+/// closure because the sink is thread-local to the session's thread.
+fn operator_sink(app: &AppHandle) -> crate::radios::operator::Sink {
+    let app = app.clone();
+    Box::new(move |step| {
+        let _ = app.emit("radio-operator-step", step);
+    })
+}
+
+/// Continue (`true`) or Cancel (`false`) on the step a radio session is waiting
+/// on — the FT-857D/897's "press RCV on the radio, then Continue".
+#[tauri::command]
+pub fn operator_answer(proceed: bool) {
+    crate::radios::operator::answer(proceed);
+}
+
 /// Read a clone-mode radio's full memory image and save it as a timestamped
 /// backup. This is the non-destructive proof that the protocol port is correct,
 /// and it produces the safety backup the write path always takes first.
@@ -227,11 +244,14 @@ pub async fn download_image(
     // self-identifying (previously hardcoded "uv5r-"/"tdh3-").
     let backup_path = backup_dir.join(format!("{driver_key}-{stamp}.img"));
 
+    let op_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         // One radio operation per port: this guard lives for the whole blocking
         // session and releases on the way out, panic included. (#67)
         let _port_guard = crate::radios::port_lock::claim(&port)?;
-        let (ident, image) = imager.download_image(&port)?;
+        let (ident, image) = crate::radios::operator::with_sink(operator_sink(&op_app), || {
+            imager.download_image(&port)
+        })?;
 
         std::fs::write(&backup_path, &image)
             .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
@@ -351,11 +371,14 @@ pub async fn read_radio_settings(
     let key = target.driver.key();
     let slug = slug(&target.profile_name);
 
+    let op_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         // One radio operation per port: this guard lives for the whole blocking
         // session and releases on the way out, panic included. (#67)
         let _port_guard = crate::radios::port_lock::claim(&port)?;
-        let capture = reader.read_settings(&port, &target.schema)?;
+        let capture = crate::radios::operator::with_sink(operator_sink(&op_app), || {
+            reader.read_settings(&port, &target.schema)
+        })?;
 
         // Named after the driver key, matching `download_image`'s convention, so
         // a folder of backups stays self-identifying.
@@ -863,11 +886,14 @@ pub async fn write_radio_settings(
     let backup_dir = app.path().app_data_dir().estr()?.join("radio-backups");
     std::fs::create_dir_all(&backup_dir).estr()?;
 
+    let op_app = app.clone();
     let mut report = tauri::async_runtime::spawn_blocking(move || {
         // One radio operation per port: this guard lives for the whole blocking
         // session and releases on the way out, panic included. (#67)
         let _port_guard = crate::radios::port_lock::claim(&port)?;
-        writer.write_settings(&port, &settings, &target.schema, &backup_dir)
+        crate::radios::operator::with_sink(operator_sink(&op_app), || {
+            writer.write_settings(&port, &settings, &target.schema, &backup_dir)
+        })
     })
     .await
     .estr()??;
@@ -1227,6 +1253,7 @@ pub async fn program_radio(
             _ => None,
         };
 
+        let op_app = app.clone();
         let mut report = tauri::async_runtime::spawn_blocking(move || {
             // One radio operation per port: this guard lives for the whole
             // blocking session and releases on the way out, panic included. (#67)
@@ -1239,7 +1266,9 @@ pub async fn program_radio(
                 backup_dir: &backup_dir,
                 label: &label,
             };
-            imager.program_codeplug(&port, &req)
+            crate::radios::operator::with_sink(operator_sink(&op_app), || {
+                imager.program_codeplug(&port, &req)
+            })
         })
         .await
         .estr()??;
@@ -1324,10 +1353,31 @@ pub struct RestoreResult {
 /// function spoke UV-5R and nothing else.
 #[tauri::command]
 pub async fn restore_image(
+    app: AppHandle,
     driver_key: String,
     port: String,
     path: String,
 ) -> Result<RestoreResult, String> {
+    restore_image_from(Some(move || operator_sink(&app)), driver_key, port, path).await
+}
+
+/// [`restore_image`]'s body. `sink` builds the operator-step sink on the
+/// session's thread; it is `None` only in tests, which have no window.
+///
+/// ⚠ A sink FACTORY, not an `AppHandle`: a test that so much as names
+/// `AppHandle` links Tauri's window runtime into the test binary, and on
+/// Windows that binary then dies at load with STATUS_ENTRYPOINT_NOT_FOUND —
+/// the runtime imports functions that resolve only under the app's manifest,
+/// which a test executable does not carry (PR #153's first CI run).
+async fn restore_image_from<F>(
+    sink: Option<F>,
+    driver_key: String,
+    port: String,
+    path: String,
+) -> Result<RestoreResult, String>
+where
+    F: FnOnce() -> crate::radios::operator::Sink + Send + 'static,
+{
     let driver = driver(&driver_key)?;
     let restorer = driver.as_image_restorer().ok_or_else(|| {
         format!(
@@ -1348,7 +1398,12 @@ pub async fn restore_image(
         restorer
             .check_restore_image(&image)
             .map_err(|e| format!("{path}: {e}"))?;
-        restorer.restore_image(&port, &image)?;
+        match sink {
+            Some(make) => crate::radios::operator::with_sink(make(), || {
+                restorer.restore_image(&port, &image)
+            })?,
+            None => restorer.restore_image(&port, &image)?,
+        }
         Ok(RestoreResult {
             bytes: image.len(),
             source: path,
@@ -1362,6 +1417,9 @@ pub async fn restore_image(
 mod tests {
     use super::*;
 
+    /// No window in a test: a typed `None` that never names Tauri's runtime.
+    const NO_SINK: Option<fn() -> crate::radios::operator::Sink> = None;
+
     /// A restore is now dispatched by driver key, and a driver that cannot put
     /// a backup back says so instead of speaking somebody else's protocol at
     /// the radio.
@@ -1371,7 +1429,8 @@ mod tests {
     /// cable, while the dialog offered the button to every clone radio.
     #[tokio::test]
     async fn a_driver_that_cannot_restore_says_so_before_touching_the_port() {
-        let err = restore_image(
+        let err = restore_image_from(
+            NO_SINK,
             "kenwood_thd75".into(),
             "/dev/cu.nonesuch".into(),
             "/nonexistent.img".into(),
@@ -1385,7 +1444,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_unknown_driver_key_is_refused() {
-        assert!(restore_image("no_such_radio".into(), "p".into(), "f".into())
+        assert!(restore_image_from(NO_SINK, "no_such_radio".into(), "p".into(), "f".into())
             .await
             .is_err());
     }
@@ -1398,7 +1457,8 @@ mod tests {
         let path = std::env::temp_dir().join("cpm-restore-dispatch-test.img");
         // A TD-H3-shaped image: right length for that radio, wrong for a UV-5R.
         std::fs::write(&path, vec![0u8; 0x2008]).unwrap();
-        let err = restore_image(
+        let err = restore_image_from(
+            NO_SINK,
             "baofeng_uv5r".into(),
             "/dev/cu.nonesuch".into(),
             path.to_string_lossy().into_owned(),

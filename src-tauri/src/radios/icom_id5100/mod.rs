@@ -53,6 +53,11 @@ pub(crate) struct IcomId5100;
 pub(crate) static DRIVER: IcomId5100 = IcomId5100;
 
 impl RadioDriver for IcomId5100 {
+    /// `memory.rs` maps AM to the radio's AM mode.
+    fn analog_modes(&self) -> &'static [&'static str] {
+        &["FM", "NFM", "AM"]
+    }
+
     fn key(&self) -> &'static str {
         "icom_id5100"
     }

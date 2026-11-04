@@ -49,6 +49,7 @@ pub(crate) mod kenwood_tmd710;
 /// the driver it is informing exists.
 #[cfg(test)]
 mod kenwood_tmd710_probe;
+pub(crate) mod operator;
 pub(crate) mod port_lock;
 pub(crate) mod registry;
 pub(crate) mod settings_bounds;
@@ -57,5 +58,6 @@ pub(crate) mod tyt_md380;
 #[cfg(test)]
 mod wiring;
 pub(crate) mod yaesu_ft5d;
+pub(crate) mod yaesu_ft857d;
 pub(crate) mod yaesu_ftm300;
 pub(crate) mod yaesu_ftm510;

@@ -1097,3 +1097,12 @@ export interface TalkgroupRefreshSummary {
   added: number;
   total: number;
 }
+
+/** A `radio-operator-step` event: what the operator must do at the radio right
+ *  now. `text: null` clears it. `needs_continue` means the radio cannot say
+ *  when it is done (a radio waiting in RCV is silent), so the session is paused
+ *  until Continue or Cancel. */
+export interface OperatorStep {
+  text: string | null;
+  needs_continue: boolean;
+}
