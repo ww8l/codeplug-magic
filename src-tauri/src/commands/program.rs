@@ -1358,17 +1358,26 @@ pub async fn restore_image(
     port: String,
     path: String,
 ) -> Result<RestoreResult, String> {
-    restore_image_from(Some(app), driver_key, port, path).await
+    restore_image_from(Some(move || operator_sink(&app)), driver_key, port, path).await
 }
 
-/// [`restore_image`]'s body. `app` is `None` only in tests, which have no
-/// window to send operator steps to.
-async fn restore_image_from(
-    app: Option<AppHandle>,
+/// [`restore_image`]'s body. `sink` builds the operator-step sink on the
+/// session's thread; it is `None` only in tests, which have no window.
+///
+/// ⚠ A sink FACTORY, not an `AppHandle`: a test that so much as names
+/// `AppHandle` links Tauri's window runtime into the test binary, and on
+/// Windows that binary then dies at load with STATUS_ENTRYPOINT_NOT_FOUND —
+/// the runtime imports functions that resolve only under the app's manifest,
+/// which a test executable does not carry (PR #153's first CI run).
+async fn restore_image_from<F>(
+    sink: Option<F>,
     driver_key: String,
     port: String,
     path: String,
-) -> Result<RestoreResult, String> {
+) -> Result<RestoreResult, String>
+where
+    F: FnOnce() -> crate::radios::operator::Sink + Send + 'static,
+{
     let driver = driver(&driver_key)?;
     let restorer = driver.as_image_restorer().ok_or_else(|| {
         format!(
@@ -1389,8 +1398,8 @@ async fn restore_image_from(
         restorer
             .check_restore_image(&image)
             .map_err(|e| format!("{path}: {e}"))?;
-        match &app {
-            Some(app) => crate::radios::operator::with_sink(operator_sink(app), || {
+        match sink {
+            Some(make) => crate::radios::operator::with_sink(make(), || {
                 restorer.restore_image(&port, &image)
             })?,
             None => restorer.restore_image(&port, &image)?,
@@ -1408,6 +1417,9 @@ async fn restore_image_from(
 mod tests {
     use super::*;
 
+    /// No window in a test: a typed `None` that never names Tauri's runtime.
+    const NO_SINK: Option<fn() -> crate::radios::operator::Sink> = None;
+
     /// A restore is now dispatched by driver key, and a driver that cannot put
     /// a backup back says so instead of speaking somebody else's protocol at
     /// the radio.
@@ -1418,7 +1430,7 @@ mod tests {
     #[tokio::test]
     async fn a_driver_that_cannot_restore_says_so_before_touching_the_port() {
         let err = restore_image_from(
-            None,
+            NO_SINK,
             "kenwood_thd75".into(),
             "/dev/cu.nonesuch".into(),
             "/nonexistent.img".into(),
@@ -1432,7 +1444,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_unknown_driver_key_is_refused() {
-        assert!(restore_image_from(None, "no_such_radio".into(), "p".into(), "f".into())
+        assert!(restore_image_from(NO_SINK, "no_such_radio".into(), "p".into(), "f".into())
             .await
             .is_err());
     }
@@ -1446,7 +1458,7 @@ mod tests {
         // A TD-H3-shaped image: right length for that radio, wrong for a UV-5R.
         std::fs::write(&path, vec![0u8; 0x2008]).unwrap();
         let err = restore_image_from(
-            None,
+            NO_SINK,
             "baofeng_uv5r".into(),
             "/dev/cu.nonesuch".into(),
             path.to_string_lossy().into_owned(),
