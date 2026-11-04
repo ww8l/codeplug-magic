@@ -70,6 +70,11 @@ pub(crate) const D578_IDENT: IdentExpect = IdentExpect {
 };
 
 impl RadioDriver for AnytoneAtd578uv {
+    /// AM goes to the air-band memory, and only on the air band — `program::plan_d578`.
+    fn analog_modes(&self) -> &'static [&'static str] {
+        &["FM", "NFM", "AM"]
+    }
+
     fn key(&self) -> &'static str {
         "anytone_atd578uv"
     }

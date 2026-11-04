@@ -23,7 +23,7 @@ use crate::models::RadioModel;
 /// Every driver compiled into the app. Order is not significant — lookups are
 /// by `key()`, which is unique. (A static array rather than a slice literal:
 /// references to statics aren't const-promotable inside a returned temporary.)
-static DRIVERS: [&dyn RadioDriver; 14] = [
+static DRIVERS: [&dyn RadioDriver; 15] = [
     &super::baofeng_uv5r::DRIVER,
     &super::binteradio_bt9000::DRIVER,
     &super::tidradio_tdh3::DRIVER,
@@ -38,6 +38,7 @@ static DRIVERS: [&dyn RadioDriver; 14] = [
     &super::tyt_md380::DRIVER,
     &super::yaesu_ftm300::DRIVER,
     &super::yaesu_ftm510::DRIVER,
+    &super::yaesu_ft857d::DRIVER,
 ];
 
 pub(crate) fn all_drivers() -> &'static [&'static dyn RadioDriver] {
@@ -93,6 +94,7 @@ mod tests {
             "kenwood_tmd710",
             "yaesu_ftm300",
             "yaesu_ftm510",
+            "yaesu_ft857d",
         ] {
             let d = driver_for_key(key).unwrap_or_else(|| panic!("no driver for '{key}'"));
             assert_eq!(d.key(), key);
@@ -165,6 +167,9 @@ mod tests {
                 // a codeplug program carries the radio's own through untouched,
                 // so the profile's are a separate write — the AnyTone's shape.
                 "tyt_md380" => (true, true),
+                // FT-857D/897 (#145): both, out of and into the clone image — a
+                // read-patch-write-read-back of its own, like the BT-9000's.
+                "yaesu_ft857d" => (true, true),
                 _ => (true, true),
             };
             assert_eq!(
@@ -247,6 +252,7 @@ mod tests {
                     | "kenwood_thd72"
                     | "binteradio_bt9000"
                     | "icom_id5100"
+                    | "yaesu_ft857d"
             );
             assert_eq!(
                 d.as_image_programmer().is_some(),

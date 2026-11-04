@@ -434,6 +434,9 @@ export const api = {
   restoreImage: (driverKey: string, port: string, path: string) =>
     invoke<RestoreResult>("restore_image", { driverKey, port, path }),
   backupsDir: () => invoke<string>("backups_dir"),
+  /** Continue (true) or Cancel (false) on the step a radio session is waiting
+   *  on — the FT-857D/897's "press RCV on the radio, then Continue". */
+  operatorAnswer: (proceed: boolean) => invoke<void>("operator_answer", { proceed }),
   // What is in radio-backups/, and the operator-initiated prune. Nothing here
   // deletes on its own — see the Rust module for why (#77).
   radioBackupsSummary: (keep?: number) =>

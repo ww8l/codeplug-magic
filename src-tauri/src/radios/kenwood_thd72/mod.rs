@@ -69,6 +69,11 @@ pub(crate) struct KenwoodThd72;
 pub(crate) static DRIVER: KenwoodThd72 = KenwoodThd72;
 
 impl RadioDriver for KenwoodThd72 {
+    /// `memory.rs` `MODE_AM` (receive-only, band B, on the radio).
+    fn analog_modes(&self) -> &'static [&'static str] {
+        &["FM", "NFM", "AM"]
+    }
+
     fn key(&self) -> &'static str {
         "kenwood_thd72"
     }

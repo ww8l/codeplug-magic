@@ -42,6 +42,11 @@ pub(crate) struct YaesuFtm300;
 pub(crate) static DRIVER: YaesuFtm300 = YaesuFtm300;
 
 impl RadioDriver for YaesuFtm300 {
+    /// `sd_image::encode_record` sets the AM bit.
+    fn analog_modes(&self) -> &'static [&'static str] {
+        &["FM", "NFM", "AM"]
+    }
+
     fn key(&self) -> &'static str {
         "yaesu_ftm300"
     }

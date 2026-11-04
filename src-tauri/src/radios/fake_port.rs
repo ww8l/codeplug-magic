@@ -56,6 +56,13 @@ impl<R: FakeRadio> FakePort<R> {
         }
     }
 
+    /// Bytes the radio sends before the host has said anything. Every other radio
+    /// here waits to be asked; the FT-857D/897 starts a clone from its own front
+    /// panel ([C] SEND) and pushes the first block unprompted.
+    pub fn radio_sends(&mut self, bytes: &[u8]) {
+        self.inbox.extend(bytes.iter().copied());
+    }
+
     fn pump(&mut self) {
         loop {
             let mut reply = Vec::new();

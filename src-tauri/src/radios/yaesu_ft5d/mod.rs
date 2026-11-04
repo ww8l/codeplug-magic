@@ -131,6 +131,12 @@ pub(crate) struct YaesuFt5d;
 pub(crate) static DRIVER: YaesuFt5d = YaesuFt5d;
 
 impl RadioDriver for YaesuFt5d {
+    /// `sd_image.rs` writes AM as mode bits 1. It has no narrow bit — an NFM
+    /// channel would go out wide — so NFM is not on the list and is excluded.
+    fn analog_modes(&self) -> &'static [&'static str] {
+        &["FM", "AM"]
+    }
+
     fn key(&self) -> &'static str {
         "yaesu_ft5d"
     }

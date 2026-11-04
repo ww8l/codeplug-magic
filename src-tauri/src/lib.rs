@@ -243,6 +243,7 @@ pub fn run() {
             commands::program::program_radio,
             // direct radio programming (UV-5R)
             commands::program::restore_image,
+            commands::program::operator_answer,
             commands::radio_backups::backups_dir,
             commands::radio_backups::radio_backups_summary,
             commands::radio_backups::prune_radio_backups,

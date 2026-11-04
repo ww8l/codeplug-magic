@@ -14,6 +14,7 @@ import {
 import clsx from "clsx";
 import { toast } from "sonner";
 import { api, withToast } from "../../lib/api";
+import { OperatorStepBox } from "../OperatorStepBox";
 import {
   mediaWriteForFormat,
   useDriverCapabilities,
@@ -95,6 +96,7 @@ function RadioSyncBar({
         {busy ? <Spinner className="h-3.5 w-3.5" /> : <DownloadCloud size={14} />}
         Download from radio
       </Button>
+      <OperatorStepBox active={busy} className="basis-full" />
     </div>
   );
 }
@@ -200,6 +202,7 @@ function WriteToRadioBar({
       {blocked && (
         <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">{blocked}</p>
       )}
+      <OperatorStepBox active={busy} className="mt-2" />
       {busy && afterWrite && (
         <p className="mt-2 flex items-center gap-2 text-[11px] text-slate-700 dark:text-slate-200">
           <Spinner className="h-3 w-3" />

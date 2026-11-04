@@ -27,6 +27,7 @@ import type {
   CallsignDbReport,
 } from "../../lib/types";
 import { FooterClose, Modal } from "../overlays";
+import { OperatorStepBox } from "../OperatorStepBox";
 import { PortSelect, usePortChoice } from "../radioPort";
 import { WarningList } from "./ReportWarnings";
 import { Button, Spinner } from "../ui";
@@ -975,6 +976,10 @@ export function ProgramRadioDialog({
             )}
 
 
+            {/* What to do at the radio, mid-session. Above the progress notes:
+                while it is up, it is the only thing that moves the session on. */}
+            <OperatorStepBox active={busy !== null} className="mx-5 mb-4" />
+
             {/* Progress note while programming */}
             {busy === "program" && (
               <div className="mx-5 mb-4 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
@@ -1206,8 +1211,20 @@ function ResultBlock({
   warnings?: string[];
   backupPath: string;
   backupLabel: string;
-  channels: { index: number; name: string; rx_mhz: number; tone: string; power: string }[];
+  channels: {
+    index: number;
+    name: string;
+    rx_mhz: number;
+    tone: string;
+    power: string;
+    shift?: string | null;
+    mode?: string | null;
+  }[];
 }) {
+  // Columns a driver does not decode stay hidden (the UV-5R reports neither).
+  // On an all-mode radio the mode is what tells a USB memory from an FM one.
+  const showShift = channels.some((c) => c.shift != null);
+  const showMode = channels.some((c) => c.mode != null);
   return (
     <div className="space-y-3">
       <div
@@ -1250,7 +1267,9 @@ function ResultBlock({
                   <th className="px-3 py-1.5 font-semibold">#</th>
                   <th className="px-3 py-1.5 font-semibold">Name</th>
                   <th className="px-3 py-1.5 font-semibold">RX (MHz)</th>
+                  {showShift && <th className="px-3 py-1.5 font-semibold">Shift</th>}
                   <th className="px-3 py-1.5 font-semibold">Tone</th>
+                  {showMode && <th className="px-3 py-1.5 font-semibold">Mode</th>}
                   <th className="px-3 py-1.5 font-semibold">Power</th>
                 </tr>
               </thead>
@@ -1260,7 +1279,9 @@ function ResultBlock({
                     <td className="px-3 py-1 font-mono">{c.index}</td>
                     <td className="px-3 py-1">{c.name || "—"}</td>
                     <td className="px-3 py-1 font-mono">{c.rx_mhz.toFixed(4)}</td>
+                    {showShift && <td className="px-3 py-1 font-mono">{c.shift || "—"}</td>}
                     <td className="px-3 py-1">{c.tone}</td>
+                    {showMode && <td className="px-3 py-1">{c.mode ?? "—"}</td>}
                     <td className="px-3 py-1">{c.power}</td>
                   </tr>
                 ))}

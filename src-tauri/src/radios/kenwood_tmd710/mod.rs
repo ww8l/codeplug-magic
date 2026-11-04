@@ -271,6 +271,11 @@ pub(crate) struct KenwoodTmD710;
 pub(crate) static DRIVER: KenwoodTmD710 = KenwoodTmD710;
 
 impl RadioDriver for KenwoodTmD710 {
+    /// `encode.rs` writes AM as mode "2".
+    fn analog_modes(&self) -> &'static [&'static str] {
+        &["FM", "NFM", "AM"]
+    }
+
     fn key(&self) -> &'static str {
         "kenwood_tmd710"
     }

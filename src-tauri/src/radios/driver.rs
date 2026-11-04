@@ -124,6 +124,20 @@ pub(crate) trait RadioDriver: Send + Sync {
         false
     }
 
+    /// The analog modes this driver's encoder writes as themselves, in the
+    /// channel library's vocabulary (upper case). `export::channel_fit` excludes
+    /// any other analog mode for the radio, with a reason.
+    ///
+    /// This is what the *encoder* does, not what the radio can do. Every encoder
+    /// here falls back to FM for a mode it does not handle, so a USB or AM channel
+    /// that got past `channel_fit` used to program as a silent, useless FM memory.
+    /// A driver lists a mode — NFM included — only once its encoder writes that
+    /// mode as itself; a radio whose encoder has no narrow bit leaves NFM off and
+    /// NFM channels are excluded rather than sent out wide.
+    fn analog_modes(&self) -> &'static [&'static str] {
+        &["FM", "NFM"]
+    }
+
     // --- Capability accessors -------------------------------------------------
     // Default `None`; a driver overrides the ones it supports. The derived
     // `DriverCapabilities` (below) reads these, so a capability is advertised to

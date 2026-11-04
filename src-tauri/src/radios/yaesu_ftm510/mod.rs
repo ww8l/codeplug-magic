@@ -63,6 +63,11 @@ pub(crate) struct YaesuFtm510;
 pub(crate) static DRIVER: YaesuFtm510 = YaesuFtm510;
 
 impl RadioDriver for YaesuFtm510 {
+    /// Shares the FTM-300's `encode_record`, AM included.
+    fn analog_modes(&self) -> &'static [&'static str] {
+        &["FM", "NFM", "AM"]
+    }
+
     fn key(&self) -> &'static str {
         "yaesu_ftm510"
     }
