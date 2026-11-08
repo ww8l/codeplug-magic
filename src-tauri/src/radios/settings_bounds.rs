@@ -130,6 +130,19 @@ pub(crate) fn note_line(notes: &[String]) -> Option<String> {
     ))
 }
 
+/// [`note_line`] with the driver's own notes after it — the settings its
+/// encoder declined to write, each with its reason. `None` when there are
+/// neither.
+pub(crate) fn note_line_with(range: &[String], driver: &[String]) -> Option<String> {
+    let driver_line = (!driver.is_empty()).then(|| format!("Not written: {}.", driver.join("; ")));
+    match (note_line(range), driver_line) {
+        (None, None) => None,
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (Some(a), Some(b)) => Some(format!("{a} {b}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

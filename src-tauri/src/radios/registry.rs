@@ -23,13 +23,14 @@ use crate::models::RadioModel;
 /// Every driver compiled into the app. Order is not significant — lookups are
 /// by `key()`, which is unique. (A static array rather than a slice literal:
 /// references to statics aren't const-promotable inside a returned temporary.)
-static DRIVERS: [&dyn RadioDriver; 15] = [
+static DRIVERS: [&dyn RadioDriver; 16] = [
     &super::baofeng_uv5r::DRIVER,
     &super::binteradio_bt9000::DRIVER,
     &super::tidradio_tdh3::DRIVER,
     &super::anytone_atd890uv::DRIVER,
     &super::anytone_atd578uv::DRIVER,
     &super::yaesu_ft5d::DRIVER,
+    &super::icom_id51::DRIVER,
     &super::icom_id52::DRIVER,
     &super::kenwood_thd75::DRIVER,
     &super::kenwood_thd72::DRIVER,
@@ -88,6 +89,7 @@ mod tests {
             "anytone_atd890uv",
             "anytone_atd578uv",
             "yaesu_ft5d",
+            "icom_id51",
             "icom_id52",
             "kenwood_thd75",
             "kenwood_thd72",
@@ -131,6 +133,8 @@ mod tests {
                 "yaesu_ftm300" => (false, false),
                 // FTM-510 (#151): the FTM-300's sibling, programmed the same way.
                 "yaesu_ftm510" => (false, false),
+                // ID-51 Plus (#50): the ID-52's arrangement, settings in its `.icf`.
+                "icom_id51" => (false, false),
                 // TH-D72: reads and writes its 19 menu parameters over the
                 // `MU` ASCII command — no clone session involved, which is why
                 // it claims both halves where the card radios claim neither.

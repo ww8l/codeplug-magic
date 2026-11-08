@@ -173,6 +173,26 @@ const MEDIA_WRITES: Record<string, MediaWrite> = {
     carries:
       "your D-STAR and APRS call signs, your GPS and Bluetooth settings, and the rest of the radio's own configuration",
   },
+  // The ID-51 Plus (#50): the ID-52's arrangement — one `.icf` carries the
+  // memories, banks and every MENU setting, and Load Setting → ALL restores
+  // them together. Menu paths are the ID-51A/E PLUS Advanced Manual's (p. 2-5).
+  icom_id51_icf: {
+    action: "Write to microSD…",
+    pickTitle:
+      "Select a settings file from ID-51/Setting/ on the radio’s microSD card — it will be rewritten in place",
+    filterName: "ID-51 settings file",
+    extensions: ["icf"],
+    before:
+      "On the radio, save its settings to the card: MENU → SD Card → Save Setting → <<New File>>. Then put the card in this computer and pick that file from ID-51/Setting/ below.",
+    after:
+      "Put the card back in the radio and load it: MENU → SD Card → Load Setting → pick the file → ALL. That restores the memories and the settings together.",
+    found:
+      "It already holds a settings file, so there is nothing to pick — just check it is current (the radio writes one with MENU → SD Card → Save Setting).",
+    preserves:
+      "Channel lists become banks A–Z (100 channels each). Everything else in the file — the repeater list, your call signs, call channels, scan edges, GPS and BC radio memories — is carried across untouched. Writing to the card creates a NEW settings file named the way the radio names its own, built from the newest one there, so nothing you saved is modified at all.",
+    carries:
+      "your D-STAR call signs, your D-PRS (APRS) and GPS settings, and the rest of the radio's own configuration",
+  },
   // The third card radio. Like the ID-52 it keeps everything in one file the
   // radio writes and reads back, and like the ID-52 the card can stay in the
   // radio — USB-C mounts it as a drive.
