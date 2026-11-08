@@ -46,7 +46,7 @@ image at once and refuses a clone it cannot accept by resetting itself to factor
 app checks every memory against the radio's receive coverage before anything is sent.
 
 Cable-free radios are programmed through their own microSD card instead: the app patches the file
-the radio itself wrote — the FT5D's `BACKUP.dat`, the ID-52's `.icf`, the TH-D75's `.d75` — so the
+the radio itself wrote — the FT5D's `BACKUP.dat`, the ID-52's and ID-51 Plus's `.icf`, the TH-D75's `.d75` — so the
 radio restores it from its own menu with no vendor software involved. Because those files carry
 the radio's settings as well as its memories, the codeplug and the radio profile travel together.
 
@@ -71,7 +71,6 @@ settings together, then verify on the actual radio before shipping.
 | Radio | Modes | Issue |
 |-------|-------|-------|
 | **AnyTone AT-D868UV** | DMR + Analog handheld | [#51](https://github.com/ww8l/codeplug-magic/issues/51) |
-| **Icom ID-51** | D-STAR + Analog handheld | [#50](https://github.com/ww8l/codeplug-magic/issues/50) |
 | **Icom IC-9100** | HF / VHF / UHF base | [#45](https://github.com/ww8l/codeplug-magic/issues/45) |
 | **Icom IC-7610** | HF / 6 m SDR base | [#46](https://github.com/ww8l/codeplug-magic/issues/46) |
 | **Quansheng UV-K5** | Analog handheld | [#44](https://github.com/ww8l/codeplug-magic/issues/44) |
@@ -189,8 +188,8 @@ Every borrowing is also cited at its use site in the source. This section is the
 **[CHIRP](https://chirpmyradio.com)** — GPLv3, compatible. Struct layouts, tone tables, and
 encode/decode routines for the Baofeng and TIDRADIO drivers; the FT5D settings map (from
 `ft1d.py`); the Icom `.icf` container format and the Icom clone protocol (from `icf.py`); the
-ID-5100 memory, bank and bitmap layout (from `id5100.py`); and the TH-D75 channel memory layout
-(from `thd74.py`).
+ID-5100 memory, bank and bitmap layout (from `id5100.py`); the ID-51 Plus memory, bank and
+bitmap layout (from `id51plus.py`); and the TH-D75 channel memory layout (from `thd74.py`).
 
 **[qdmr](https://github.com/hmatuschek/qdmr)** — GPLv3, © Hannes Matuschek DM3MAT; compatible.
 The AnyTone AT-D890UV driver takes its call-sign database per-field length limits from qdmr's
