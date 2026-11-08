@@ -317,7 +317,7 @@ impl CodeplugExporter for IcomId52 {
         if path.to_ascii_lowercase().ends_with(".csv") {
             return super::memory_csv::write_csv(path, req);
         }
-        patch_icf(path, |icf| {
+        ID52_CARD.patch_icf(path, |icf| {
             let written = write_codeplug(icf, req.channels, req.groups, req.model)?;
             // Settings ride in the same file as the memories, so a codeplug
             // export is also a settings write. Nothing happens if the profile
@@ -340,16 +340,7 @@ impl CodeplugExporter for IcomId52 {
     /// A folder means "make me a new file in here", named the way the radio
     /// names its own so it sorts into place on the Load Setting screen.
     fn resolve_target(&self, path: &str) -> Result<String, String> {
-        if !std::path::Path::new(path).is_dir() {
-            return Ok(path.to_string());
-        }
-        // Prove there is something to patch before naming the output: a folder
-        // with no readable settings file cannot produce one, and finding that
-        // out now beats reporting a file name and then failing.
-        newest_settings_file(std::path::Path::new(path))?;
-        Ok(next_settings_file(std::path::Path::new(path))
-            .to_string_lossy()
-            .into_owned())
+        ID52_CARD.resolve_target(path)
     }
 }
 
@@ -363,107 +354,18 @@ impl CardSettingsWriter for IcomId52 {
         if path.to_ascii_lowercase().ends_with(".csv") {
             return Err("A Memory CH .csv carries no settings — pick the .icf.".into());
         }
-        patch_icf(path, |icf| Ok(super::settings::apply_settings(icf.image_mut(), settings)))
+        ID52_CARD.patch_icf(path, |icf| Ok(super::settings::apply_settings(icf.image_mut(), settings)))
     }
 }
 
-/// Every `.icf` in a folder that this driver can actually patch, oldest first.
-/// The radio's own names sort chronologically, which is what makes "newest"
-/// mean anything.
-fn settings_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut out: Vec<std::path::PathBuf> = entries
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            p.extension().is_some_and(|e| e.eq_ignore_ascii_case("icf"))
-                && std::fs::read_to_string(p).is_ok_and(|t| {
-                    IcfFile::parse(&t).is_ok_and(|f| super::check_is_an_id52_file(&f).is_ok())
-                })
-        })
-        .collect();
-    out.sort();
-    out
-}
-
-/// The template a new file is built from: the most recent settings file the
-/// radio wrote to this card. Everything the codeplug does not describe is
-/// inherited from it, so the newest is the one that reflects the radio best.
-fn newest_settings_file(dir: &std::path::Path) -> Result<String, String> {
-    settings_files(dir)
-        .last()
-        .map(|p| p.to_string_lossy().into_owned())
-        .ok_or_else(|| {
-            format!(
-                "No ID-52 settings file to work from in {}. On the radio, save one with                  SET > SD Card > Save Setting, then try again.",
-                dir.display()
-            )
-        })
-}
-
-/// The radio's own naming scheme, `SetYYYYMMDD_NN.icf`, with today's date and
-/// the first free number. Names longer than 23 characters are invisible to the
-/// radio's file picker (Advanced Manual p. 2-7); this one is 18.
-fn next_settings_file(dir: &std::path::Path) -> std::path::PathBuf {
-    let today = chrono::Local::now().format("%Y%m%d").to_string();
-    for n in 1..=99 {
-        let candidate = dir.join(format!("Set{today}_{n:02}.icf"));
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-    dir.join(format!("Set{today}_99.icf"))
-}
-
-/// Patch the operator's own `.icf` in place — memories, groups, and the radio
-/// profile's settings — and keep their untouched original beside it.
-///
-/// In place, because the radio reads a file it wrote itself and everything this
-/// codeplug does not describe (the repeater list, DV call signs, Bluetooth
-/// pairings) has to survive the round trip. `.orig` is written once and never
-/// overwritten, so a second export cannot clobber the only pristine copy.
-/// The `.icf` file rule, shared by the export and the settings-only write.
-///
-/// A target that does not exist yet is a NEW file on the card, and the template
-/// is the newest settings file sitting beside it. A target that does exist is
-/// the operator pointing at one file and meaning it: it is patched in place,
-/// with the untouched original kept once as `.orig`.
-fn patch_icf(
-    path: &str,
-    patch: impl FnOnce(&mut IcfFile) -> Result<usize, String>,
-) -> Result<usize, String> {
-    let template = if std::path::Path::new(path).is_file() {
-        path.to_string()
-    } else {
-        let dir = std::path::Path::new(path)
-            .parent()
-            .ok_or("There is no folder to write into.")?;
-        newest_settings_file(dir)?
-    };
-    let text = std::fs::read_to_string(&template).map_err(|e| {
-        format!(
-            "Could not read {template}: {e}. Pick a settings file the radio saved for \
-             itself with SET > SD Card > Save Setting — they live in ID-52/Setting/."
-        )
-    })?;
-    let mut icf = IcfFile::parse(&text)?;
-    let count = patch(&mut icf)?;
-
-    // Only when we are overwriting the operator's file. Writing a NEW one leaves
-    // theirs untouched by construction, so a `.orig` would be a copy of a file
-    // nothing has modified.
-    if template == path {
-        let orig = format!("{path}.orig");
-        if !std::path::Path::new(&orig).exists() {
-            std::fs::write(&orig, &text)
-                .map_err(|e| format!("Could not save the original as {orig}: {e}"))?;
-        }
-    }
-    std::fs::write(path, icf.render()).map_err(|e| format!("Could not write {path}: {e}"))?;
-    Ok(count)
-}
+/// The ID-52's card folder, for the shared `.icf` file rules
+/// ([`crate::radios::icom_card`]).
+pub(crate) const ID52_CARD: crate::radios::icom_card::IcfCard = crate::radios::icom_card::IcfCard {
+    radio: "ID-52",
+    folder: "ID-52/Setting/",
+    save_menu: "SET > SD Card > Save Setting",
+    is_ours: |f| super::check_is_an_id52_file(f).is_ok(),
+};
 
 /// Encode one memory. Field offsets are the measured ones; see FINDINGS.md.
 fn encode(rec: &mut [u8], ec: &ExpandedChannel, name: &str) {

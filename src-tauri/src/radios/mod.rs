@@ -39,6 +39,8 @@ mod card_settings_write;
 pub(crate) mod driver;
 #[cfg(test)]
 pub(crate) mod fake_port;
+pub(crate) mod icom_card;
+pub(crate) mod icom_id51;
 pub(crate) mod icom_id52;
 pub(crate) mod icom_id5100;
 pub(crate) mod kenwood_thd72;

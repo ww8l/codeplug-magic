@@ -138,6 +138,18 @@ pub(crate) trait RadioDriver: Send + Sync {
         &["FM", "NFM"]
     }
 
+    /// Why this radio cannot store a memory at `rx_mhz`, or `None` when it can.
+    ///
+    /// For a frequency that is inside the receiver's coverage but on none of the
+    /// channel grids the encoder writes (the ID-51's 5 and 6.25 kHz, which leave
+    /// out 8.33 kHz airband). `channel_fit` excludes such a channel with this
+    /// reason, so it is listed like any other channel the radio cannot hold
+    /// instead of failing the whole build when the encoder meets it (#50
+    /// review). The default stores everything the bands allow.
+    fn unstorable_frequency(&self, _rx_mhz: f64) -> Option<String> {
+        None
+    }
+
     // --- Capability accessors -------------------------------------------------
     // Default `None`; a driver overrides the ones it supports. The derived
     // `DriverCapabilities` (below) reads these, so a capability is advertised to
@@ -661,6 +673,19 @@ pub(crate) trait CardSettingsWriter {
         target: &str,
         settings: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<usize, String>;
+
+    /// [`export_settings`](Self::export_settings) plus a note for every setting
+    /// the driver could not write (a refused combination, an unparseable
+    /// position, a key it does not know). The default has none to give; a
+    /// driver whose encoder reports them overrides this so they reach the
+    /// operator instead of being dropped (#50 review).
+    fn export_settings_noting(
+        &self,
+        target: &str,
+        settings: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<(usize, Vec<String>), String> {
+        self.export_settings(target, settings).map(|n| (n, Vec::new()))
+    }
 }
 
 /// File-format exporters (CHIRP-style CSV, AnyTone dual-CSV bundle, …). The
@@ -671,6 +696,13 @@ pub(crate) trait CodeplugExporter {
 
     /// Write the codeplug file(s) rooted at `path`, returning channels written.
     fn export(&self, path: &str, req: &ExportRequest) -> Result<usize, String>;
+
+    /// [`export`](Self::export) plus a note for every profile setting the
+    /// driver could not write. What the export command calls; the default has
+    /// no notes to give (see [`CardSettingsWriter::export_settings_noting`]).
+    fn export_noting(&self, path: &str, req: &ExportRequest) -> Result<(usize, Vec<String>), String> {
+        self.export(path, req).map(|n| (n, Vec::new()))
+    }
 
     /// The format's settings-only write, when its file can take the
     /// profile's settings on their own (the card radios). Declared, not

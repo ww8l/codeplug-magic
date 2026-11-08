@@ -79,6 +79,15 @@ pub(crate) enum SK {
     /// Single bit at `shift` within a byte, read-modify-written so the bits
     /// sharing that byte survive. Only `0x03CAA3` needs this so far.
     BoolBit { shift: u8 },
+    /// An option list stored in `bits` bits at `shift` within one byte, read-
+    /// modify-written like [`SK::BoolBit`]. The ID-51 (#50) keeps ATT(AM) as a
+    /// 2-bit field (bits 5-4 of `0x1AB34`) beside two single-bit flags and an
+    /// unidentified nibble, so the byte cannot be assigned whole.
+    EnumBits {
+        shift: u8,
+        bits: u8,
+        labels: &'static [(u32, &'static str)],
+    },
     /// Enumerated whole-value mapped to a label.
     Enum {
         width: u8,
@@ -140,6 +149,9 @@ fn decode_field(image: &[u8], f: &SF) -> Value {
         SK::Int { width } => Value::from(read_int(image, at, *width)),
         SK::Bool => Value::Bool(image[at] != 0),
         SK::BoolBit { shift } => Value::Bool((image[at] >> shift) & 1 == 1),
+        SK::EnumBits { shift, bits, labels } => {
+            label_for(labels, u32::from((image[at] >> shift) & bit_mask(*bits)))
+        }
         SK::Enum { width, labels } => label_for(labels, read_uint(image, at, *width)),
         SK::IntEnum { width, labels } => {
             let raw = read_int(image, at, *width);
@@ -191,17 +203,22 @@ pub(crate) fn decode_settings_with(fields: &[SF], image: &[u8]) -> Value {
 }
 
 /// Last byte a field touches, exclusive — used to keep a short image from
-/// panicking a decode.
-fn field_end(f: &SF) -> usize {
+/// panicking a decode, and by the drivers' overlap tests.
+pub(crate) fn field_end(f: &SF) -> usize {
     let at = f.byte as usize;
     at + match &f.kind {
         SK::Uint { width }
         | SK::Int { width }
         | SK::Enum { width, .. }
         | SK::IntEnum { width, .. } => *width as usize,
-        SK::Bool | SK::BoolBit { .. } => 1,
+        SK::Bool | SK::BoolBit { .. } | SK::EnumBits { .. } => 1,
         SK::Text { len } | SK::TextFill { len, .. } => *len as usize,
     }
+}
+
+/// The low `bits` bits set, for an [`SK::EnumBits`] field.
+fn bit_mask(bits: u8) -> u8 {
+    if bits >= 8 { 0xFF } else { (1u8 << bits) - 1 }
 }
 
 /// Write a profile's settings into a decoded `.icf` image, returning how many
@@ -276,6 +293,16 @@ pub(crate) fn apply_settings_with(
                     true
                 }
                 None => false,
+            },
+            SK::EnumBits { shift, bits, labels } => match raw_for(labels, v) {
+                // A value wider than the field is refused, not truncated into
+                // the neighbouring bits.
+                Some(raw) if raw <= u32::from(bit_mask(*bits)) => {
+                    let mask = bit_mask(*bits) << shift;
+                    image[at] = (image[at] & !mask) | ((raw as u8) << shift);
+                    true
+                }
+                _ => false,
             },
             SK::Enum { width, labels } => match raw_for(labels, v) {
                 Some(raw) => {
@@ -736,7 +763,7 @@ mod tests {
                 let v = Value::from((n as i64).wrapping_mul(97) % span - span / 2);
                 (v.clone(), v)
             }
-            SK::Enum { labels, .. } => {
+            SK::Enum { labels, .. } | SK::EnumBits { labels, .. } => {
                 if labels.is_empty() {
                     return None;
                 }
@@ -929,6 +956,7 @@ mod tests {
                 SK::Int { width } => SK::Int { width: *width },
                 SK::Bool => SK::Bool,
                 SK::BoolBit { shift } => SK::BoolBit { shift: *shift },
+                SK::EnumBits { shift, bits, labels } => SK::EnumBits { shift: *shift, bits: *bits, labels },
                 SK::Enum { width, labels } => SK::Enum {
                     width: *width,
                     labels,

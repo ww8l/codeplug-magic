@@ -35,9 +35,42 @@ include!("id5100_settings_table.rs");
 /// Every setting the table knows, decoded out of a clone image and shaped like
 /// the profile form.
 pub(crate) fn decode(image: &[u8]) -> Value {
-    let mut v = decode_settings_with(ID5100_SETTINGS_FIELDS, image);
+    decode_with(&ID5100_RULES, image)
+}
+
+/// What a radio's settings write needs beyond its field table: the 12-byte
+/// position records the table cannot express, and the checkbox groups whose
+/// combination the radio restricts. The ID-51 (#50) shares this codec and these
+/// helpers with its own rules — its manual position is the same 12-byte layout.
+pub(crate) struct ApplyRules {
+    /// The radio's name as the operator knows it, for notes.
+    pub radio: &'static str,
+    pub fields: &'static [SF],
+    pub positions: &'static [(&'static str, usize)],
+    pub limits: &'static [Limit],
+    /// Rewrite MY call signs into CS-5100's measured layout (suffix in the 8th
+    /// column, `-` and stray characters to spaces). Only the ID-5100 measured
+    /// it; a radio that has not stores the call as typed, uppercased.
+    pub call_sign_layout: bool,
+}
+
+/// `(group name, keys, min ticked, max ticked)`.
+pub(crate) type Limit = (&'static str, &'static [&'static str], usize, usize);
+
+pub(crate) const ID5100_RULES: ApplyRules = ApplyRules {
+    radio: "ID-5100",
+    fields: ID5100_SETTINGS_FIELDS,
+    positions: POSITIONS,
+    limits: LIMITS,
+    call_sign_layout: true,
+};
+
+/// [`decode`] for any radio's rules: the table, plus each position record
+/// as decimal-degree latitude/longitude and an altitude in metres.
+pub(crate) fn decode_with(rules: &ApplyRules, image: &[u8]) -> Value {
+    let mut v = decode_settings_with(rules.fields, image);
     if let Some(map) = v.as_object_mut() {
-        for (key, at) in POSITIONS {
+        for (key, at) in rules.positions {
             let (lat, lon, alt) = read_position(image, *at);
             map.insert(format!("{key}-latitude"), Value::String(lat));
             map.insert(format!("{key}-longitude"), Value::String(lon));
@@ -98,9 +131,14 @@ fn encode_coord(v: f64, max: f64, pos: u8, neg: u8) -> Option<[u8; 4]> {
 
 /// Apply the position keys present in `applicable`, removing them so the
 /// table writer never sees them. Returns how many fields were applied.
-fn apply_positions(image: &mut [u8], applicable: &mut Map<String, Value>, notes: &mut Vec<String>) -> usize {
+fn apply_positions(
+    positions: &[(&str, usize)],
+    image: &mut [u8],
+    applicable: &mut Map<String, Value>,
+    notes: &mut Vec<String>,
+) -> usize {
     let mut n = 0;
-    for (key, at) in POSITIONS {
+    for (key, at) in positions {
         for (suffix, off, max, pos, neg) in [("latitude", 0usize, 90.0, b'N', b'S'), ("longitude", 4, 180.0, b'E', b'W')] {
             let k = format!("{key}-{suffix}");
             let Some(v) = applicable.remove(&k) else { continue };
@@ -159,20 +197,30 @@ fn apply_positions(image: &mut [u8], applicable: &mut Map<String, Value>, notes:
 /// many fields were applied, and a note for every key the profile carried that
 /// this table cannot write — reported, not silently dropped.
 pub(crate) fn apply(image: &mut [u8], settings: &Value) -> (usize, Vec<String>) {
+    apply_with(&ID5100_RULES, image, settings)
+}
+
+/// [`apply`] for any radio's rules.
+pub(crate) fn apply_with(rules: &ApplyRules, image: &mut [u8], settings: &Value) -> (usize, Vec<String>) {
     let Some(map) = settings.as_object() else {
         return (0, vec!["the profile's settings were not an object; none were written".into()]);
     };
-    let position_keys: Vec<String> = POSITIONS
+    let position_keys: Vec<String> = rules
+        .positions
         .iter()
         .flat_map(|(k, _)| ["latitude", "longitude", "altitude-m"].map(|s| format!("{k}-{s}")))
         .collect();
-    let mut known: std::collections::HashSet<&str> =
-        ID5100_SETTINGS_FIELDS.iter().map(|f| f.key).collect();
+    let mut known: std::collections::HashSet<&str> = rules.fields.iter().map(|f| f.key).collect();
     known.extend(position_keys.iter().map(String::as_str));
     let notes: Vec<String> = map
         .keys()
         .filter(|k| !known.contains(k.as_str()))
-        .map(|k| format!("setting \"{k}\" is not one the ID-5100 driver can write; left as the radio had it"))
+        .map(|k| {
+            format!(
+                "setting \"{k}\" is not one the {} driver can write; left as the radio had it",
+                rules.radio
+            )
+        })
         .collect();
     let mut notes: Vec<String> = notes;
     let mut applicable: Map<String, Value> = map
@@ -180,10 +228,14 @@ pub(crate) fn apply(image: &mut [u8], settings: &Value) -> (usize, Vec<String>) 
         .filter(|(k, v)| known.contains(k.as_str()) && !v.is_null())
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
-    normalize_call_signs(&mut applicable);
-    enforce_limits(image, &mut applicable, &mut notes);
-    let positions = apply_positions(image, &mut applicable, &mut notes);
-    (positions + apply_settings_with(ID5100_SETTINGS_FIELDS, image, &applicable), notes)
+    if rules.call_sign_layout {
+        normalize_call_signs(&mut applicable);
+    } else {
+        uppercase_call_signs(&mut applicable);
+    }
+    enforce_limits(rules, image, &mut applicable, &mut notes);
+    let positions = apply_positions(rules.positions, image, &mut applicable, &mut notes);
+    (positions + apply_settings_with(rules.fields, image, &applicable), notes)
 }
 
 /// My Call Sign entries the way CS-5100 stores them (textpass, 2026-10-02):
@@ -220,12 +272,25 @@ fn normalize_call_signs(applicable: &mut Map<String, Value>) {
     }
 }
 
+/// MY call signs and notes uppercased and nothing else: what a radio gets when
+/// its own suffix layout has not been measured (the ID-51, #50 review).
+fn uppercase_call_signs(applicable: &mut Map<String, Value>) {
+    for (k, v) in applicable.iter_mut() {
+        if !k.starts_with("my-station-my-call-sign-m") || k.ends_with("-in-use") {
+            continue;
+        }
+        if let Some(s) = v.as_str() {
+            *v = Value::String(s.to_ascii_uppercase());
+        }
+    }
+}
+
 /// Groups of checkboxes whose COMBINATION CS-5100 restricts: it greys out OK
 /// on a fifth NMEA sentence and on an empty logger sentence list. A value the
 /// radio would refuse is not a small error here — it rejects the whole clone
 /// and factory-resets (FINDINGS, 2026-10-01) — so a profile that would end in
 /// a refused combination leaves that whole group exactly as the radio has it.
-const LIMITS: &[(&str, &[&str], usize, usize)] = &[
+const LIMITS: &[Limit] = &[
     (
         "GPS TX (NMEA) sentences",
         &[
@@ -252,9 +317,9 @@ const LIMITS: &[(&str, &[&str], usize, usize)] = &[
     ),
 ];
 
-fn enforce_limits(image: &[u8], applicable: &mut Map<String, Value>, notes: &mut Vec<String>) {
-    let current = decode(image);
-    for (name, keys, min, max) in LIMITS {
+fn enforce_limits(rules: &ApplyRules, image: &[u8], applicable: &mut Map<String, Value>, notes: &mut Vec<String>) {
+    let current = decode_with(rules, image);
+    for (name, keys, min, max) in rules.limits {
         if !keys.iter().any(|k| applicable.contains_key(*k)) {
             continue;
         }
@@ -273,9 +338,10 @@ fn enforce_limits(image: &[u8], applicable: &mut Map<String, Value>, notes: &mut
                 applicable.remove(*k);
             }
             notes.push(format!(
-                "{name}: the profile ticks {ticked}, and the ID-5100 allows {min}-{max}. \
+                "{name}: the profile ticks {ticked}, and the {} allows {min}-{max}. \
                  Left as the radio has them — the radio rejects a clone carrying a \
-                 combination it does not allow, and resets itself."
+                 combination it does not allow, and resets itself.",
+                rules.radio
             ));
         }
     }
@@ -371,7 +437,7 @@ mod tests {
                 SK::Text { len } | SK::TextFill { len, .. } => *len as usize,
                 SK::Uint { width } | SK::Int { width } | SK::Enum { width, .. } | SK::IntEnum { width, .. } => *width as usize,
                 SK::Bool => 1,
-                SK::BoolBit { .. } => 0,
+                SK::BoolBit { .. } | SK::EnumBits { .. } => 0,
             };
             for b in f.byte as usize..f.byte as usize + len {
                 if let Some(other) = seen.insert(b, f.key) {

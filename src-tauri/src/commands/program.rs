@@ -540,6 +540,7 @@ fn volume_name(root: &std::path::Path) -> String {
 pub async fn find_memory_cards(format: String) -> Vec<MemoryCard> {
     tauri::async_runtime::spawn_blocking(move || match format.as_str() {
         "yaesu_ft5d_sd" => ft5d_cards(),
+        "icom_id51_icf" => id51_cards(),
         "icom_id52_icf" => id52_cards(),
         "kenwood_thd75_sd" => thd75_cards(),
         "yaesu_ftm300_sd" => ftm300_cards(),
@@ -611,6 +612,26 @@ fn ftm510_cards() -> Vec<MemoryCard> {
             has_original: path.with_extension("dat.orig").exists(),
             volume: volume_name(&root),
             path: path.to_string_lossy().into_owned(),
+        });
+    }
+    out
+}
+
+/// The ID-51 Plus keeps its settings files in `ID-51/Setting/` and names them
+/// itself, as the ID-52 does: what is offered is the **folder**, and the write
+/// creates a new `SetYYYYMMDD_NN.icf` there from the newest file the radio
+/// saved. Offered only if that folder holds a file this driver can use.
+fn id51_cards() -> Vec<MemoryCard> {
+    let mut out = Vec::new();
+    for root in mounted_roots() {
+        let dir = root.join("ID-51").join("Setting");
+        if crate::radios::icom_id51::ID51_CARD.newest_settings_file(&dir).is_err() {
+            continue;
+        }
+        out.push(MemoryCard {
+            has_original: false,
+            volume: volume_name(&root),
+            path: dir.to_string_lossy().into_owned(),
         });
     }
     out
@@ -806,6 +827,34 @@ pub async fn read_id52_settings_from_card(path: String) -> Result<RadioSettingsR
     .estr()?
 }
 
+/// The ID-51 Plus's version of [`read_id52_settings_from_card`], reading the
+/// `.icf` the radio writes with MENU > SD Card > Save Setting. Nothing is
+/// written; the values land in the profile form and ride back out in the same
+/// file as the memories.
+#[tauri::command]
+pub async fn read_id51_settings_from_card(path: String) -> Result<RadioSettingsRead, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let text = std::fs::read_to_string(&path).map_err(|e| {
+            format!(
+                "Could not read {path}: {e}. Pick a settings file from ID-51/Setting/ on the \
+                 radio's microSD card — save one with MENU > SD Card > Save Setting if it is \
+                 not there."
+            )
+        })?;
+        let icf = crate::radios::icom_id52::icf::IcfFile::parse(&text)?;
+        crate::radios::icom_id51::check_is_an_id51_file(&icf)?;
+        let settings = crate::radios::icom_id51::settings::decode_settings(icf.image());
+        let count = settings.as_object().map(|o| o.len()).unwrap_or(0);
+        Ok(RadioSettingsRead {
+            settings,
+            count,
+            backup_path: path,
+        })
+    })
+    .await
+    .estr()?
+}
+
 /// The TH-D75's version of the same, reading the `.d75` the radio writes to its
 /// microSD card.
 ///
@@ -963,11 +1012,11 @@ pub async fn write_card_settings(
     let file = exporter.resolve_target(&path)?;
     crate::commands::write_paths::check_write_target(&file, exporter.target_extensions())?;
     let writer = exporter.as_card_settings_writer().expect("checked above");
-    let fields_written = writer.export_settings(&file, map)?;
+    let (fields_written, notes) = writer.export_settings_noting(&file, map)?;
     Ok(CardSettingsWritten {
         fields_written,
         path: file,
-        note: crate::radios::settings_bounds::note_line(&dropped),
+        note: crate::radios::settings_bounds::note_line_with(&dropped, &notes),
     })
 }
 

@@ -393,6 +393,9 @@ export const api = {
   // decoded shape again. See radios/icom_id52/settings.rs.
   readId52SettingsFromCard: (path: string) =>
     invoke<RadioSettingsRead>("read_id52_settings_from_card", { path }),
+  // The ID-51 Plus's `.icf`; the ID-52's arrangement. See radios/icom_id51/settings.rs.
+  readId51SettingsFromCard: (path: string) =>
+    invoke<RadioSettingsRead>("read_id51_settings_from_card", { path }),
   // The TH-D75's settings live in the `.d75` backup it writes to its microSD
   // card. Same decoded shape again. See radios/kenwood_thd75/settings.rs.
   readThd75SettingsFromCard: (path: string) =>

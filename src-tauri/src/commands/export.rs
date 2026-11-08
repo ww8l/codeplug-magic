@@ -550,6 +550,16 @@ pub(crate) fn channel_fit(channel: &Channel, model: &RadioModel) -> ChannelFit {
         ));
     }
 
+    // A frequency the radio's memory cannot represent, whatever its bands say.
+    if let Some(why) = crate::radios::registry::driver_for_model(model)
+        .and_then(|d| d.unstorable_frequency(channel.rx_freq))
+    {
+        return ChannelFit::Excluded(format!(
+            "Frequency {:.4} MHz {why} on {}",
+            channel.rx_freq, model.display_name
+        ));
+    }
+
     // Transmit: both ends of the channel have to land in a band the radio can
     // key up on — a repeater channel is no use if the input is out of band.
     let tx_freq = tx_frequency(channel);
@@ -1223,6 +1233,7 @@ pub async fn generate_codeplug(
     // the shared CHIRP-compatible analog CSV.
     // The exporter names the file before it writes it, so the report below can
     // say which one to load on the radio.
+    let mut driver_notes: Vec<String> = Vec::new();
     let path = match model
         .export_format
         .as_deref()
@@ -1244,7 +1255,8 @@ pub async fn generate_codeplug(
                 profile_settings: profile_settings.as_deref(),
                 memory_group: &memory_group,
             };
-            exporter.export(&target, &req)?;
+            let (_, notes) = exporter.export_noting(&target, &req)?;
+            driver_notes = notes;
             target
         }
         None => {
@@ -1271,7 +1283,7 @@ pub async fn generate_codeplug(
     Ok(CodeplugWritten {
         channels: included.len(),
         path,
-        note: crate::radios::settings_bounds::note_line(&dropped),
+        note: crate::radios::settings_bounds::note_line_with(&dropped, &driver_notes),
     })
 }
 

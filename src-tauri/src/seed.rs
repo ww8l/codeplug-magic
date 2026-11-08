@@ -205,6 +205,12 @@ pub const TMD710_SETTINGS_SCHEMA: &str = include_str!("tmd710_settings_schema.js
 /// read off the grid. `radios/icom_id5100/settings.rs` asserts the two agree.
 pub const ID5100_SETTINGS_SCHEMA: &str = include_str!("id5100_settings_schema.json");
 
+/// GENERATED with the Rust field table (`radios/icom_id51/id51_settings_table.rs`)
+/// by `scratchpad/icom_id51/gen_table.py`, from CS-51PLUS measurements: every
+/// address moved by one control in CS-51PLUS and diffed, every label read off
+/// its dropdown. `radios/icom_id51/settings.rs` asserts the two agree.
+pub const ID51_SETTINGS_SCHEMA: &str = include_str!("id51_settings_schema.json");
+
 /// GENERATED with the Rust field table (`radios/tyt_md380/md380_settings_table.rs`)
 /// by `scratchpad/tyt_md380/gen_md380_settings.py` from that folder's
 /// `MEASURED.md`. `radios/tyt_md380/settings.rs` asserts the two agree.
@@ -896,6 +902,61 @@ fn models() -> Vec<ModelSeed> {
             // measured by diffing two real `.icf` saves; none is inferred from
             // another radio's driver.
             non_channel_settings_schema: ID52_SETTINGS_SCHEMA,
+        },
+        // --------------------------------------------------------
+        // Icom ID-51 Plus (and 50th Anniversary) — D-STAR + analog
+        //    FM dual-band HT, 500 memories in 26 named banks, 16-char
+        //    names, 5 W. Issue #50. Programmed from its own microSD
+        //    card, the ID-52's arrangement: `icom_id51_icf` builds a
+        //    new `.icf` from the newest one the radio saved with
+        //    MENU > SD Card > Save Setting, and the radio loads it with
+        //    Load Setting > ALL — memories, banks and every MENU
+        //    setting in one operation. See radios/icom_id51/.
+        //    NOTES: (a) tx_bands are the USA version's (Advanced
+        //    Manual p. 19-1: TX 144-148 / 430-450); rx_bands the A/B
+        //    bands' coverage, 108-174 and 380-479 — the BC radio is a
+        //    separate receiver with its own memories, not a memory
+        //    band. Anything outside is excluded here and refused by
+        //    the build. (b) banks, one per memory, A-Z, 100 each.
+        //    (c) aprs_capable: D-PRS position beaconing; all 8 D-PRS
+        //    menu items are in the schema.
+        // --------------------------------------------------------
+        ModelSeed {
+            manufacturer: "Icom",
+            model: "ID-51 Plus",
+            driver_key: Some("icom_id51"),
+            programming_ui: Some("generic"),
+            display_name: "Icom ID-51 Plus",
+            analog_capable: true,
+            dmr_capable: false,
+            dstar_capable: true,
+            ysf_capable: false,
+            nxdn_capable: false,
+            p25_capable: false,
+            m17_capable: false,
+            aprs_capable: true,
+            covers_hf: false,
+            covers_vhf: true,
+            covers_uhf: true,
+            covers_220: false,
+            covers_900: false,
+            freq_min: 144.0,
+            freq_max: 450.0,
+            tx_bands: Some("[[144.0,148.0],[430.0,450.0]]"),
+            rx_bands: Some("[[108.0,174.0],[380.0,479.0]]"),
+            memory_channels: 500,
+            zones_supported: false,
+            max_zones: None,
+            channels_per_zone: None,
+            scan_lists_supported: false,
+            max_scan_lists: None,
+            banks_supported: true,
+            max_name_length: 16,
+            export_format: "icom_id51_icf",
+            connection_type: "microSD",
+            // 241 settings + the manual position, GENERATED with the Rust table
+            // by scratchpad/icom_id51/gen_table.py from CS-51PLUS measurements.
+            non_channel_settings_schema: ID51_SETTINGS_SCHEMA,
         },
         // --------------------------------------------------------
         // 6. Kenwood TH-D75 — D-STAR + analog FM TRI-band HT, 1000
