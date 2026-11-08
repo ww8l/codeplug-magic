@@ -76,6 +76,7 @@ export function ListManager({ adapter }: { adapter: ListAdapter }) {
   const [editChannel, setEditChannel] = useState<Channel | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [cities, setCities] = useState<CityCentroid[]>([]);
+  const [tgCounts, setTgCounts] = useState<Record<string, number>>({});
 
   const Title =
     adapter.title ?? adapter.nounPlural.replace(/\b\w/g, (c) => c.toUpperCase());
@@ -100,6 +101,16 @@ export function ListManager({ adapter }: { adapter: ListAdapter }) {
   useEffect(() => {
     api.listCities().then(setCities);
   }, []);
+
+  // Talkgroup counts for the DMR rows. Re-read whenever the edit panel closes:
+  // talkgroups are assigned in the panel and saved as they are picked, not on
+  // the panel's own Save, so a count can change without onSaved firing.
+  const loadTgCounts = useCallback(() => {
+    api.getChannelTalkgroupCounts().then(setTgCounts, () => {});
+  }, []);
+  useEffect(() => {
+    if (!editOpen) loadTgCounts();
+  }, [editOpen, loadTgCounts]);
 
   // Re-fetch after an edit: a rename changes the row label, and a delete from
   // the panel drops the channel from the master table (cascading out of this
@@ -400,6 +411,7 @@ export function ListManager({ adapter }: { adapter: ListAdapter }) {
                   ) : (
                     <OrderedChannelTable
                       channels={channels}
+                      talkgroupCounts={tgCounts}
                       onReorder={reorder}
                       onRemove={removeChannel}
                       onEdit={(c) => {

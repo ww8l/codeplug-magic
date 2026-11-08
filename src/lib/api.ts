@@ -234,6 +234,9 @@ export const api = {
   deleteTalkgroup: (id: number) => invoke<void>("delete_talkgroup", { id }),
   getRepeaterTalkgroups: (channelId: number) =>
     invoke<RepeaterTalkgroup[]>("get_repeater_talkgroups", { channelId }),
+  // channel id -> curated talkgroup assignment count (keys arrive as strings).
+  getChannelTalkgroupCounts: () =>
+    invoke<Record<string, number>>("get_channel_talkgroup_counts"),
   assignTalkgroup: (channelId: number, talkgroupId: number, timeslot: number) =>
     invoke<void>("assign_talkgroup", { channelId, talkgroupId, timeslot }),
   removeTalkgroupAssignment: (assignmentId: number) =>

@@ -281,6 +281,29 @@ pub async fn get_repeater_talkgroups(
 /// Assign a talkgroup to a repeater channel on a given timeslot. Idempotent:
 /// the UNIQUE(channel, talkgroup, timeslot) constraint means re-assigning the
 /// same triple is a no-op rather than an error.
+/// Curated talkgroup assignments per channel, for every channel that has any —
+/// the list views show the count beside a DMR channel. Joined to `talkgroups`
+/// the same way `expand_for_export` is, so the count is the number of rows the
+/// export will produce for the channel. A channel absent from the map has none
+/// (the caller falls back to the inline `dmr_talkgroup` column, as export does).
+#[tauri::command]
+pub async fn get_channel_talkgroup_counts(
+    state: State<'_, AppState>,
+) -> Result<HashMap<i64, i64>, String> {
+    let rows: Vec<(i64, i64)> = sqlx::query_as(
+        r#"
+        SELECT rtg.channel_id, COUNT(*)
+        FROM repeater_talkgroups rtg
+        JOIN talkgroups tg ON tg.id = rtg.talkgroup_id
+        GROUP BY rtg.channel_id
+        "#,
+    )
+    .fetch_all(&state.pool)
+    .await
+    .estr()?;
+    Ok(rows.into_iter().collect())
+}
+
 #[tauri::command]
 pub async fn assign_talkgroup(
     state: State<'_, AppState>,

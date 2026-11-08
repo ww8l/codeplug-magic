@@ -9,11 +9,14 @@ import { Badge } from "../ui";
 
 export function OrderedChannelTable({
   channels,
+  talkgroupCounts,
   onReorder,
   onRemove,
   onEdit,
 }: {
   channels: Channel[];
+  /** Curated talkgroup assignments by channel id; shown beside DMR rows. */
+  talkgroupCounts?: Record<string, number>;
   onReorder: (orderedIds: number[]) => void;
   onRemove: (channelId: number) => void;
   /** Open a row's channel for editing. Rows are only clickable when given. */
@@ -119,6 +122,9 @@ export function OrderedChannelTable({
             <td className="px-2 py-1.5">{c.band && <Badge>{c.band}</Badge>}</td>
             <td className="px-2 py-1.5 text-slate-600 dark:text-slate-300">
               {c.mode}
+              {talkgroupCounts && c.mode === "DMR" && (
+                <TalkgroupCount n={dmrTalkgroupCount(c, talkgroupCounts)} />
+              )}
             </td>
             <td onClick={(e) => e.stopPropagation()} className="px-2 py-1.5">
               <div className="flex items-center justify-end gap-0.5">
@@ -151,5 +157,30 @@ export function OrderedChannelTable({
         ))}
       </tbody>
     </table>
+  );
+}
+
+/** The number of channels a DMR row becomes on export: one per curated
+ *  talkgroup assignment, else one for an inline (radio-imported)
+ *  `dmr_talkgroup`, else none — the same fallback `expand_for_export` uses. */
+function dmrTalkgroupCount(c: Channel, counts: Record<string, number>): number {
+  return counts[c.id] ?? (c.dmr_talkgroup != null ? 1 : 0);
+}
+
+function TalkgroupCount({ n }: { n: number }) {
+  return n === 0 ? (
+    <span
+      className="ml-2 rounded border border-dashed border-slate-400 px-1 text-[10px] font-medium text-slate-500 dark:border-slate-500 dark:text-slate-400"
+      title="No talkgroups assigned — this channel has nothing to transmit to"
+    >
+      no TG
+    </span>
+  ) : (
+    <span
+      className="ml-2 rounded bg-sky-100 px-1 text-[10px] font-medium tabular-nums text-sky-700 dark:bg-sky-900/50 dark:text-sky-300"
+      title={`${n} talkgroup${n === 1 ? "" : "s"} — ${n} channel${n === 1 ? "" : "s"} on the radio`}
+    >
+      {n} TG
+    </span>
   );
 }

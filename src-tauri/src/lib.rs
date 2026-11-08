@@ -177,6 +177,7 @@ pub fn run() {
             commands::talkgroups::update_talkgroup,
             commands::talkgroups::delete_talkgroup,
             commands::talkgroups::get_repeater_talkgroups,
+            commands::talkgroups::get_channel_talkgroup_counts,
             commands::talkgroups::assign_talkgroup,
             commands::talkgroups::remove_talkgroup_assignment,
             commands::talkgroups::reorder_repeater_talkgroups,
