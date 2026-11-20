@@ -237,6 +237,24 @@ const MEDIA_WRITES: Record<string, MediaWrite> = {
     carries:
       "your call sign, your APRS call sign and SSID, a fixed My Position if you have set one, and the APRS station list and messages the radio has heard — including other stations' positions",
   },
+  // The FTM-400 (#52): the ALL backup lands in a CLONE subfolder. Menu path
+  // is the FTM-400DR Operating Manual's (SD CARD → BACKUP, p.151).
+  yaesu_ftm400_sd: {
+    action: "Write to SD card…",
+    pickTitle: "Select FTM400D/BACKUP/CLONE/CLNFTM400D.dat on the radio’s microSD card",
+    filterName: "FTM-400 backup",
+    extensions: ["dat"],
+    before:
+      "On the radio, save everything to the card: press and hold [DISP] → SD CARD → BACKUP → Write to SD → ALL → OK. Then put the card in this computer and pick FTM400D/BACKUP/CLONE/CLNFTM400D.dat below.",
+    after:
+      "Put the card back in the radio and load it: press and hold [DISP] → SD CARD → BACKUP → Read from SD → ALL → OK.",
+    found:
+      "It already holds a backup, so there is nothing to pick — just check it is current (the radio writes it with [DISP] → SD CARD → BACKUP → Write to SD → ALL).",
+    preserves:
+      "The FTM-400 keeps a 500-memory list on each band; your channel lists become one list in order, written to both Band A and Band B. Everything else already on the radio — Home, VFO and PMS channels, APRS, GPS, WIRES-X and every set-up menu item your profile does not set — is left untouched, except that RX COVERAGE is switched to WIDE on both bands when the codeplug has air-band or 480 MHz-and-up channels, which a band at NORMAL does not show. The first write saves your untouched file beside it as CLNFTM400D.dat.orig; later writes never overwrite that pristine copy.",
+    carries:
+      "your call sign, your APRS call sign and SSID, a fixed My Position if you have set one, and the APRS station list and messages the radio has heard — including other stations' positions",
+  },
   // The FTM-300's sibling: same arrangement, its own folder and file. Menu
   // path is the FTM-510 Advance Manual's (107 BACKUP).
   yaesu_ftm510_sd: {
