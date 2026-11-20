@@ -62,4 +62,5 @@ mod wiring;
 pub(crate) mod yaesu_ft5d;
 pub(crate) mod yaesu_ft857d;
 pub(crate) mod yaesu_ftm300;
+pub(crate) mod yaesu_ftm400;
 pub(crate) mod yaesu_ftm510;

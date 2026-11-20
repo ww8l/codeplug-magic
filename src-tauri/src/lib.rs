@@ -235,6 +235,7 @@ pub fn run() {
             commands::program::write_card_settings,
             commands::program::read_thd75_settings_from_card,
             commands::program::read_ftm300_settings_from_backup,
+            commands::program::read_ftm400_settings_from_backup,
             commands::program::read_ftm510_settings_from_backup,
             commands::program::read_id51_settings_from_card,
             commands::codeplugs::get_codeplug_memory_group,

@@ -23,7 +23,7 @@ use crate::models::RadioModel;
 /// Every driver compiled into the app. Order is not significant — lookups are
 /// by `key()`, which is unique. (A static array rather than a slice literal:
 /// references to statics aren't const-promotable inside a returned temporary.)
-static DRIVERS: [&dyn RadioDriver; 16] = [
+static DRIVERS: [&dyn RadioDriver; 17] = [
     &super::baofeng_uv5r::DRIVER,
     &super::binteradio_bt9000::DRIVER,
     &super::tidradio_tdh3::DRIVER,
@@ -38,6 +38,7 @@ static DRIVERS: [&dyn RadioDriver; 16] = [
     &super::icom_id5100::DRIVER,
     &super::tyt_md380::DRIVER,
     &super::yaesu_ftm300::DRIVER,
+    &super::yaesu_ftm400::DRIVER,
     &super::yaesu_ftm510::DRIVER,
     &super::yaesu_ft857d::DRIVER,
 ];
@@ -95,6 +96,7 @@ mod tests {
             "kenwood_thd72",
             "kenwood_tmd710",
             "yaesu_ftm300",
+            "yaesu_ftm400",
             "yaesu_ftm510",
             "yaesu_ft857d",
         ] {
@@ -133,6 +135,8 @@ mod tests {
                 "yaesu_ftm300" => (false, false),
                 // FTM-510 (#151): the FTM-300's sibling, programmed the same way.
                 "yaesu_ftm510" => (false, false),
+                // FTM-400 (#52): card radio, settings ride in its CLNFTM400D.dat.
+                "yaesu_ftm400" => (false, false),
                 // ID-51 Plus (#50): the ID-52's arrangement, settings in its `.icf`.
                 "icom_id51" => (false, false),
                 // TH-D72: reads and writes its 19 menu parameters over the

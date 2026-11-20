@@ -264,6 +264,42 @@ fn dcs_index(code: Option<&str>) -> Option<u8> {
 /// (`cross-tone-unsupported-fallback`): keep the TX tone, drop the RX side.
 /// An untoned channel still carries a CTCSS index, as the radio's own records
 /// do: the channel's tone if it has one, else 100.0 Hz.
+/// Whether a channel's DCS — the side the record carries — is inverted. These
+/// Yaesu records (FTM-300/510/400) store a DCS code with no polarity (CHIRP's
+/// `ftm300d.py`: `has_dtcs_polarity = False`; ADMS-7 has no field for it), so
+/// an inverted code would be written as the normal one and the squelch would
+/// never open. DTCS uses one code both ways, so either side inverted counts;
+/// Cross keeps only the TX side ([`encode_tone`]), so only that side matters.
+pub(crate) fn carried_dcs_inverted(c: &crate::models::Channel) -> bool {
+    let mode = c.tone_mode.as_deref().unwrap_or("off");
+    let pol = c.dcs_polarity.as_bytes();
+    if mode.eq_ignore_ascii_case("DTCS") {
+        pol.contains(&b'R')
+    } else if mode.eq_ignore_ascii_case("Cross") {
+        c.cross_mode.split_once("->").is_some_and(|(tx, _)| tx.eq_ignore_ascii_case("DTCS")) && pol.first() == Some(&b'R')
+    } else {
+        false
+    }
+}
+
+/// The refusal [`carried_dcs_inverted`] channels get, naming them.
+pub(crate) fn refuse_inverted_dcs(radio: &str, channels: &[&ExpandedChannel]) -> Result<(), String> {
+    let inverted: Vec<String> = channels
+        .iter()
+        .filter(|ec| carried_dcs_inverted(&ec.channel))
+        .map(|ec| format!("{:.5} MHz", ec.channel.rx_freq))
+        .collect();
+    if inverted.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "The {radio} stores DCS codes without a polarity, so these channels' inverted DCS \
+         would be programmed as normal and never open the squelch: {}. Change their DCS \
+         polarity to normal or remove them from this codeplug.",
+        inverted.join(", ")
+    ))
+}
+
 fn encode_tone(c: &crate::models::Channel) -> (u8, u8, u8) {
     let mode = c.tone_mode.as_deref().unwrap_or("off");
     let carried = c.ctcss_uplink.or(c.ctcss_downlink).map(tone_index).unwrap_or(DEFAULT_TONE);
@@ -414,6 +450,7 @@ pub(crate) fn patch_backup(
         ));
     }
     // A frequency the radio would display wrong is refused, not rounded.
+    refuse_inverted_dcs("FTM-300", channels)?;
     let unknown: Vec<String> = channels
         .iter()
         .filter(|ec| !encodable(hz(ec.channel.rx_freq)) || !encodable(hz(tx_frequency(&ec.channel))))
@@ -570,6 +607,23 @@ mod tests {
         c.mode = Some("YSF-VW".into());
         let r = encode_record(&ec(c));
         assert_eq!((r[1], r[11]), (0x03, 0x6F));
+    }
+
+    #[test]
+    fn inverted_dcs_is_refused_by_name() {
+        let mut c = chan(447.825, Some(442.825));
+        c.tone_mode = Some("DTCS".into());
+        c.dcs_code = Some("023".into());
+        c.dcs_polarity = "RN".into();
+        let e = ec(c.clone());
+        let mut t = vec![0xFFu8; IMAGE_LEN];
+        t[..6].copy_from_slice(MAGIC);
+        let model = crate::seed::test_model("FTM-300DR");
+        let err = patch_backup(&t, &[&e], &model, &Default::default()).unwrap_err();
+        assert!(err.contains("447.82500") && err.contains("FTM-300"), "{err}");
+        c.dcs_polarity = "NN".into();
+        let e = ec(c);
+        assert!(patch_backup(&t, &[&e], &model, &Default::default()).is_ok());
     }
 
     #[test]

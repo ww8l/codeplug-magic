@@ -544,6 +544,7 @@ pub async fn find_memory_cards(format: String) -> Vec<MemoryCard> {
         "icom_id52_icf" => id52_cards(),
         "kenwood_thd75_sd" => thd75_cards(),
         "yaesu_ftm300_sd" => ftm300_cards(),
+        "yaesu_ftm400_sd" => ftm400_cards(),
         "yaesu_ftm510_sd" => ftm510_cards(),
         _ => Vec::new(),
     })
@@ -584,6 +585,28 @@ fn ftm300_cards() -> Vec<MemoryCard> {
             continue;
         };
         if crate::radios::yaesu_ftm300::sd_image::validate_backup(&image).is_err() {
+            continue;
+        }
+        out.push(MemoryCard {
+            has_original: path.with_extension("dat.orig").exists(),
+            volume: volume_name(&root),
+            path: path.to_string_lossy().into_owned(),
+        });
+    }
+    out
+}
+
+/// The FTM-400's ALL backup lands in a CLONE subfolder (MEMORY and SETUP hold
+/// the partial backups, which this writer does not take): SD CARD → BACKUP →
+/// Write to SD → ALL writes this path, Read from SD → ALL loads it back.
+fn ftm400_cards() -> Vec<MemoryCard> {
+    let mut out = Vec::new();
+    for root in mounted_roots() {
+        let path = root.join("FTM400D").join("BACKUP").join("CLONE").join("CLNFTM400D.dat");
+        let Ok(image) = std::fs::read(&path) else {
+            continue;
+        };
+        if crate::radios::yaesu_ftm400::sd_image::validate_backup(&image).is_err() {
             continue;
         }
         out.push(MemoryCard {
@@ -760,6 +783,30 @@ pub async fn read_ftm300_settings_from_backup(path: String) -> Result<RadioSetti
         })?;
         crate::radios::yaesu_ftm300::sd_image::validate_backup(&image)?;
         let settings = crate::radios::yaesu_ftm300::settings::decode_settings(&image);
+        let count = settings.as_object().map(|o| o.len()).unwrap_or(0);
+        Ok(RadioSettingsRead {
+            settings,
+            count,
+            backup_path: path,
+        })
+    })
+    .await
+    .estr()?
+}
+
+/// The FTM-400's version of [`read_ftm300_settings_from_backup`], reading the
+/// `CLNFTM400D.dat` the radio writes with SD CARD → BACKUP → Write to SD → ALL.
+#[tauri::command]
+pub async fn read_ftm400_settings_from_backup(path: String) -> Result<RadioSettingsRead, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let image = std::fs::read(&path).map_err(|e| {
+            format!(
+                "Could not read {path}: {e}. Pick FTM400D/BACKUP/CLONE/CLNFTM400D.dat from the \
+                 radio's microSD card."
+            )
+        })?;
+        crate::radios::yaesu_ftm400::sd_image::validate_backup(&image)?;
+        let settings = crate::radios::yaesu_ftm400::settings::decode_settings(&image);
         let count = settings.as_object().map(|o| o.len()).unwrap_or(0);
         Ok(RadioSettingsRead {
             settings,

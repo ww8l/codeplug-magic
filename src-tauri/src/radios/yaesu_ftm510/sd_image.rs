@@ -17,7 +17,7 @@
 
 use crate::commands::export::{expanded_names, tx_frequency, ExpandedChannel};
 use crate::models::RadioModel;
-use crate::radios::yaesu_ftm300::sd_image::{encode_record, name_fields, tag, NAME_LEN};
+use crate::radios::yaesu_ftm300::sd_image::{encode_record, name_fields, refuse_inverted_dcs, tag, NAME_LEN};
 
 pub(crate) const IMAGE_LEN: usize = 0x18000;
 const MAGIC: &[u8] = b"AH089$";
@@ -106,6 +106,7 @@ pub(crate) fn patch_backup(
             channels.len() - MEM_SLOTS
         ));
     }
+    refuse_inverted_dcs("FTM-510", channels)?;
     let bad: Vec<String> = channels
         .iter()
         .filter(|ec| !writable(hz(ec.channel.rx_freq)) || !writable(hz(tx_frequency(&ec.channel))))
@@ -257,6 +258,17 @@ mod tests {
         }
         let e = ec(chan(549.9875, None));
         assert!(patch_backup(&template(), &[&e], &model()).is_ok());
+    }
+
+    #[test]
+    fn inverted_dcs_is_refused_by_name() {
+        let mut c = chan(447.825, Some(442.825));
+        c.tone_mode = Some("DTCS".into());
+        c.dcs_code = Some("023".into());
+        c.dcs_polarity = "NR".into();
+        let e = ec(c);
+        let err = patch_backup(&template(), &[&e], &model()).unwrap_err();
+        assert!(err.contains("447.82500") && err.contains("FTM-510"), "{err}");
     }
 
     #[test]
