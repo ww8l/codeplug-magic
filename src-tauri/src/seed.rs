@@ -1376,8 +1376,10 @@ fn models() -> Vec<ModelSeed> {
         //    FTM510D/BACKUP/CLNFTM510D.dat (magic AH089$, the FTM-300's layout)
         //    in place, and Setup Menu 107 BACKUP → READ FROM SD → ALL loads it
         //    back; see radios/yaesu_ftm510/.
-        //    NOTES: (a) no banks or scan lists, so channel lists flatten; the
-        //    510 has PMG, not the FTM-300's M-GRP, so no memory group. (b)
+        //    NOTES: (a) no banks or scan lists, so channel lists flatten; its one
+        //    user group, M-GRP (#158), is a per-memory flag chosen channel by
+        //    channel on the codeplug page, as on the FTM-300 (PMG is a different,
+        //    radio-side 5-channel monitor and is left alone). (b)
         //    tx_bands is the DR's US 144–148 / 430–450; the DE is 144–146 /
         //    430–440. (c) rx_bands is the Operating Manual's continuous
         //    108–550 MHz — hardware-proven: the ladder's band probe landed all
