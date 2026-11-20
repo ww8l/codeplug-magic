@@ -269,7 +269,7 @@ const MEDIA_WRITES: Record<string, MediaWrite> = {
     found:
       "It already holds a backup, so there is nothing to pick — just check it is current (the radio writes it with the FUNC knob → 107 BACKUP → WRITE TO SD → ALL).",
     preserves:
-      "The FTM-510 has no banks, so channel lists become one memory list in order. Everything else already on the radio — Home, VFO and PMS channels, APRS, GPS, WIRES-X and every Setup Menu item your profile does not set — is left untouched. The first write saves your untouched file beside it as CLNFTM510D.dat.orig; later writes never overwrite that pristine copy.",
+      "The FTM-510 has no banks, so channel lists become one memory list in order, and the channels you picked for M-GRP are flagged into it. Everything else already on the radio — Home, VFO and PMS channels, APRS, GPS, WIRES-X and every Setup Menu item your profile does not set — is left untouched. The first write saves your untouched file beside it as CLNFTM510D.dat.orig; later writes never overwrite that pristine copy.",
     carries:
       "your call sign, your APRS call sign and SSID, a fixed My Position if you have set one, and the APRS station list and messages the radio has heard — including other stations' positions",
   },
@@ -288,7 +288,7 @@ export function mediaWriteForFormat(format: string | null): MediaWrite | null {
 }
 
 /// A radio with one user memory group that each memory is either in or out of
-/// (the FTM-300's M-GRP). The codeplug page shows a box for it and the export
+/// (the FTM-300's and FTM-510's M-GRP). The codeplug page shows a box for it and the export
 /// carries the chosen channels. Keyed on the format, like `MEDIA_WRITES`.
 export interface MemoryGroup {
   title: string;
@@ -300,6 +300,10 @@ const MEMORY_GROUPS: Record<string, MemoryGroup> = {
   yaesu_ftm300_sd: {
     title: "M-GRP (Memory Group)",
     help: "The radio's one user group. Pick channels one by one; on the radio, press and hold [BAND] in the memory list to see them.",
+  },
+  yaesu_ftm510_sd: {
+    title: "M-GRP (Memory Group)",
+    help: "The radio's one user group. Pick channels one by one; on the radio, press [BAND] in memory mode until M-GRP comes up, or look for blue channel numbers in the memory list.",
   },
 };
 

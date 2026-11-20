@@ -36,6 +36,14 @@ const EMPTY_RECORD: [u8; MEM_STRIDE] = [
     0x01, 0x00, 0x01, 0x44, 0x00, 0x04, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x0F, 0x00, 0x0C, 0x00, 0x00,
 ];
 
+/// Byte 0 of a memory record: the one user memory group, M-GRP (the radio shows
+/// a member's number in blue in MEMORY CH LIST). **0x08 — NOT the FTM-300's
+/// 0x10.** Measured with ADMS-18 (#158, 2026-11-20): ticking its per-memory
+/// M-GRP box changed exactly one byte, memory 2's byte 0 `0x81 -> 0x89`; a
+/// second pass moving the tick to memory 1 moved the bit with it and cleared
+/// memory 2. The bands' code sits in bits 0-2, so the flag never collides.
+pub(super) const MGRP: u8 = 0x08;
+
 /// The radio's receive range (Operating Manual specifications: 108–550 MHz,
 /// continuous in five ranges). A frequency outside it would become a slot the
 /// radio shows empty while the export reported success.
@@ -88,7 +96,9 @@ fn write_slot(img: &mut [u8], slot: usize, record: &[u8; MEM_STRIDE], name: &str
 /// Every one of the 999 regular slots is rewritten — a filled one with its
 /// channel, the rest with the radio's own empty record — so nothing from the
 /// operator's old memory list survives into the new one. PMS, VFO, Home and
-/// every setting are the template's. No banks, so channel lists flatten.
+/// every setting are the template's. No banks, so channel lists flatten; the
+/// one user group, M-GRP, is a flag on each memory, set for every channel
+/// whose id is in `mgrp` (chosen per codeplug).
 ///
 /// Overflow and frequencies the radio would not show as written are errors,
 /// never a silent truncation or rounding.
@@ -96,6 +106,7 @@ pub(crate) fn patch_backup(
     template: &[u8],
     channels: &[&ExpandedChannel],
     model: &RadioModel,
+    mgrp: &std::collections::HashSet<i64>,
 ) -> Result<Vec<u8>, String> {
     validate_backup(template)?;
     if channels.len() > MEM_SLOTS {
@@ -123,7 +134,11 @@ pub(crate) fn patch_backup(
     let mut img = template.to_vec();
     let names = expanded_names(channels.iter().copied(), model);
     for (slot, (ec, name)) in channels.iter().zip(&names).enumerate() {
-        write_slot(&mut img, slot, &encode_record(ec), &tag(name));
+        let mut record = encode_record(ec);
+        if mgrp.contains(&ec.channel.id) {
+            record[0] |= MGRP;
+        }
+        write_slot(&mut img, slot, &record, &tag(name));
     }
     for slot in channels.len()..MEM_SLOTS {
         write_slot(&mut img, slot, &EMPTY_RECORD, "");
@@ -253,11 +268,11 @@ mod tests {
                 c.mode = Some("AM".into());
             }
             let e = ec(c);
-            let err = patch_backup(&template(), &[&e], &model()).unwrap_err();
+            let err = patch_backup(&template(), &[&e], &model(), &Default::default()).unwrap_err();
             assert!(err.contains(&format!("{rx:.5}")), "{rx}: {err}");
         }
         let e = ec(chan(549.9875, None));
-        assert!(patch_backup(&template(), &[&e], &model()).is_ok());
+        assert!(patch_backup(&template(), &[&e], &model(), &Default::default()).is_ok());
     }
 
     #[test]
@@ -267,7 +282,7 @@ mod tests {
         c.dcs_code = Some("023".into());
         c.dcs_polarity = "NR".into();
         let e = ec(c);
-        let err = patch_backup(&template(), &[&e], &model()).unwrap_err();
+        let err = patch_backup(&template(), &[&e], &model(), &Default::default()).unwrap_err();
         assert!(err.contains("447.82500") && err.contains("FTM-510"), "{err}");
     }
 
@@ -275,7 +290,7 @@ mod tests {
     fn overflow_is_an_error() {
         let e = ec(chan(146.52, None));
         let many: Vec<&ExpandedChannel> = std::iter::repeat_n(&e, MEM_SLOTS + 1).collect();
-        assert!(patch_backup(&template(), &many, &model()).unwrap_err().contains("999"));
+        assert!(patch_backup(&template(), &many, &model(), &Default::default()).unwrap_err().contains("999"));
     }
 
     /// Only the three memory tables change: every byte outside them, the
@@ -288,7 +303,7 @@ mod tests {
         c.ctcss_uplink = Some(100.0);
         c.name_short = Some("NCARC".into());
         let e = ec(c);
-        let out = patch_backup(&t, &[&e], &model()).unwrap();
+        let out = patch_backup(&t, &[&e], &model(), &Default::default()).unwrap();
         assert_eq!(&out[0x800..0x810], &[0x83, 0x02, 0x84, 0x47, 0x27, 0x20, 0, 0, 0, 0x0C, 0, 0x0F, 0, 0x64, 0, 0]);
         assert_eq!(&out[NAME_BASE..NAME_BASE + 6], b"NCARC\xFF");
         assert_eq!(&out[NAME_LEN_BASE..NAME_LEN_BASE + 2], &[0x07, 0xFF]);
@@ -301,6 +316,25 @@ mod tests {
         assert!((0..IMAGE_LEN).filter(|&i| !in_tables(i)).all(|i| out[i] == t[i]));
         // PMS entries (slots 1000-1099) are past the 999 and untouched.
         assert_eq!(out[MEM_BASE + MEM_SLOTS * MEM_STRIDE], 0x5A);
+    }
+
+    /// M-GRP is byte 0 bit 3 on the 510. ADMS-18 ticking M-GRP on a 144.000 MHz
+    /// memory wrote `0x81 -> 0x89` and nothing else (#158); the same channel
+    /// out of the group stays `0x81`.
+    #[test]
+    fn mgrp_sets_the_bit_adms18_writes() {
+        let t = template();
+        let mut member = chan(144.0, None);
+        member.id = 7;
+        let mut other = chan(144.0, None);
+        other.id = 8;
+        let (a, b) = (ec(member), ec(other));
+        let out = patch_backup(&t, &[&a, &b], &model(), &[7].into_iter().collect()).unwrap();
+        assert_eq!(out[MEM_BASE], 0x89, "a member carries the ADMS-18 byte");
+        assert_eq!(out[MEM_BASE + MEM_STRIDE], 0x81, "a non-member does not");
+        let plain = patch_backup(&t, &[&a, &b], &model(), &Default::default()).unwrap();
+        let differ: Vec<usize> = (0..IMAGE_LEN).filter(|&i| out[i] != plain[i]).collect();
+        assert_eq!(differ, vec![MEM_BASE], "M-GRP changes that one byte and nothing else");
     }
 
     /// Encode → decode over the fields this encoder writes, at every band

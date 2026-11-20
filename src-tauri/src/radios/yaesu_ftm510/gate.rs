@@ -168,7 +168,7 @@ fn reencodes_a_real_ftm510s_records() {
     let in_renamed_name = |i: usize| {
         renamed.iter().any(|&s| (0x4CB0 + s * 2..0x4CB2 + s * 2).contains(&i) || (0x10000 + s * 16..0x10010 + s * 16).contains(&i))
     };
-    let out = patch_backup(&img, &refs, &model).unwrap();
+    let out = patch_backup(&img, &refs, &model, &Default::default()).unwrap();
     let diff: Vec<usize> = (0..IMAGE_LEN).filter(|&i| out[i] != img[i] && !in_renamed_name(i)).collect();
     let all_step = diff.iter().all(|&i| i >= 0x800 && (i - 0x800) % 16 == 5 && img[i] == 0 && out[i] == 4);
     println!("whole-file patch: {} other bytes differ, all of them factory step-0 empties: {all_step}", diff.len());

@@ -79,7 +79,7 @@ async fn build_the_ladder_files() {
         let chans: Vec<_> = groups.iter().flat_map(|g| g.channels.iter().cloned()).filter(|c| seen.insert(c.id)).collect();
         let expanded = expand_for_export(&pool, chans).await.unwrap();
         let included: Vec<&ExpandedChannel> = expanded.iter().filter(|ec| exclusion_reason(&ec.channel, &model).is_none()).collect();
-        let three = patch_backup(&radio, &included, &model).unwrap();
+        let three = patch_backup(&radio, &included, &model, &Default::default()).unwrap();
         let used = (0..999).filter(|i| three[0x800 + i * 16] & 0x80 != 0).count();
         println!("step 3: {} channels in, {} written, {used} marked used", expanded.len(), included.len());
         for (slot, ec) in included.iter().enumerate() {
@@ -101,7 +101,7 @@ async fn build_the_ladder_files() {
     ];
     let pc: Vec<ExpandedChannel> = probe.iter().enumerate().map(|(i, (f, m))| chan(i as i64 + 1, &format!("P{f}"), *f, m)).collect();
     let refs: Vec<&ExpandedChannel> = pc.iter().collect();
-    let four = patch_backup(&radio, &refs, &model).unwrap();
+    let four = patch_backup(&radio, &refs, &model, &Default::default()).unwrap();
     for (slot, (f, _)) in probe.iter().enumerate() {
         let r = &four[0x800 + slot * 16..0x810 + slot * 16];
         assert_eq!(super::sd_image::decode_freq(&r[2..5]), (f * 1e6).round() as i64);
