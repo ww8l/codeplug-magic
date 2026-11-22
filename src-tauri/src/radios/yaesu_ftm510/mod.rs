@@ -44,9 +44,14 @@
 //!
 //! ## Still open
 //!
-//! - **Memory-group flag.** The FTM-300's M-GRP is byte 0 bit 4; the 510 has
-//!   PMG instead, and an FTM-500 file carries an unexplained byte 0 bit 3. Neither
-//!   is set here.
+//! - **M-GRP bit (#158).** The 510 has the FTM-300's one user memory group, M-GRP
+//!   (Operating Manual "Registering frequently used memory channels in M-GRP";
+//!   ADMS-18's per-memory M-GRP checkbox) as well as PMG, which is a different
+//!   thing. Channels are chosen per codeplug and flagged in record byte 0 bit
+//!   `0x08` ([`sd_image`]'s `MGRP`) — measured with ADMS-18, and NOT the
+//!   FTM-300's `0x10` (the inherited guess would have been wrong). Not yet seen
+//!   on the radio's own screen: a member's number should show blue in MEMORY
+//!   CH LIST.
 //!
 //! Working notes: `scratchpad/yaesu_ftm510/` (gitignored) — `PLAN.md`,
 //! `FINDINGS.md`, `adms/MEASURED.md`.
@@ -111,7 +116,7 @@ impl CodeplugExporter for YaesuFtm510 {
     /// as `CLNFTM510D.dat.orig`, written once and never overwritten.
     fn export(&self, path: &str, req: &ExportRequest) -> Result<usize, String> {
         patch_in_place(path, |template| {
-            let mut image = sd_image::patch_backup(template, req.channels, req.model)?;
+            let mut image = sd_image::patch_backup(template, req.channels, req.model, &req.memory_group.iter().copied().collect())?;
             // Non-channel settings from the codeplug's radio profile. A codeplug with
             // no profile leaves every one exactly as the operator's backup had it.
             if let Some(json) = req.profile_settings {
@@ -123,6 +128,10 @@ impl CodeplugExporter for YaesuFtm510 {
             }
             Ok((image, req.channels.len()))
         })
+    }
+
+    fn has_memory_group(&self) -> bool {
+        true
     }
 
     fn as_card_settings_writer(&self) -> Option<&dyn CardSettingsWriter> {
@@ -201,18 +210,29 @@ mod tests {
             tg_call_type: None,
             tg_inline: false,
         };
-        let refs = [&ec];
+        let ec2 = ExpandedChannel {
+            channel: Channel { id: 8, name_short: Some("OUTSIDE".into()), ..ec.channel.clone() },
+            tg_label: None,
+            timeslot: None,
+            tg_number: None,
+            tg_call_type: None,
+            tg_inline: false,
+        };
+        let refs = [&ec, &ec2];
         let model = crate::seed::test_model("FTM-510DR");
+        // Channel 7 is in the codeplug's M-GRP, so its memory gets the flag;
+        // channel 8 is not.
         let req = ExportRequest {
             channels: &refs,
             groups: &[],
             model: &model,
             profile_settings: Some(r#"{"lcd-brightness":"MID","aprs-modem":true,"aprs-callsign":"WW8L"}"#),
-            memory_group: &[],
+            memory_group: &[7],
         };
-        assert_eq!(DRIVER.export(path.to_str().unwrap(), &req).unwrap(), 1);
+        assert_eq!(DRIVER.export(path.to_str().unwrap(), &req).unwrap(), 2);
         let out = std::fs::read(&path).unwrap();
-        assert_eq!(&out[0x800..0x805], &[0x83, 0x02, 0x84, 0x47, 0x27]);
+        assert_eq!(&out[0x800..0x805], &[0x83 | sd_image::MGRP, 0x02, 0x84, 0x47, 0x27]);
+        assert_eq!(out[0x810], 0x83, "a channel not chosen for M-GRP stays out of it");
         let s = settings::decode_settings(&out);
         assert_eq!(s["lcd-brightness"], "MID");
         assert_eq!(s["aprs-modem"], true);
