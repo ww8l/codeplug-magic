@@ -66,11 +66,27 @@ type RestoreCheck = fn(&[(u32, Vec<u8>)]) -> Result<(), String>;
 /// How a model writes one restored block.
 type BlockWrite = fn(&mut dyn serialport::SerialPort, u32, &[u8]) -> Result<(), String>;
 
+/// How a model expands a backup's blocks into a restore session's writes.
+type SessionBlocks =
+    fn(&mut dyn serialport::SerialPort, &[(u32, Vec<u8>)]) -> Result<Vec<(u32, Vec<u8>)>, String>;
+
+fn blocks_as_is(
+    _: &mut dyn serialport::SerialPort,
+    blocks: &[(u32, Vec<u8>)],
+) -> Result<Vec<(u32, Vec<u8>)>, String> {
+    Ok(blocks.to_vec())
+}
+
 struct AnytoneFamily {
     ident: IdentExpect,
     check_restore: RestoreCheck,
     /// The D578 never sends a flash half's marker frame, even from a backup.
     write: BlockWrite,
+    /// Turn a backup's blocks into what one restore session must send. The
+    /// D890 adds the rest of every flash half they touch (#143): its older
+    /// backups hold only the windows a session changed, and the radio rebuilds
+    /// a whole half from the session's data. D578 backups already carry them.
+    session_blocks: SessionBlocks,
     /// Backups this model writes (newest-first search in `latest_anytone_program`).
     prefixes: &'static [&'static str],
 }
@@ -79,6 +95,7 @@ const D890_FAMILY: AnytoneFamily = AnytoneFamily {
     ident: D890_IDENT,
     check_restore: super::anytone::check_restore_blocks,
     write: write_block,
+    session_blocks: crate::radios::anytone_atd890uv::carry_blocks,
     prefixes: &["anytone-program-", "anytone-settings-write-"],
 };
 
@@ -86,6 +103,7 @@ const D578_FAMILY: AnytoneFamily = AnytoneFamily {
     ident: crate::radios::anytone_atd578uv::D578_IDENT,
     check_restore: crate::radios::anytone_atd578uv::check_restore_blocks,
     write: crate::radios::anytone_atd578uv::write_sendable,
+    session_blocks: blocks_as_is,
     prefixes: &[
         crate::radios::anytone_atd578uv::program::PROGRAM_PREFIX,
         crate::radios::anytone_atd578uv::settings::SETTINGS_PREFIX,
@@ -286,6 +304,13 @@ pub async fn restore_anytone_backup(
         let _port_guard = crate::radios::port_lock::claim(&port)?;
         let mut p = open_port(&port)?;
         let _ident = enter_program_and_ident_as(&mut *p, fam.ident)?;
+        let blocks = match (fam.session_blocks)(&mut *p, &blocks) {
+            Ok(b) => b,
+            Err(e) => {
+                let _ = end_session(&mut *p);
+                return Err(e);
+            }
+        };
         let mut written = Vec::new();
         for (addr, data) in &blocks {
             (fam.write)(&mut *p, *addr, data)?;

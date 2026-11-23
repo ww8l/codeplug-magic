@@ -35,14 +35,14 @@ use crate::radios::driver::{
 use crate::util::truncate;
 
 use super::{
-    commit_channel_writes, decode_utf16_name, encode_channel_into_record,
+    carry_halves, commit_channel_writes, decode_utf16_name, encode_channel_into_record,
     encode_contact_record, encode_scan_list_record, encode_utf16_field, encode_zone_list_record,
     end_session, enter_program_and_ident, is_empty_record, new_channel_record_template, open_port,
     plans_from_pre_read, read_block, serialize_backup,
     AnytoneChannelEdit, AnytoneSubTone, AnytoneToneEdit, BankPlan, RegionPatch,
     ScanListRecordSettings, BANK_STEP, CHANNEL_BASE, CH_PER_BANK, CH_REC_LEN, CONTACT_BASE,
     CONTACT_BITMAP_BASE, CONTACT_BITMAP_BYTES,
-    CONTACT_INDEX_BASE, CONTACT_REC_LEN, MAX_CONTACTS_READ, MAX_SCAN_LISTS, MAX_ZONES, NUM_BANKS,
+    CONTACT_INDEX_BASE, CONTACT_REC_LEN, MAX_CONTACTS_WRITE, MAX_SCAN_LISTS, MAX_ZONES, NUM_BANKS,
     SCAN_LIST_BASE,
     CHANNEL_BITMAP_BASE, CHANNEL_BITMAP_BYTES, MAX_CHANNELS_BITMAP, SCAN_BITMAP_BASE,
     SCAN_BITMAP_BYTES, SCAN_LIST_STEP, SCAN_MAX_CHANNELS, WRITE_WINDOW,
@@ -410,7 +410,7 @@ pub(crate) const D890_LIMITS: PlanLimits = PlanLimits {
     zone_max_channels: ZONE_MAX_CHANNELS,
     max_scan_lists: MAX_SCAN_LISTS,
     scan_max_channels: SCAN_MAX_CHANNELS,
-    max_contacts: MAX_CONTACTS_READ,
+    max_contacts: MAX_CONTACTS_WRITE,
 };
 
 /// [`plan_program`] for any family member.
@@ -507,9 +507,10 @@ pub(crate) fn plan_program_for(
 
     if contacts.len() > limits.max_contacts {
         return Err(format!(
-            "codeplug references {} talkgroups (radio limit {})",
+            "codeplug references {} talkgroups; Codeplug Magic writes at most {} to the {}",
             contacts.len(),
-            limits.max_contacts
+            limits.max_contacts,
+            limits.model
         ));
     }
     sort_contact_bank(&mut contacts, &mut channels);
@@ -985,7 +986,10 @@ fn run_program(
 
         // Contacts: same sequential-read discipline (records straddle windows;
         // the stop rule keeps the window after the last stale record in hand).
-        let contact_region = MAX_CONTACTS_READ * CONTACT_REC_LEN;
+        // Only the records this driver writes (#143): a stale record past the
+        // cap lies in a half it never touches, and the present-bitmap written
+        // below hides it.
+        let contact_region = MAX_CONTACTS_WRITE * CONTACT_REC_LEN;
         let contact_windows = read_region_windows(
             &mut *p,
             CONTACT_BASE,
@@ -1040,7 +1044,12 @@ fn run_program(
         );
 
         all_plans.extend(plans_from_pre_read(&originals, &patches)?);
-        Ok(all_plans)
+        // The radio rebuilds each 128 KB half a write lands in from this
+        // session's data alone (#143): carry the rest of every touched half.
+        for pl in &all_plans {
+            originals.entry(pl.base).or_insert_with(|| pl.original.clone());
+        }
+        carry_halves(&mut *p, all_plans, &mut originals)
     })();
     let all_plans = match phase1 {
         Ok(v) => v,

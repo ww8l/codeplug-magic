@@ -14,7 +14,8 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use super::{
-    commit_channel_writes, end_session, enter_program_and_ident, open_port, plans_from_pre_read,
+    carry_halves, commit_channel_writes, end_session, enter_program_and_ident, open_port,
+    plans_from_pre_read,
     read_block, serialize_backup, AnytoneAtd890uv, BankPlan, RegionPatch, WRITE_WINDOW,
 };
 use crate::radios::driver::{SettingsCapture, SettingsReader, SettingsWriteReport, SettingsWriter};
@@ -545,7 +546,7 @@ pub fn run_settings_program(
                 .or_insert_with(|| read_block(&mut *p, wbase, WRITE_WINDOW));
         }
         // Surface any read error (the closure above defers it into the Option).
-        let originals: std::collections::BTreeMap<u32, Vec<u8>> = originals
+        let mut originals: std::collections::BTreeMap<u32, Vec<u8>> = originals
             .into_iter()
             .map(|(base, r)| r.map(|data| (base, data)))
             .collect::<Result<_, _>>()?;
@@ -562,7 +563,11 @@ pub fn run_settings_program(
             .collect();
 
         let patches = encode_anytone_settings(&existing, values)?;
-        plans_from_pre_read(&originals, &patches)
+        let plans = plans_from_pre_read(&originals, &patches)?;
+        // The radio rebuilds each 128 KB half a write lands in from this
+        // session's data alone (#143) — the radio-ID list and primary ID share
+        // one — so carry the rest of every touched half.
+        carry_halves(&mut *p, plans, &mut originals)
     })();
     let all_plans = match phase1 {
         Ok(v) => v,

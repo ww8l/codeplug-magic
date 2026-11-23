@@ -214,6 +214,10 @@ pub(crate) struct FakeAnytone {
     pub refuse_write_at: Option<u32>,
     /// Reply to the first `PROGRAM` with silence this many times.
     pub ignore_program: usize,
+    /// Model the real radio's commit (#143): at END, every 128 KB flash half
+    /// the session wrote is rebuilt from ONLY the bytes this session sent —
+    /// anything else in that half reads erased afterwards.
+    pub rebuilds_halves: bool,
 }
 
 impl FakeAnytone {
@@ -226,6 +230,7 @@ impl FakeAnytone {
             ended: false,
             refuse_write_at: None,
             ignore_program: 0,
+            rebuilds_halves: false,
         }
     }
 
@@ -284,6 +289,17 @@ impl FakeRadio for FakeAnytone {
                     return 0;
                 }
                 assert_eq!(&req[..END.len()], END, "malformed END");
+                if self.rebuilds_halves {
+                    let half = |a: u32| a & !0x1FFFF;
+                    let sent: std::collections::BTreeSet<u32> = self
+                        .writes
+                        .iter()
+                        .flat_map(|(a, d)| (0..d.len() as u32).map(move |i| a + i))
+                        .collect();
+                    let halves: std::collections::BTreeSet<u32> =
+                        sent.iter().map(|&a| half(a)).collect();
+                    self.flash.retain(|a, _| !halves.contains(&half(*a)) || sent.contains(a));
+                }
                 self.ended = true;
                 out.push(ACK);
                 END.len()
@@ -450,5 +466,73 @@ mod tests {
         // And the session was NOT ended — ending would commit the half-written
         // image, which is why `run_program` deliberately leaves it open.
         assert!(!p.radio.ended);
+    }
+
+    // --- #143: the radio rebuilds every flash half a session writes ----------
+
+    fn rebuilding_port() -> FakePort<FakeAnytone> {
+        let mut radio = FakeAnytone::new();
+        radio.rebuilds_halves = true;
+        FakePort::new(radio)
+    }
+
+    /// What happened to Tim's D890 on 2026-11-22, reproduced: writing the
+    /// erased window after the zone lists, with its own bytes, erased the zone
+    /// lists. If this stops failing the fake no longer models the radio.
+    #[test]
+    fn a_bare_window_write_erases_the_rest_of_its_half() {
+        use crate::radios::anytone_atd890uv::ZONE_LIST_BASE;
+        let mut p = rebuilding_port();
+        p.radio.seed(ZONE_LIST_BASE, &[0x00, 0x00, 0x01, 0x00]);
+        enter_program_and_ident(&mut p).unwrap();
+        let w1 = ZONE_LIST_BASE + WRITE_WINDOW as u32;
+        write_block(&mut p, w1, &vec![0xFFu8; WRITE_WINDOW]).unwrap();
+        end_session(&mut p).unwrap();
+        assert_eq!(p.radio.peek(ZONE_LIST_BASE, 4), vec![0xFF; 4], "the zone lists were wiped");
+    }
+
+    /// The same write through `write_carrying` keeps the zone lists: it reads
+    /// the rest of the half and resends what holds data — and only that.
+    #[test]
+    fn a_carrying_write_keeps_the_rest_of_its_half() {
+        use crate::radios::anytone_atd890uv::{write_carrying, ZONE_LIST_BASE};
+        let mut p = rebuilding_port();
+        p.radio.seed(ZONE_LIST_BASE, &[0x00, 0x00, 0x01, 0x00]);
+        // Data in the NEXT half must neither be read nor written.
+        p.radio.seed(ZONE_LIST_BASE + 0x2_0000, &[0x42]);
+        enter_program_and_ident(&mut p).unwrap();
+        let w1 = ZONE_LIST_BASE + WRITE_WINDOW as u32;
+        write_carrying(&mut p, w1, &vec![0xFFu8; WRITE_WINDOW]).unwrap();
+        end_session(&mut p).unwrap();
+
+        assert_eq!(p.radio.peek(ZONE_LIST_BASE, 4), vec![0x00, 0x00, 0x01, 0x00]);
+        assert_eq!(p.radio.peek(ZONE_LIST_BASE + 0x2_0000, 1), vec![0x42]);
+        let windows: std::collections::BTreeSet<u32> =
+            p.radio.writes.iter().map(|(a, _)| a & !(WRITE_WINDOW as u32 - 1)).collect();
+        assert_eq!(windows, [ZONE_LIST_BASE, w1].into_iter().collect(), "erased windows are not resent");
+        assert!(p.radio.reads.iter().all(|&a| a & !0x1FFFF == ZONE_LIST_BASE), "reads stay in the half");
+    }
+
+    /// A restore of a backup that holds only one of the two windows sharing the
+    /// radio-ID half (the radio-ID list and the primary ID) keeps the other.
+    #[test]
+    fn a_restore_carries_the_windows_its_backup_does_not_hold() {
+        use crate::radios::anytone_atd890uv::carry_blocks;
+        use crate::radios::anytone_atd890uv::settings::{PRIMARY_ID_BASE, RADIO_ID_BASE};
+        let mut p = rebuilding_port();
+        p.radio.seed(RADIO_ID_BASE, &[0x11; 0x40]);
+        p.radio.seed(PRIMARY_ID_BASE, &[0x22; 0x40]);
+        enter_program_and_ident(&mut p).unwrap();
+
+        let backup = vec![(RADIO_ID_BASE, vec![0x33u8; WRITE_WINDOW])];
+        let blocks = carry_blocks(&mut p, &backup).unwrap();
+        assert_eq!(blocks.iter().map(|(a, _)| *a).collect::<Vec<_>>(), vec![RADIO_ID_BASE, PRIMARY_ID_BASE]);
+        assert_eq!(blocks[0].1, vec![0x33u8; WRITE_WINDOW], "the file's window wins");
+        for (a, d) in &blocks {
+            write_block(&mut p, *a, d).unwrap();
+        }
+        end_session(&mut p).unwrap();
+        assert_eq!(p.radio.peek(RADIO_ID_BASE, 2), vec![0x33, 0x33]);
+        assert_eq!(p.radio.peek(PRIMARY_ID_BASE, 0x40), vec![0x22; 0x40]);
     }
 }
