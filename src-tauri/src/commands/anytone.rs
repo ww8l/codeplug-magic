@@ -313,7 +313,7 @@ pub fn run_noop_bank_test(
         .map_err(|e| format!("could not write backup {}: {e}", backup_path.display()))?;
 
     // Write the identical bytes back, then commit (END reboots the radio).
-    write_block(&mut *p, base, &bank)?;
+    crate::radios::anytone_atd890uv::write_carrying(&mut *p, base, &bank)?;
     let _ = end_session(&mut *p);
 
     Ok(AnytoneBankNoopResult {

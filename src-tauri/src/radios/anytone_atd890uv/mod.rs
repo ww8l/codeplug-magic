@@ -34,7 +34,7 @@
 //! or data from that project into this tree. `qdmr` is GPLv3 and compatible; see the
 //! Licence section of the README for the full accounting.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -284,6 +284,13 @@ pub(crate) const CONTACT_DMR_ID: usize = 0x02;
 pub(crate) const CONTACT_NAME: usize = 0x06;
 pub(crate) const CONTACT_NAME_CHARS: usize = 16;
 pub(crate) const MAX_CONTACTS_READ: usize = 4000;
+/// Contacts this driver WRITES: as many whole records as fit in the contact
+/// bank's first 128 KB flash half (0x20000 / 0xC8 = 655). Past it the records
+/// would run into the half the radio keeps its `22334455`/`5555AAAA` markers in
+/// (0x03A20000), and reads at 0x03A40000 return the bank's first records again
+/// — so where record 656 really lives is unmeasured (#143). Raise this only
+/// from a radio-authored file holding more contacts.
+pub(crate) const MAX_CONTACTS_WRITE: usize = FLASH_HALF as usize / CONTACT_REC_LEN;
 
 // ============================================================
 // Tauri commands
@@ -433,7 +440,7 @@ pub(crate) fn writable_window_name(addr: u32) -> Option<&'static str> {
     if run(SCAN_LIST_BASE, scan_windows) {
         return Some("scan lists");
     }
-    let contact_windows = (MAX_CONTACTS_READ * CONTACT_REC_LEN).div_ceil(WRITE_WINDOW) as u32;
+    let contact_windows = (MAX_CONTACTS_WRITE * CONTACT_REC_LEN).div_ceil(WRITE_WINDOW) as u32;
     if run(CONTACT_BASE, contact_windows) {
         return Some("DMR contacts");
     }
@@ -474,6 +481,15 @@ pub(crate) fn writable_window_name(addr: u32) -> Option<&'static str> {
 /// the port. What it proves is that the file describes windows this app knows
 /// how to write.
 pub(crate) fn check_restore_blocks(blocks: &[(u32, Vec<u8>)]) -> Result<(), String> {
+    // A window carried unchanged beside an owned one (#143) shares its half.
+    let owned_halves: BTreeSet<u32> = blocks
+        .iter()
+        .flat_map(|(addr, data)| {
+            (0..data.len().div_ceil(WRITE_WINDOW)).map(move |w| addr + (w * WRITE_WINDOW) as u32)
+        })
+        .filter(|&a| writable_window_name(a).is_some())
+        .map(half_of)
+        .collect();
     for (addr, data) in blocks {
         if !(*addr as usize).is_multiple_of(WRITE_WINDOW) || data.len() % WRITE_WINDOW != 0 {
             return Err(format!(
@@ -483,7 +499,7 @@ pub(crate) fn check_restore_blocks(blocks: &[(u32, Vec<u8>)]) -> Result<(), Stri
         }
         for w in 0..data.len() / WRITE_WINDOW {
             let a = addr + (w * WRITE_WINDOW) as u32;
-            if writable_window_name(a).is_none() {
+            if writable_window_name(a).is_none() && !owned_halves.contains(&half_of(a)) {
                 return Err(format!(
                     "block 0x{a:08X} is not a region this app ever writes on a D890UV — \
                      refusing to restore it. Pick a backup written by Codeplug Magic's \
@@ -1108,7 +1124,7 @@ pub(crate) fn write_slot_record(
     let original_bank = read_block(p, base, bank_len)?;
     let mut bank = original_bank.clone();
     bank[rec_off..rec_off + CH_REC_LEN].copy_from_slice(record);
-    write_block(p, base, &bank)?;
+    write_carrying(p, base, &bank)?;
     Ok(original_bank)
 }
 
@@ -1869,7 +1885,10 @@ pub fn run_patch_writes(
     let mut p = open_port(port)?;
     let _ident = enter_program_and_ident(&mut *p)?;
 
-    let plans = match plan_patch_writes(&mut *p, patches) {
+    let plans = match plan_patch_writes(&mut *p, patches).and_then(|plans| {
+        let mut reads = plans.iter().map(|pl| (pl.base, pl.original.clone())).collect();
+        carry_halves(&mut *p, plans, &mut reads)
+    }) {
         Ok(v) => v,
         Err(e) => {
             let _ = end_session(&mut *p);
@@ -2197,9 +2216,9 @@ pub fn contact_write_patches(
 ) -> Result<Vec<RegionPatch>, String> {
     let mut patches = Vec::new();
     for w in writes {
-        if w.index >= MAX_CONTACTS_READ {
+        if w.index >= MAX_CONTACTS_WRITE {
             return Err(format!(
-                "contact index {} out of range (0..{MAX_CONTACTS_READ})",
+                "contact index {} out of range (0..{MAX_CONTACTS_WRITE})",
                 w.index
             ));
         }
@@ -2266,7 +2285,7 @@ pub fn run_noop_window(port: &str, base: u32) -> Result<Vec<u8>, String> {
             return Err(e);
         }
     };
-    if let Err(e) = write_block(&mut *p, base, &original) {
+    if let Err(e) = write_carrying(&mut *p, base, &original) {
         let _ = end_session(&mut *p);
         return Err(e);
     }
@@ -2303,10 +2322,169 @@ pub(crate) fn plans_from_pre_read(
     Ok(plans)
 }
 
+// ============================================================
+// Flash halves (#143)
+// ============================================================
+//
+// The radio's write unit is a 128 KB flash HALF, not the 0x4000 window: a
+// session that writes any window of a half makes the radio rebuild that half
+// from ONLY the data the session sent. HW-proven 2026-11-22 the hard way — an
+// identical-bytes write of the ERASED window 0x02004000 wiped the zone lists
+// at 0x02000000 (same half), the radio booted to "Program error, please
+// initialize the radio", and it had to be initialized. The AT-D578UV does the
+// same (its `with_carried_windows`); the session-19 "sector erase" brick was
+// almost certainly this too.
+//
+// So every write session also rewrites, unchanged, each other window of a
+// touched half that holds data. Unlike the D578, a D890 data half carries no
+// marker frame. In the codeplug regions each 256 KB block is a data half then a
+// half holding only `22334455` @+0x1FBF4 and `5555AAAA` @+0x1FFFC (14 of 14
+// read on Tim's radio); none of the windows this driver writes there reaches
+// one (contacts are capped below it — [`MAX_CONTACTS_WRITE`]). The call-sign
+// DB at 0x0700_0000+ is different: its banks fill whole blocks and are written
+// whole, so nothing beside them needs carrying.
+
+/// A flash half: the unit the radio rebuilds on a write.
+pub(crate) const FLASH_HALF: u32 = 0x0002_0000;
+
+pub(crate) fn half_of(addr: u32) -> u32 {
+    addr & !(FLASH_HALF - 1)
+}
+
+/// Every window of every half `bases` land in.
+pub(crate) fn windows_of_halves(bases: impl IntoIterator<Item = u32>) -> BTreeSet<u32> {
+    bases
+        .into_iter()
+        .map(half_of)
+        .flat_map(|h| (0..FLASH_HALF / WRITE_WINDOW as u32).map(move |i| h + i * WRITE_WINDOW as u32))
+        .collect()
+}
+
+/// `plans` plus, for every half they touch, each other window of that half
+/// holding data (anything but erased 0xFF), rewritten unchanged so the radio's
+/// rebuild of the half keeps it. `reads` must hold every window of every
+/// touched half ([`windows_of_halves`]).
+pub(crate) fn with_carried_windows(
+    mut plans: Vec<BankPlan>,
+    reads: &std::collections::BTreeMap<u32, Vec<u8>>,
+) -> Result<Vec<BankPlan>, String> {
+    let planned: BTreeSet<u32> = plans.iter().map(|p| p.base).collect();
+    for w in windows_of_halves(planned.iter().copied()) {
+        if planned.contains(&w) {
+            continue;
+        }
+        let data = reads
+            .get(&w)
+            .ok_or_else(|| format!("internal: window 0x{w:08X} of a written half was not read"))?;
+        if data.iter().any(|&b| b != 0xFF) {
+            plans.push(BankPlan { base: w, original: data.clone(), patched: data.clone() });
+        }
+    }
+    plans.sort_by_key(|p| p.base);
+    Ok(plans)
+}
+
+/// Read whatever of the touched halves `reads` does not already hold, then
+/// carry their data ([`with_carried_windows`]). Read-only on the radio.
+pub(crate) fn carry_halves(
+    p: &mut dyn SerialPort,
+    plans: Vec<BankPlan>,
+    reads: &mut std::collections::BTreeMap<u32, Vec<u8>>,
+) -> Result<Vec<BankPlan>, String> {
+    for w in windows_of_halves(plans.iter().map(|pl| pl.base)) {
+        if let std::collections::btree_map::Entry::Vacant(e) = reads.entry(w) {
+            e.insert(read_block(p, w, WRITE_WINDOW)?);
+        }
+    }
+    with_carried_windows(plans, reads)
+}
+
+/// Restore blocks plus the radio's own data from the rest of every half they
+/// touch, as whole windows in address order — what a restore session must send
+/// so the radio's rebuild of each half keeps what the file does not hold. The
+/// file's windows win over what the radio holds now. Read-only on the radio.
+pub(crate) fn carry_blocks(
+    p: &mut dyn SerialPort,
+    blocks: &[(u32, Vec<u8>)],
+) -> Result<Vec<(u32, Vec<u8>)>, String> {
+    let mut reads = std::collections::BTreeMap::new();
+    let mut plans = Vec::new();
+    for (addr, data) in blocks {
+        for (i, w) in data.chunks(WRITE_WINDOW).enumerate() {
+            let base = addr + (i * WRITE_WINDOW) as u32;
+            reads.insert(base, w.to_vec());
+            plans.push(BankPlan { base, original: w.to_vec(), patched: w.to_vec() });
+        }
+    }
+    Ok(carry_halves(p, plans, &mut reads)?
+        .into_iter()
+        .map(|pl| (pl.base, pl.patched))
+        .collect())
+}
+
+/// Write whole windows starting at `addr`, plus the rest of every flash half
+/// they land in, so the radio's rebuild of the half keeps it (#143).
+pub(crate) fn write_carrying(p: &mut dyn SerialPort, addr: u32, data: &[u8]) -> Result<(), String> {
+    for (a, d) in carry_blocks(p, &[(addr, data.to_vec())])? {
+        write_block(p, a, &d)?;
+    }
+    Ok(())
+}
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- #143 flash halves ----------------------------------------------------
+
+    #[test]
+    fn carried_windows_are_the_populated_rest_of_each_touched_half() {
+        let plan = |base: u32| BankPlan { base, original: vec![0u8; WRITE_WINDOW], patched: vec![1u8; WRITE_WINDOW] };
+        let mut reads = std::collections::BTreeMap::new();
+        for w in windows_of_halves([ZONE_LIST_BASE]) {
+            reads.insert(w, vec![0xFFu8; WRITE_WINDOW]);
+        }
+        let w3 = ZONE_LIST_BASE + 3 * WRITE_WINDOW as u32;
+        reads.get_mut(&w3).unwrap()[7] = 0x00;
+        let plans = with_carried_windows(vec![plan(ZONE_LIST_BASE)], &reads).unwrap();
+        assert_eq!(plans.iter().map(|p| p.base).collect::<Vec<_>>(), vec![ZONE_LIST_BASE, w3]);
+        assert_eq!(plans[1].original, plans[1].patched, "carried unchanged");
+        // Nothing planned → nothing carried; an unread window is a logic error.
+        assert!(with_carried_windows(Vec::new(), &reads).unwrap().is_empty());
+        reads.remove(&w3);
+        assert!(with_carried_windows(vec![plan(ZONE_LIST_BASE)], &reads).is_err());
+    }
+
+    #[test]
+    fn a_restore_accepts_a_carried_window_only_beside_an_owned_one() {
+        let w = vec![0u8; WRITE_WINDOW];
+        let carried = settings::RADIO_ID_BASE + 2 * WRITE_WINDOW as u32;
+        assert!(writable_window_name(carried).is_none());
+        assert!(check_restore_blocks(&[(carried, w.clone())]).is_err(), "alone it is refused");
+        assert!(check_restore_blocks(&[(settings::RADIO_ID_BASE, w.clone()), (carried, w.clone())]).is_ok());
+        // A window in a half nothing owned is written to stays refused.
+        assert!(check_restore_blocks(&[(settings::RADIO_ID_BASE, w.clone()), (0x0370_4000, w)]).is_err());
+    }
+
+    #[test]
+    fn halves_are_128k_and_eight_windows() {
+        assert_eq!(half_of(0x0368_4000), 0x0368_0000, "radio-ID list and primary ID share a half");
+        assert_eq!(half_of(0x0210_0000), 0x0210_0000);
+        assert_eq!(windows_of_halves([0x0201_C000]).len(), 8);
+    }
+
+    #[test]
+    fn contacts_written_stay_inside_the_banks_first_half() {
+        assert_eq!(MAX_CONTACTS_WRITE, 655);
+        let end = CONTACT_BASE + (MAX_CONTACTS_WRITE * CONTACT_REC_LEN) as u32;
+        assert!(end <= CONTACT_BASE + FLASH_HALF);
+        assert!(contact_write_patches(&[AnytoneContactWrite {
+            index: MAX_CONTACTS_WRITE,
+            edit: AnytoneContactEdit { call_type: Some(1), call_alert: None, dmr_id: None, name: None },
+        }])
+        .is_err());
+    }
 
     #[test]
     fn capabilities_derive_settings_callsign_export_and_diagnostics() {
@@ -2449,7 +2627,7 @@ mod tests {
         for w in 0..(MAX_SCAN_LISTS * SCAN_LIST_STEP as usize).div_ceil(WRITE_WINDOW) {
             bases.push(SCAN_LIST_BASE + (w * WRITE_WINDOW) as u32);
         }
-        for w in 0..(MAX_CONTACTS_READ * CONTACT_REC_LEN).div_ceil(WRITE_WINDOW) {
+        for w in 0..(MAX_CONTACTS_WRITE * CONTACT_REC_LEN).div_ceil(WRITE_WINDOW) {
             bases.push(CONTACT_BASE + (w * WRITE_WINDOW) as u32);
         }
         bases.push(CONTACT_INDEX_BASE);
@@ -2492,7 +2670,7 @@ mod tests {
         assert!(check_restore_blocks(&[(callsign_db::DB_BASE, vec![0u8; win])]).is_err());
         // A multi-window block that starts legal and runs off the end of the
         // contact array — the per-window loop is what catches this.
-        let contact_windows = (MAX_CONTACTS_READ * CONTACT_REC_LEN).div_ceil(WRITE_WINDOW);
+        let contact_windows = (MAX_CONTACTS_WRITE * CONTACT_REC_LEN).div_ceil(WRITE_WINDOW);
         let last = CONTACT_BASE + ((contact_windows - 1) * WRITE_WINDOW) as u32;
         assert!(check_restore_blocks(&[(last, vec![0u8; win])]).is_ok());
         assert!(check_restore_blocks(&[(last, vec![0u8; win * 2])]).is_err());
