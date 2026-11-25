@@ -69,6 +69,37 @@ pub(crate) const D578_IDENT: IdentExpect = IdentExpect {
     revision: Some("V111"),
 };
 
+/// What differs between the radios that share this module's record layouts —
+/// the D578UV and the D868UV (`anytone_atd868uv`). Their channel, zone, scan
+/// list, radio-ID and contact records sit at the same addresses with the same
+/// bytes, so the encoders, the window planner and the flash-half rule here
+/// serve both; these are the parts that do not.
+pub(crate) struct FamilyModel {
+    /// The ident a session must find before it reads or writes anything.
+    pub ident: IdentExpect,
+    /// The family planner's limits and CTCSS table.
+    pub limits: crate::radios::anytone_atd890uv::program::PlanLimits,
+    /// The contact ID table (the D578's at 0x04800000, the D868's at 0x04340000).
+    pub contact_id_table: u32,
+    /// Whether the radio has the separate AM air-band memory (the D578 does).
+    pub air_band: bool,
+    /// The record an empty slot starts from: the radio's own majority bytes.
+    pub template: fn() -> [u8; CH_REC_LEN],
+    /// File-name prefix of a program backup and its expected image. Distinct
+    /// per model, so one radio's Verify or Restore cannot be pointed at
+    /// another's file.
+    pub program_prefix: &'static str,
+}
+
+pub(crate) const D578_MODEL: FamilyModel = FamilyModel {
+    ident: D578_IDENT,
+    limits: program::D578_LIMITS,
+    contact_id_table: CONTACT_ID_TABLE,
+    air_band: true,
+    template: channel_record_template,
+    program_prefix: program::PROGRAM_PREFIX,
+};
+
 impl RadioDriver for AnytoneAtd578uv {
     /// AM goes to the air-band memory, and only on the air band — `program::plan_d578`.
     fn analog_modes(&self) -> &'static [&'static str] {
@@ -735,7 +766,14 @@ pub(crate) fn with_carried_windows(
 /// Anything else is refused unless it is carried unchanged beside an owned
 /// window ([`with_carried_windows`]) — a backup from another radio, or a bug,
 /// cannot reach the call-sign database or the VFOs' own regions this way.
+#[cfg(test)]
 pub(crate) fn writable_window_name(addr: u32) -> Option<&'static str> {
+    writable_window_name_for(&D578_MODEL, addr)
+}
+
+/// [`writable_window_name`] for any model sharing this map: the air band only
+/// where the radio has one, and the model's own contact ID table.
+pub(crate) fn writable_window_name_for(model: &FamilyModel, addr: u32) -> Option<&'static str> {
     let win = WRITE_WINDOW as u32;
     if !addr.is_multiple_of(win) {
         return None;
@@ -765,7 +803,7 @@ pub(crate) fn writable_window_name(addr: u32) -> Option<&'static str> {
     if addr == settings::SETTINGS_WINDOW {
         return Some("settings");
     }
-    if addr == AIR_BASE {
+    if model.air_band && addr == AIR_BASE {
         return Some("air band");
     }
     if addr == settings::RADIO_ID_BASE {
@@ -784,7 +822,7 @@ pub(crate) fn writable_window_name(addr: u32) -> Option<&'static str> {
     if addr == CONTACT_BITMAP_BASE {
         return Some("contact bitmap");
     }
-    if run(CONTACT_ID_TABLE, ((MAX_CONTACTS + 1) * CONTACT_ID_ENTRY).div_ceil(WRITE_WINDOW) as u32) {
+    if run(model.contact_id_table, ((MAX_CONTACTS + 1) * CONTACT_ID_ENTRY).div_ceil(WRITE_WINDOW) as u32) {
         return Some("contact ID table");
     }
     None
@@ -794,6 +832,12 @@ pub(crate) fn writable_window_name(addr: u32) -> Option<&'static str> {
 /// halves this driver writes: a window it owns, or a window carried unchanged
 /// because it shares a half with one ([`with_carried_windows`]).
 pub(crate) fn check_restore_blocks(blocks: &[(u32, Vec<u8>)]) -> Result<(), String> {
+    check_restore_blocks_for(&D578_MODEL, blocks)
+}
+
+/// [`check_restore_blocks`] for any model sharing this map.
+pub(crate) fn check_restore_blocks_for(model: &FamilyModel, blocks: &[(u32, Vec<u8>)]) -> Result<(), String> {
+    let writable_window_name = |a: u32| writable_window_name_for(model, a);
     let mut owned_halves = BTreeSet::new();
     for (addr, data) in blocks {
         for w in 0..data.len().div_ceil(WRITE_WINDOW) {
@@ -822,8 +866,9 @@ pub(crate) fn check_restore_blocks(blocks: &[(u32, Vec<u8>)]) -> Result<(), Stri
             let a = addr + (w * WRITE_WINDOW) as u32;
             if writable_window_name(a).is_none() && !owned_halves.contains(&half_of(a)) {
                 return Err(format!(
-                    "block 0x{a:08X} is not a region this app writes on a D578UV — refusing to \
-                     restore it"
+                    "block 0x{a:08X} is not a region this app writes on a {} — refusing to \
+                     restore it",
+                    model.ident.name
                 ));
             }
         }

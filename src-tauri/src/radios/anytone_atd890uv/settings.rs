@@ -158,6 +158,24 @@ pub(crate) enum SK {
     /// A DMR ID as 4 bytes of big-endian packed BCD, shown as a number.
     #[allow(dead_code)]
     BcdId,
+    /// A DTMF digit string, ONE digit code per byte (0-9, A-D as 0x0A-0x0D,
+    /// `*` as 0x0E, `#` as 0x0F) padded with 0xFF, shown as text ("12A*").
+    /// The D868UV's DTMF IDs, in qdmr's encoding: the same codes as the
+    /// interval character and group code, which the CPS writes as these values.
+    #[allow(dead_code)]
+    Digits { len: u8 },
+}
+
+/// The DTMF digit a code stands for, and back.
+const DTMF_DIGITS: &[u8; 16] = b"0123456789ABCD*#";
+
+/// A DTMF string as digit codes; `None` if any character is not a DTMF digit.
+pub(crate) fn dtmf_codes(s: &str) -> Option<Vec<u8>> {
+    s.trim()
+        .to_ascii_uppercase()
+        .bytes()
+        .map(|c| DTMF_DIGITS.iter().position(|&d| d == c).map(|i| i as u8))
+        .collect()
 }
 
 include!("anytone_settings_table.rs");
@@ -286,6 +304,17 @@ pub(crate) fn decode_field(buf: &[u8], off: usize, kind: &SK) -> Value {
             v => Value::from(mhz_text(v)),
         },
         SK::BcdId => Value::from(bcd_be_decode(buf.get(off..off + 4).unwrap_or(&[])).unwrap_or(0)),
+        SK::Digits { len } => {
+            let end = (off + *len as usize).min(buf.len());
+            let s: String = buf
+                .get(off..end)
+                .unwrap_or(&[])
+                .iter()
+                .take_while(|&&b| b < 16)
+                .map(|&b| DTMF_DIGITS[b as usize] as char)
+                .collect();
+            Value::from(s)
+        }
     }
 }
 
@@ -397,6 +426,17 @@ pub(crate) fn encode_field_into(buf: &mut [u8], off: usize, kind: &SK, v: &Value
             if let (Some(id), true) = (as_u32(v), off + 4 <= buf.len()) {
                 if id <= 99_999_999 {
                     buf[off..off + 4].copy_from_slice(&bcd_be_encode(id));
+                }
+            }
+        }
+        SK::Digits { len } => {
+            // A string with a non-DTMF character, or one too long, leaves the
+            // radio's bytes alone rather than writing part of it.
+            let n = *len as usize;
+            if let Some(codes) = v.as_str().and_then(dtmf_codes).filter(|c| c.len() <= n) {
+                if off + n <= buf.len() {
+                    buf[off..off + n].fill(0xFF);
+                    buf[off..off + codes.len()].copy_from_slice(&codes);
                 }
             }
         }
@@ -755,6 +795,7 @@ mod tests {
             let w = match &f.kind {
                 SK::Uint { width } | SK::Enum { width, .. } => *width as usize,
                 SK::Text { len } => *len as usize,
+                SK::Digits { len } => *len as usize,
                 SK::Utf16 { chars } => *chars as usize * 2,
                 _ => 1,
             };

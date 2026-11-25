@@ -760,6 +760,64 @@ fn models() -> Vec<ModelSeed> {
             non_channel_settings_schema: include_str!("anytone_d578_settings_schema.json"),
         },
         // --------------------------------------------------------
+        // 3c. AnyTone AT-D868UV — DMR Tier I/II + analog FM dual-band HT
+        //     (issue #51). The D578's memory map — the D868 is the base of
+        //     that family — so the D578's encoders and programmer serve it
+        //     (radios/anytone_atd868uv/). 4000 channels, 250 zones of up to
+        //     250, 250 scan lists of 50, 16-char ASCII names, 10,000
+        //     contacts. No air band, no Bluetooth, no 220.
+        //     Bands: the anchor radio's ident carries band code 0x00, which
+        //     qdmr maps to TX and RX on 136-174 and 400-480 MHz (the CPS and
+        //     the radio's own VFO scan limits agree: 136/174, 400/480). Other
+        //     units ship with narrower codes (qdmr's 0x01-0x0C) and refuse
+        //     the rest themselves. UNVERIFIED until the step-7 band probe.
+        //     aprs_capable: DMR APRS — position reports over DMR to a DMR ID,
+        //     no analog APRS and no TNC — the same call as the ID-52's D-PRS.
+        //     Its block at 0x02501000 is in the schema (qdmr and dmr-tools
+        //     agree, and the radio's data fills exactly its 34 bytes).
+        // --------------------------------------------------------
+        ModelSeed {
+            manufacturer: "AnyTone",
+            model: "AT-D868UV",
+            driver_key: Some("anytone_atd868uv"),
+            programming_ui: Some("anytone"),
+            display_name: "AnyTone AT-D868UV",
+            analog_capable: true,
+            dmr_capable: true,
+            dstar_capable: false,
+            ysf_capable: false,
+            nxdn_capable: false,
+            p25_capable: false,
+            m17_capable: false,
+            aprs_capable: true,
+            covers_hf: false,
+            covers_vhf: true,
+            covers_uhf: true,
+            covers_220: false,
+            covers_900: false,
+            freq_min: 136.0,
+            freq_max: 480.0,
+            tx_bands: Some("[[136.0,174.0],[400.0,480.0]]"),
+            rx_bands: Some("[[136.0,174.0],[400.0,480.0]]"),
+            memory_channels: 4000,
+            zones_supported: true,
+            max_zones: Some(250),
+            channels_per_zone: Some(250),
+            scan_lists_supported: true,
+            max_scan_lists: Some(250),
+            banks_supported: false,
+            max_name_length: 16,
+            export_format: "anytone_csv",
+            connection_type: "USB (CPS cable)",
+            // 156 fields for 152 of the 197 controls the OEM CPS shows (DMR APRS
+            // latitude/longitude are three bytes each), GENERATED with the Rust
+            // table from the measurement sheet (scratchpad/anytone_atd868uv/
+            // gen_d868_settings.py), plus the radio's own DMR ID and name. The
+            // 45 withheld are listed in the table's header. The radio's Radio
+            // Set menu has 45 items (fw 2.x; the 2017 manual's ~33 are fw 1.x).
+            non_channel_settings_schema: include_str!("anytone_d868_settings_schema.json"),
+        },
+        // --------------------------------------------------------
         // 4. Yaesu FT5D — C4FM (System Fusion) + analog FM dual-band
         //    HT, 900 memories in 24 banks, 16-char alpha tags, 5 W.
         //    Covers the FT5DR (US/Asia/AU) and FT5DE (EU) variants;
