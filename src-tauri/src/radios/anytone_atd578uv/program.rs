@@ -26,7 +26,7 @@ use serialport::SerialPort;
 
 use crate::radios::anytone_atd890uv::program::{plan_program_for, AnytoneProgramPlan, PlanLimits};
 use crate::radios::anytone_atd890uv::{
-    end_session, open_port, plans_from_pre_read, read_block,
+    end_session, enter_program_and_ident_as, open_port, plans_from_pre_read, read_block,
     serialize_backup, BankPlan, RegionPatch, WRITE_WINDOW,
 };
 use crate::commands::export::ExpandedChannel;
@@ -77,9 +77,37 @@ fn in_air_band(mhz: f64) -> bool {
 /// the family planner would otherwise program an AM row as FM. Anything else in
 /// 108-136 is skipped too: that span is in `rx_bands` only for the air band,
 /// and the channel memories do not receive there.
+#[cfg(test)]
 pub(crate) fn plan_d578(payload: &CodeplugPayload) -> Result<D578Plan, String> {
+    plan_for(&D578_MODEL, payload)
+}
+
+/// Plan a program for any model sharing this map. A model without an air band
+/// (the D868UV) skips every AM channel with a reason: its channel memories hold
+/// FM and DMR only.
+pub(crate) fn plan_for(model: &FamilyModel, payload: &CodeplugPayload) -> Result<D578Plan, String> {
     let (am, rest): (Vec<ExpandedChannel>, Vec<ExpandedChannel>) =
         payload.channels.iter().cloned().partition(is_am);
+    if !model.air_band {
+        let filtered = CodeplugPayload {
+            model: payload.model,
+            groups: payload.groups,
+            channels: &rest,
+            scan_lists: payload.scan_lists,
+            scan_list_overrides: payload.scan_list_overrides,
+            contact_users: payload.contact_users,
+        };
+        let mut base = plan_program_for(&filtered, &model.limits)?;
+        let mut seen = BTreeSet::new();
+        for ec in am.iter().filter(|ec| seen.insert(ec.channel.id)) {
+            let c = &ec.channel;
+            base.skipped.push(SkippedChannel {
+                name: c.name_long.clone().or_else(|| c.name_short.clone()).unwrap_or_default(),
+                reason: format!("AM at {:.4} MHz — the {} has no AM receive", c.rx_freq, base.radio),
+            });
+        }
+        return Ok(D578Plan { base, air: Vec::new() });
+    }
     let (in_air, rest): (Vec<ExpandedChannel>, Vec<ExpandedChannel>) =
         rest.into_iter().partition(|ec| in_air_band(ec.channel.rx_freq) && ec.channel.rx_freq < AIR_MAX_MHZ);
     let filtered = CodeplugPayload {
@@ -90,7 +118,7 @@ pub(crate) fn plan_d578(payload: &CodeplugPayload) -> Result<D578Plan, String> {
         scan_list_overrides: payload.scan_list_overrides,
         contact_users: payload.contact_users,
     };
-    let mut base = plan_program_for(&filtered, &D578_LIMITS)?;
+    let mut base = plan_program_for(&filtered, &model.limits)?;
     for ec in &in_air {
         let c = &ec.channel;
         base.skipped.push(SkippedChannel {
@@ -195,7 +223,19 @@ fn contact_count(index_list: &[u8]) -> usize {
 
 /// Every window the program reads (and may write), given the plan, what the
 /// bitmaps say is on the radio, and the old contact count.
+#[cfg(test)]
 pub(crate) fn windows_to_read(
+    plan: &AnytoneProgramPlan,
+    air: &[AirChannel],
+    on: &OnRadio,
+    old_contacts: usize,
+) -> BTreeSet<u32> {
+    windows_to_read_for(&D578_MODEL, plan, air, on, old_contacts)
+}
+
+/// [`windows_to_read`] for any model sharing this map.
+pub(crate) fn windows_to_read_for(
+    model: &FamilyModel,
     plan: &AnytoneProgramPlan,
     air: &[AirChannel],
     on: &OnRadio,
@@ -236,8 +276,8 @@ pub(crate) fn windows_to_read(
         w.insert(window_of(CONTACT_INDEX_BASE + i as u32 * 4));
     }
     for i in 0..=contacts {
-        w.insert(window_of(CONTACT_ID_TABLE + (i * CONTACT_ID_ENTRY) as u32));
-        w.insert(window_of(CONTACT_ID_TABLE + ((i + 1) * CONTACT_ID_ENTRY) as u32 - 1));
+        w.insert(window_of(model.contact_id_table + (i * CONTACT_ID_ENTRY) as u32));
+        w.insert(window_of(model.contact_id_table + ((i + 1) * CONTACT_ID_ENTRY) as u32 - 1));
     }
     w.insert(CONTACT_BITMAP_BASE);
     w
@@ -254,6 +294,7 @@ pub(crate) struct Cleared {
 
 /// Every byte range the program writes, computed from the plan and the windows
 /// read in phase 1. Pure.
+#[cfg(test)]
 pub(crate) fn patches_for(
     plan: &AnytoneProgramPlan,
     air: &[AirChannel],
@@ -261,6 +302,22 @@ pub(crate) fn patches_for(
     old_contacts: usize,
     windows: &BTreeMap<u32, Vec<u8>>,
 ) -> Result<(Vec<RegionPatch>, Cleared), String> {
+    patches_for_model(&D578_MODEL, plan, air, on, old_contacts, windows)
+}
+
+/// [`patches_for`] for any model sharing this map: its blank-slot template, its
+/// contact ID table and its write guard.
+pub(crate) fn patches_for_model(
+    model: &FamilyModel,
+    plan: &AnytoneProgramPlan,
+    air: &[AirChannel],
+    on: &OnRadio,
+    old_contacts: usize,
+    windows: &BTreeMap<u32, Vec<u8>>,
+) -> Result<(Vec<RegionPatch>, Cleared), String> {
+    if !air.is_empty() && !model.air_band {
+        return Err(format!("internal: the {} has no air band", model.ident.name));
+    }
     let read_at = |addr: u32, len: usize| -> Result<Vec<u8>, String> {
         let base = window_of(addr);
         let w = windows
@@ -281,7 +338,7 @@ pub(crate) fn patches_for(
         let mut rec = if present.contains(&slot0) {
             read_at(addr, CH_REC_LEN)?
         } else {
-            channel_record_template().to_vec()
+            (model.template)().to_vec()
         };
         encode_channel_into(&mut rec, &pc.edit)?;
         apply_tone_squelch(&mut rec, &pc.edit);
@@ -369,7 +426,7 @@ pub(crate) fn patches_for(
         &plan.contacts.iter().map(|c| (c.call_type, c.tg_number, c.index as u32)).collect::<Vec<_>>(),
     );
     table.resize(table.len().max((old_contacts + 1) * CONTACT_ID_ENTRY), 0xFF);
-    patches.push(RegionPatch { addr: CONTACT_ID_TABLE, data: table });
+    patches.push(RegionPatch { addr: model.contact_id_table, data: table });
 
     // ---- Air band: every slot rewritten (programmed or cleared), with its
     // present and scan bitmaps; every programmed air channel is scanned.
@@ -401,7 +458,7 @@ pub(crate) fn patches_for(
 
     for p in &patches {
         for a in [window_of(p.addr), window_of(p.addr + p.data.len() as u32 - 1)] {
-            if writable_window_name(a).is_none() {
+            if writable_window_name_for(model, a).is_none() {
                 return Err(format!("internal: refusing to write window 0x{a:08X}"));
             }
         }
@@ -423,6 +480,7 @@ fn read_windows(
 
 /// The hardware session: phase-1 reads, backup + expected image, write, END.
 fn run_program(
+    model: &FamilyModel,
     port: &str,
     d578: &D578Plan,
     backup_path: &Path,
@@ -430,7 +488,7 @@ fn run_program(
 ) -> Result<ProgramReport, String> {
     let (plan, air) = (&d578.base, &d578.air[..]);
     let mut p = open_port(port)?;
-    let _ident = enter(&mut *p)?;
+    let _ident = enter_program_and_ident_as(&mut *p, model.ident)?;
 
     // ---- Phase 1: reads only. Any error ends the session with the radio
     // untouched.
@@ -444,11 +502,11 @@ fn run_program(
             let rest = read_block(&mut *p, CONTACT_INDEX_BASE + WRITE_WINDOW as u32, MAX_CONTACTS * 4 - WRITE_WINDOW)?;
             old_contacts += contact_count(&rest);
         }
-        let mut want = windows_to_read(plan, air, &on, old_contacts);
+        let mut want = windows_to_read_for(model, plan, air, &on, old_contacts);
         want.remove(&BITMAP_WINDOW);
         let mut windows = read_windows(&mut *p, &want)?;
         windows.insert(BITMAP_WINDOW, bitmap);
-        let (patches, cleared) = patches_for(plan, air, &on, old_contacts, &windows)?;
+        let (patches, cleared) = patches_for_model(model, plan, air, &on, old_contacts, &windows)?;
         let plans = plans_from_pre_read(&windows, &patches)?;
         // Read the rest of every half a write lands in, and carry its data.
         let rest: BTreeSet<u32> = windows_of_touched_halves(&plans)
@@ -514,7 +572,7 @@ fn run_program(
 
 impl CodeplugProgrammer for AnytoneAtd578uv {
     fn preview(&self, payload: &CodeplugPayload) -> Result<CodeplugPreview, String> {
-        Ok(plan_d578(payload)?.base.preview())
+        preview_model(&D578_MODEL, payload)
     }
 
     fn program(
@@ -523,20 +581,36 @@ impl CodeplugProgrammer for AnytoneAtd578uv {
         payload: &CodeplugPayload,
         backup_dir: &Path,
     ) -> Result<ProgramReport, String> {
-        let plan = plan_d578(payload)?;
-        if plan.base.channels.is_empty() {
-            return Err(
-                "this codeplug has no programmable channels — add channel lists (or check the \
-                 preview's skipped reasons)"
-                    .to_string(),
-            );
-        }
-        std::fs::create_dir_all(backup_dir).map_err(|e| e.to_string())?;
-        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-        let backup_path = backup_dir.join(format!("{PROGRAM_PREFIX}{stamp}.bin"));
-        let expected_path = backup_dir.join(format!("{PROGRAM_PREFIX}{stamp}.expected.bin"));
-        run_program(port, &plan, &backup_path, &expected_path)
+        program_model(&D578_MODEL, port, payload, backup_dir)
     }
+}
+
+/// `CodeplugProgrammer::preview` for any model sharing this map.
+pub(crate) fn preview_model(model: &FamilyModel, payload: &CodeplugPayload) -> Result<CodeplugPreview, String> {
+    Ok(plan_for(model, payload)?.base.preview())
+}
+
+/// `CodeplugProgrammer::program` for any model sharing this map.
+pub(crate) fn program_model(
+    model: &FamilyModel,
+    port: &str,
+    payload: &CodeplugPayload,
+    backup_dir: &Path,
+) -> Result<ProgramReport, String> {
+    let plan = plan_for(model, payload)?;
+    if plan.base.channels.is_empty() {
+        return Err(
+            "this codeplug has no programmable channels — add channel lists (or check the \
+             preview's skipped reasons)"
+                .to_string(),
+        );
+    }
+    std::fs::create_dir_all(backup_dir).map_err(|e| e.to_string())?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let prefix = model.program_prefix;
+    let backup_path = backup_dir.join(format!("{prefix}{stamp}.bin"));
+    let expected_path = backup_dir.join(format!("{prefix}{stamp}.expected.bin"));
+    run_program(model, port, &plan, &backup_path, &expected_path)
 }
 
 #[cfg(test)]

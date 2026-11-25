@@ -38,11 +38,11 @@
 //! written DIRECT — no read phase, no backup — one whole bank per half, which
 //! is exactly what the radio rebuilds the half from.
 
-use crate::radios::anytone_atd890uv::{bcd_be_encode, end_session, open_port};
+use crate::radios::anytone_atd890uv::{bcd_be_encode, end_session, enter_program_and_ident_as, open_port};
 use crate::util::fold_ascii;
 use crate::radios::driver::{CallsignDbReport, CallsignDbWriter, CallsignRecord};
 
-use super::{enter, write_sendable, AnytoneAtd578uv};
+use super::{write_sendable, AnytoneAtd578uv};
 
 pub(crate) const INDEX_BASE: u32 = 0x0400_0000;
 pub(crate) const LIMITS_BASE: u32 = 0x0484_0000;
@@ -54,6 +54,23 @@ pub(crate) const RECORD_BANK_BYTES: usize = 100_000; // 0x186A0
 /// The radio's capacity, and what the index region holds before it reaches
 /// the contact ID table at 0x04800000 (32 banks of 16,000).
 pub(crate) const MAX_ENTRIES: usize = 500_000;
+
+/// Where a model keeps its call-sign database. The D578 and the D868 share the
+/// record format, the index format and the bank geometry; the limits record,
+/// the record stream and the capacity are each model's own.
+pub(crate) struct CallsignMap {
+    pub index_base: u32,
+    pub limits_base: u32,
+    pub record_base: u32,
+    pub max_entries: usize,
+}
+
+pub(crate) const D578_CALLSIGN: CallsignMap = CallsignMap {
+    index_base: INDEX_BASE,
+    limits_base: LIMITS_BASE,
+    record_base: RECORD_BASE,
+    max_entries: MAX_ENTRIES,
+};
 
 /// Per-field byte limits: name, city, callsign, state, country, comment. The
 /// anchor radio's 281,304 records peak at exactly these lengths.
@@ -105,7 +122,14 @@ pub(crate) struct Encoded {
 /// the record stream split into banks, the index, and the limits record. Each
 /// bank's block is padded to a whole 16-byte frame (index with 0xFF, records
 /// with 0x00, as the radio's own database is).
+#[cfg(test)]
 pub(crate) fn encode(entries: &[Entry]) -> Result<Encoded, String> {
+    encode_with(&D578_CALLSIGN, entries)
+}
+
+/// [`encode`] at another model's addresses and capacity.
+pub(crate) fn encode_with(map: &CallsignMap, entries: &[Entry]) -> Result<Encoded, String> {
+    let max_entries = map.max_entries;
     // Reversed, then a stable sort: the last of each duplicate run comes first,
     // and `dedup_by_key` keeps the first of a run.
     let mut sorted: Vec<&Entry> = entries.iter().rev().collect();
@@ -118,13 +142,13 @@ pub(crate) fn encode(entries: &[Entry]) -> Result<Encoded, String> {
     // and the users that come FIRST in the input — the library hands them over
     // in priority order — then restore key order.
     let mut dropped = 0;
-    if sorted.len() > MAX_ENTRIES {
+    if sorted.len() > max_entries {
         let rank: std::collections::HashMap<u32, usize> =
             entries.iter().enumerate().map(|(i, e)| (e.key(), i)).collect();
         let groups = sorted.iter().filter(|e| e.group_call).count();
         let mut users: Vec<&Entry> = sorted.iter().copied().filter(|e| !e.group_call).collect();
         users.sort_by_key(|e| rank[&e.key()]);
-        users.truncate(MAX_ENTRIES.saturating_sub(groups));
+        users.truncate(max_entries.saturating_sub(groups));
         let kept: std::collections::HashSet<u32> = users.iter().map(|e| e.key()).collect();
         let before = sorted.len();
         sorted.retain(|e| e.group_call || kept.contains(&e.key()));
@@ -145,17 +169,17 @@ pub(crate) fn encode(entries: &[Entry]) -> Result<Encoded, String> {
     };
     let mut blocks = vec![];
     for (i, chunk) in index.chunks(INDEX_BANK_BYTES).enumerate() {
-        blocks.push((INDEX_BASE + i as u32 * BANK_STEP, pad(chunk.to_vec(), 0xFF)));
+        blocks.push((map.index_base + i as u32 * BANK_STEP, pad(chunk.to_vec(), 0xFF)));
     }
     let mut limits = vec![0u8; 16];
     limits[0..4].copy_from_slice(&(sorted.len() as u32).to_le_bytes());
     let banks = stream.len().div_ceil(RECORD_BANK_BYTES);
     let last = stream.len() - (banks - 1) * RECORD_BANK_BYTES;
-    let end = RECORD_BASE + (banks as u32 - 1) * BANK_STEP + last as u32;
+    let end = map.record_base + (banks as u32 - 1) * BANK_STEP + last as u32;
     limits[4..8].copy_from_slice(&end.to_le_bytes());
-    blocks.push((LIMITS_BASE, limits));
+    blocks.push((map.limits_base, limits));
     for (i, chunk) in stream.chunks(RECORD_BANK_BYTES).enumerate() {
-        blocks.push((RECORD_BASE + i as u32 * BANK_STEP, pad(chunk.to_vec(), 0x00)));
+        blocks.push((map.record_base + i as u32 * BANK_STEP, pad(chunk.to_vec(), 0x00)));
     }
     blocks.sort_by_key(|(a, _)| *a);
     Ok(Encoded { entries: sorted.len(), dropped, blocks })
@@ -185,43 +209,59 @@ impl CallsignDbWriter for AnytoneAtd578uv {
     /// Encode and write the whole database DIRECT (see the module doc): one
     /// session, every block whole, END once.
     fn write_callsign_db(&self, port: &str, records: &[CallsignRecord]) -> Result<CallsignDbReport, String> {
-        let encoded = encode(&entries_from_records(records))?;
-        let mut p = open_port(port)?;
-        let _ident = enter(&mut *p)?;
-        for (addr, data) in &encoded.blocks {
-            // A failed frame leaves the session open on purpose: END would
-            // commit a half-written database.
-            write_sendable(&mut *p, *addr, data)
-                .map_err(|e| format!("{e} — the call-sign database is half written; power-cycle the radio and write it again"))?;
-        }
-        let _ = end_session(&mut *p);
-        Ok(CallsignDbReport {
-            entries_written: encoded.entries,
-            windows_written: encoded.blocks.iter().map(|(a, _)| format!("0x{a:08X}")).collect(),
-            note: if encoded.dropped > 0 {
-                format!(
-                    "Written and committed — the radio reboots. The radio holds {MAX_ENTRIES} \
-                     entries, so the {} lowest-priority users were left out.",
-                    encoded.dropped
-                )
-            } else {
-                "Written and committed — the radio reboots. Check a heard station's name on its \
-                 screen."
-                    .to_string()
-            },
-            verified: false,
-        })
+        write_callsign_db_model(&super::D578_MODEL, &D578_CALLSIGN, port, records)
     }
+}
+
+/// `CallsignDbWriter::write_callsign_db` for any model sharing the format.
+pub(crate) fn write_callsign_db_model(
+    model: &super::FamilyModel,
+    map: &CallsignMap,
+    port: &str,
+    records: &[CallsignRecord],
+) -> Result<CallsignDbReport, String> {
+    let encoded = encode_with(map, &entries_from_records(records))?;
+    let mut p = open_port(port)?;
+    let _ident = enter_program_and_ident_as(&mut *p, model.ident)?;
+    for (addr, data) in &encoded.blocks {
+        // A failed frame leaves the session open on purpose: END would
+        // commit a half-written database.
+        write_sendable(&mut *p, *addr, data)
+            .map_err(|e| format!("{e} — the call-sign database is half written; power-cycle the radio and write it again"))?;
+    }
+    let _ = end_session(&mut *p);
+    Ok(CallsignDbReport {
+        entries_written: encoded.entries,
+        windows_written: encoded.blocks.iter().map(|(a, _)| format!("0x{a:08X}")).collect(),
+        note: if encoded.dropped > 0 {
+            format!(
+                "Written and committed — the radio reboots. The radio holds {} \
+                 entries, so the {} lowest-priority users were left out.",
+                map.max_entries, encoded.dropped
+            )
+        } else {
+            "Written and committed — the radio reboots. Check a heard station's name on its \
+             screen."
+                .to_string()
+        },
+        verified: false,
+    })
 }
 
 /// Decode a database back out of its blocks, for the byte-identical gate.
 #[cfg(test)]
 pub(crate) fn decode(blocks: &std::collections::BTreeMap<u32, Vec<u8>>) -> Vec<Entry> {
-    let lim = &blocks[&LIMITS_BASE];
+    decode_with(&D578_CALLSIGN, blocks)
+}
+
+/// [`decode`] at another model's addresses.
+#[cfg(test)]
+pub(crate) fn decode_with(map: &CallsignMap, blocks: &std::collections::BTreeMap<u32, Vec<u8>>) -> Vec<Entry> {
+    let lim = &blocks[&map.limits_base];
     let count = u32::from_le_bytes(lim[0..4].try_into().unwrap()) as usize;
     let mut stream = Vec::new();
     for bank in 0.. {
-        let Some(b) = blocks.get(&(RECORD_BASE + bank * BANK_STEP)) else { break };
+        let Some(b) = blocks.get(&(map.record_base + bank * BANK_STEP)) else { break };
         stream.extend_from_slice(&b[..b.len().min(RECORD_BANK_BYTES)]);
     }
     let mut out = Vec::with_capacity(count);

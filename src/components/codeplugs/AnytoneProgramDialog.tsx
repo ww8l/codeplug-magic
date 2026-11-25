@@ -44,7 +44,7 @@ function fileName(path: string): string {
 }
 
 /**
- * Direct AnyTone programming (AT-D890UV, AT-D578UV) from the database: a FULL REPLACE of
+ * Direct AnyTone programming (AT-D890UV, AT-D578UV, AT-D868UV) from the database: a FULL REPLACE of
  * the radio's channel set (channels + zones + scan lists + DMR contacts) in
  * one PC-mode session. The radio commits on END and reboots (USB
  * re-enumerates), so Verify runs as a separate step after a rescan.

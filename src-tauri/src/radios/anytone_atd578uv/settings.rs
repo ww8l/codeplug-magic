@@ -17,12 +17,12 @@ use crate::radios::anytone_atd890uv::settings::{
     as_u32, bcd_be_decode, bcd_be_encode, decode_field, encode_field_into, SF, SK,
 };
 use crate::radios::anytone_atd890uv::{
-    end_session, open_port, read_block, serialize_backup, BankPlan,
+    end_session, enter_program_and_ident_as, open_port, read_block, serialize_backup, BankPlan,
     WRITE_WINDOW,
 };
 use crate::radios::driver::{SettingsCapture, SettingsReader, SettingsWriteReport, SettingsWriter};
 
-use super::{decode_ascii_field, encode_ascii_field, enter, AnytoneAtd578uv};
+use super::{decode_ascii_field, encode_ascii_field, AnytoneAtd578uv};
 
 include!("settings_table.rs");
 
@@ -55,9 +55,16 @@ fn slice_at(windows: &BTreeMap<u32, Vec<u8>>, addr: u32) -> &[u8] {
 }
 
 /// Decode the settings windows into the profile form's values.
+#[cfg(test)]
 pub(crate) fn decode_settings(windows: &BTreeMap<u32, Vec<u8>>) -> Value {
+    decode_settings_with(D578_SETTINGS_FIELDS, windows)
+}
+
+/// [`decode_settings`] with another model's field table (the D868's: the same
+/// windows and radio-ID record, its own fields).
+pub(crate) fn decode_settings_with(fields: &[SF], windows: &BTreeMap<u32, Vec<u8>>) -> Value {
     let mut map = Map::new();
-    for f in D578_SETTINGS_FIELDS {
+    for f in fields {
         map.insert(f.key.to_string(), decode_field(slice_at(windows, f.base), f.byte as usize, &f.kind));
     }
     let bitmap = slice_at(windows, RADIO_ID_BITMAP);
@@ -77,13 +84,23 @@ pub(crate) fn decode_settings(windows: &BTreeMap<u32, Vec<u8>>) -> Value {
 /// Apply profile values onto copies of the windows (read-modify-write: every
 /// byte and bit no field names is kept) and return a plan for each window that
 /// changed. A value that does not parse leaves its bytes alone.
+#[cfg(test)]
 pub(crate) fn plan_settings_write(
+    windows: &BTreeMap<u32, Vec<u8>>,
+    values: &Value,
+) -> Result<Vec<BankPlan>, String> {
+    plan_settings_write_with(D578_SETTINGS_FIELDS, windows, values)
+}
+
+/// [`plan_settings_write`] with another model's field table.
+pub(crate) fn plan_settings_write_with(
+    fields: &[SF],
     windows: &BTreeMap<u32, Vec<u8>>,
     values: &Value,
 ) -> Result<Vec<BankPlan>, String> {
     let obj = values.as_object().ok_or("settings values is not a JSON object")?;
     let mut patched = windows.clone();
-    for f in D578_SETTINGS_FIELDS {
+    for f in fields {
         let Some(v) = obj.get(f.key) else { continue };
         let base = f.base & !(WRITE_WINDOW as u32 - 1);
         let Some(w) = patched.get_mut(&base) else { continue };
@@ -136,18 +153,27 @@ impl SettingsReader for AnytoneAtd578uv {
     /// Read the settings windows and decode them. The table is built in, so the
     /// schema argument is unused; the raw windows come back as the backup.
     fn read_settings(&self, port: &str, _schema_json: &str) -> Result<SettingsCapture, String> {
-        let mut p = open_port(port)?;
-        let _ident = enter(&mut *p)?;
-        let windows = read_windows(&mut *p);
-        let _ = end_session(&mut *p);
-        let windows = windows?;
-        let blocks: Vec<(u32, Vec<u8>)> = windows.iter().map(|(a, d)| (*a, d.clone())).collect();
-        Ok(SettingsCapture {
-            settings: decode_settings(&windows),
-            backup: serialize_backup(&blocks),
-            backup_ext: "bin",
-        })
+        read_settings_model(&super::D578_MODEL, D578_SETTINGS_FIELDS, port)
     }
+}
+
+/// `SettingsReader::read_settings` for any model sharing these windows.
+pub(crate) fn read_settings_model(
+    model: &super::FamilyModel,
+    fields: &[SF],
+    port: &str,
+) -> Result<SettingsCapture, String> {
+    let mut p = open_port(port)?;
+    let _ident = enter_program_and_ident_as(&mut *p, model.ident)?;
+    let windows = read_windows(&mut *p);
+    let _ = end_session(&mut *p);
+    let windows = windows?;
+    let blocks: Vec<(u32, Vec<u8>)> = windows.iter().map(|(a, d)| (*a, d.clone())).collect();
+    Ok(SettingsCapture {
+        settings: decode_settings_with(fields, &windows),
+        backup: serialize_backup(&blocks),
+        backup_ext: "bin",
+    })
 }
 
 impl SettingsWriter for AnytoneAtd578uv {
@@ -160,79 +186,92 @@ impl SettingsWriter for AnytoneAtd578uv {
         _schema_json: &str,
         backup_dir: &std::path::Path,
     ) -> Result<SettingsWriteReport, String> {
-        std::fs::create_dir_all(backup_dir).map_err(|e| e.to_string())?;
-        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-        let backup_path = backup_dir.join(format!("{SETTINGS_PREFIX}{stamp}.bin"));
-        let expected_path = backup_dir.join(format!("{SETTINGS_PREFIX}{stamp}.expected.bin"));
-
-        let mut p = open_port(port)?;
-        let _ident = enter(&mut *p)?;
-        let planned = read_windows(&mut *p).and_then(|w| {
-            let plans = plan_settings_write(&w, settings)?;
-            // The rest of every half a write lands in, carried unchanged.
-            let mut reads = w;
-            for a in super::windows_of_touched_halves(&plans) {
-                if let std::collections::btree_map::Entry::Vacant(e) = reads.entry(a) {
-                    e.insert(read_block(&mut *p, a, WRITE_WINDOW)?);
-                }
-            }
-            super::with_carried_windows(plans, &reads)
-        });
-        let plans = match planned {
-            Ok(plans) => plans,
-            Err(e) => {
-                let _ = end_session(&mut *p);
-                return Err(e);
-            }
-        };
-        if plans.is_empty() {
-            let _ = end_session(&mut *p);
-            return Err("the radio already matches this profile's settings — nothing to write".into());
-        }
-        let fields_written = D578_SETTINGS_FIELDS
-            .iter()
-            .filter(|f| {
-                let base = f.base & !(WRITE_WINDOW as u32 - 1);
-                plans.iter().find(|pl| pl.base == base).is_some_and(|pl| {
-                    let o = (f.base - base) as usize + f.byte as usize;
-                    field_changed(&f.kind, &pl.original[o..], &pl.patched[o..])
-                })
-            })
-            .count();
-
-        for (path, bytes) in [
-            (&backup_path, serialize_backup(&super::plan_blocks(&plans, false))),
-            (&expected_path, serialize_backup(&super::plan_blocks(&plans, true))),
-        ] {
-            if let Err(e) = std::fs::write(path, bytes) {
-                let _ = end_session(&mut *p);
-                return Err(format!("could not write {}: {e}", path.display()));
-            }
-        }
-        let written = super::commit_windows(&mut *p, &plans).map_err(|e| {
-            crate::radios::driver::with_restore_hint(
-                e,
-                &backup_path,
-                "Power-cycle the radio, rescan the port, then use \"Restore backup\" in the \
-                 Program dialog.",
-            )
-        })?;
-        let _ = end_session(&mut *p);
-        Ok(SettingsWriteReport {
-            fields_written,
-            // END commits and reboots the radio; verification is the dialog's
-            // fresh-session Verify against the expected image.
-            verified: None,
-            note: Some(
-                "Written and committed — the radio reboots and drops off USB. Reconnect it, \
-                 rescan, then run Verify against the expected image."
-                    .to_string(),
-            ),
-            backup_path: backup_path.to_string_lossy().to_string(),
-            expected_path: Some(expected_path.to_string_lossy().to_string()),
-            windows_written: written.iter().map(|a| format!("0x{a:08X}")).collect(),
-        })
+        write_settings_model(&super::D578_MODEL, D578_SETTINGS_FIELDS, SETTINGS_PREFIX, port, settings, backup_dir)
     }
+}
+
+/// `SettingsWriter::write_settings` for any model sharing these windows: its
+/// ident, its field table and its backup prefix.
+pub(crate) fn write_settings_model(
+    model: &super::FamilyModel,
+    fields: &[SF],
+    prefix: &str,
+    port: &str,
+    settings: &Value,
+    backup_dir: &std::path::Path,
+) -> Result<SettingsWriteReport, String> {
+    std::fs::create_dir_all(backup_dir).map_err(|e| e.to_string())?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let backup_path = backup_dir.join(format!("{prefix}{stamp}.bin"));
+    let expected_path = backup_dir.join(format!("{prefix}{stamp}.expected.bin"));
+
+    let mut p = open_port(port)?;
+    let _ident = enter_program_and_ident_as(&mut *p, model.ident)?;
+    let planned = read_windows(&mut *p).and_then(|w| {
+        let plans = plan_settings_write_with(fields, &w, settings)?;
+        // The rest of every half a write lands in, carried unchanged.
+        let mut reads = w;
+        for a in super::windows_of_touched_halves(&plans) {
+            if let std::collections::btree_map::Entry::Vacant(e) = reads.entry(a) {
+                e.insert(read_block(&mut *p, a, WRITE_WINDOW)?);
+            }
+        }
+        super::with_carried_windows(plans, &reads)
+    });
+    let plans = match planned {
+        Ok(plans) => plans,
+        Err(e) => {
+            let _ = end_session(&mut *p);
+            return Err(e);
+        }
+    };
+    if plans.is_empty() {
+        let _ = end_session(&mut *p);
+        return Err("the radio already matches this profile's settings — nothing to write".into());
+    }
+    let fields_written = fields
+        .iter()
+        .filter(|f| {
+            let base = f.base & !(WRITE_WINDOW as u32 - 1);
+            plans.iter().find(|pl| pl.base == base).is_some_and(|pl| {
+                let o = (f.base - base) as usize + f.byte as usize;
+                field_changed(&f.kind, &pl.original[o..], &pl.patched[o..])
+            })
+        })
+        .count();
+
+    for (path, bytes) in [
+        (&backup_path, serialize_backup(&super::plan_blocks(&plans, false))),
+        (&expected_path, serialize_backup(&super::plan_blocks(&plans, true))),
+    ] {
+        if let Err(e) = std::fs::write(path, bytes) {
+            let _ = end_session(&mut *p);
+            return Err(format!("could not write {}: {e}", path.display()));
+        }
+    }
+    let written = super::commit_windows(&mut *p, &plans).map_err(|e| {
+        crate::radios::driver::with_restore_hint(
+            e,
+            &backup_path,
+            "Power-cycle the radio, rescan the port, then use \"Restore backup\" in the \
+             Program dialog.",
+        )
+    })?;
+    let _ = end_session(&mut *p);
+    Ok(SettingsWriteReport {
+        fields_written,
+        // END commits and reboots the radio; verification is the dialog's
+        // fresh-session Verify against the expected image.
+        verified: None,
+        note: Some(
+            "Written and committed — the radio reboots and drops off USB. Reconnect it, \
+             rescan, then run Verify against the expected image."
+                .to_string(),
+        ),
+        backup_path: backup_path.to_string_lossy().to_string(),
+        expected_path: Some(expected_path.to_string_lossy().to_string()),
+        windows_written: written.iter().map(|a| format!("0x{a:08X}")).collect(),
+    })
 }
 
 /// Did this field's own value change? Bit fields compare only their bits, so a
@@ -254,6 +293,7 @@ fn field_len(kind: &SK) -> usize {
         SK::Uint { width } | SK::Enum { width, .. } => *width as usize,
         SK::Text { len } => *len as usize,
         SK::Utf16 { chars } => *chars as usize * 2,
+        SK::Digits { len } => *len as usize,
         SK::FreqBcd | SK::FreqLe | SK::BcdId => 4,
         SK::Bool | SK::BoolBit { .. } | SK::Bits { .. } => 1,
     }

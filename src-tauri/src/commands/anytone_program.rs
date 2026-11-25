@@ -110,9 +110,25 @@ const D578_FAMILY: AnytoneFamily = AnytoneFamily {
     ],
 };
 
+/// The D868UV shares the D578's map, write unit and backup shape (#51); only
+/// its ident and its file prefix differ.
+const D868_FAMILY: AnytoneFamily = AnytoneFamily {
+    ident: crate::radios::anytone_atd868uv::D868_IDENT,
+    check_restore: crate::radios::anytone_atd868uv::check_restore_blocks,
+    write: crate::radios::anytone_atd578uv::write_sendable,
+    session_blocks: blocks_as_is,
+    prefixes: &[
+        crate::radios::anytone_atd868uv::PROGRAM_PREFIX,
+        crate::radios::anytone_atd868uv::settings::SETTINGS_PREFIX,
+    ],
+};
+
 /// Every family member, for the cross-model file check.
-const FAMILIES: [(&str, &AnytoneFamily); 2] =
-    [("anytone_atd890uv", &D890_FAMILY), ("anytone_atd578uv", &D578_FAMILY)];
+const FAMILIES: [(&str, &AnytoneFamily); 3] = [
+    ("anytone_atd890uv", &D890_FAMILY),
+    ("anytone_atd578uv", &D578_FAMILY),
+    ("anytone_atd868uv", &D868_FAMILY),
+];
 
 fn family(driver_key: &str) -> Result<&'static AnytoneFamily, String> {
     FAMILIES

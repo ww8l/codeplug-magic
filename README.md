@@ -27,6 +27,7 @@ including programming several different radios from the same codeplug.
 | **TIDRADIO TD-H3** | Analog FM/NFM/AM | VHF / UHF / 1.25 m | Direct USB — read, write, settings | 200 channels, tri-band |
 | **AnyTone AT-D890UV** | DMR + Analog | VHF / UHF | Direct USB — channels, zones, scan lists, settings, call-sign DB | 4000 channels; full DMR: zones, talkgroups, 308k-entry caller-ID database |
 | **AnyTone AT-D578UV** | DMR + Analog mobile | 2 m / 1.25 m / 70 cm | Direct USB — channels, zones, scan lists, talkgroups, settings, call-sign DB | 4000 channels in 250 zones; 264 menu settings including the FM and DMR APRS setup; 500k-entry caller-ID database. AM channels in 108–136 MHz go to the air-band memory, which only the D578UV **PLUS** receives — that part is written to the published map but has not been checked on a PLUS. Same protocol as the D890UV over a different memory map |
+| **AnyTone AT-D868UV** | DMR + Analog handheld | VHF / UHF | Direct USB — channels, zones, scan lists, talkgroups, settings, call-sign DB | 4000 channels in 250 zones; 156 settings including the DMR APRS position setup and the 5-Tone, 2-Tone, DTMF and alarm setup; 200k-entry caller-ID database. The D578UV's memory map (the D868UV is the base of that family), so the same programmer writes both. Hardware V1.1 / firmware 2.x radios (`V102`); the older V1.0 / firmware 1.xx units have no published map and are refused |
 | **Yaesu FT5D** | C4FM (System Fusion) + Analog | VHF / UHF TX, wideband RX | microSD — patches the radio's own backup file | 900 channels in 24 banks; channels, banks, and menu settings |
 | **Yaesu FTM-300DR** | C4FM (System Fusion) + Analog | 2 m / 70 cm TX, 108–999 MHz RX | microSD — patches the radio's own backup file | 999 memories; memories and 147 menu settings, including the APRS and SmartBeaconing setup |
 | **Yaesu FTM-400DR / XDR** | C4FM (System Fusion) + Analog | 2 m / 70 cm TX, 108–999 MHz RX | microSD — patches the radio's own backup file | 500 memories on each of Band A and Band B, the codeplug written to both; memories and 260 set-up menu settings including the APRS, SmartBeaconing and digipath setup |
@@ -71,7 +72,6 @@ settings together, then verify on the actual radio before shipping.
 
 | Radio | Modes | Issue |
 |-------|-------|-------|
-| **AnyTone AT-D868UV** | DMR + Analog handheld | [#51](https://github.com/ww8l/codeplug-magic/issues/51) |
 | **Icom IC-9100** | HF / VHF / UHF base | [#45](https://github.com/ww8l/codeplug-magic/issues/45) |
 | **Icom IC-7610** | HF / 6 m SDR base | [#46](https://github.com/ww8l/codeplug-magic/issues/46) |
 | **Quansheng UV-K5** | Analog handheld | [#44](https://github.com/ww8l/codeplug-magic/issues/44) |
