@@ -41,6 +41,7 @@ pub async fn init_pool(db_path: &Path) -> Result<SqlitePool, sqlx::Error> {
 
     sqlx::migrate!("./migrations").run(&pool).await?;
     crate::seed::seed_radio_models(&pool).await?;
+    crate::radios::anytone_atd890uv::settings::upgrade_anytone_profiles(&pool).await?;
 
     Ok(pool)
 }
