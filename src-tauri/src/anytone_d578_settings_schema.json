@@ -98,9 +98,7 @@
   {
     "key": "show-last-caller-on-boot",
     "label": "Show last caller on boot",
-    "type": "integer",
-    "min": 0,
-    "max": 255
+    "type": "boolean"
   },
   {
     "key": "__sec_3",
@@ -315,9 +313,7 @@
   {
     "key": "keep-last-caller",
     "label": "Keep last caller",
-    "type": "integer",
-    "min": 0,
-    "max": 255
+    "type": "boolean"
   },
   {
     "key": "enable-show-current-contact",
@@ -327,23 +323,17 @@
   {
     "key": "show-clock",
     "label": "Show Clock",
-    "type": "integer",
-    "min": 0,
-    "max": 255
+    "type": "boolean"
   },
   {
     "key": "show-volume-bar",
     "label": "Show volume bar",
-    "type": "integer",
-    "min": 0,
-    "max": 255
+    "type": "boolean"
   },
   {
     "key": "show-menu-separator",
     "label": "Show menu separator",
-    "type": "integer",
-    "min": 0,
-    "max": 255
+    "type": "boolean"
   },
   {
     "key": "show-color-code",
@@ -531,9 +521,7 @@
   {
     "key": "enable-call-end-notification",
     "label": "Enable call-end notification.",
-    "type": "integer",
-    "min": 0,
-    "max": 255
+    "type": "boolean"
   },
   {
     "key": "enable-call-alert",
