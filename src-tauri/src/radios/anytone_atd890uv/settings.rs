@@ -750,9 +750,95 @@ impl SettingsWriter for AnytoneAtd890uv {
     }
 }
 
+/// Bring a profile saved before a field became a drop-down or a switch up to
+/// the field's current form, in place. Returns whether anything changed.
+///
+/// Settings that were once 0-255 number boxes (the dmr-tools descriptor
+/// publishes them as plain integers) are now the CPS's own lists and switches.
+/// A profile saved earlier holds the raw byte as a JSON number. The writer still
+/// maps a number straight to its byte, so it reaches the radio correctly, but
+/// the form compares the value against option LABELS: a stored 3 in a list
+/// whose "3" is byte 2 would show the wrong entry. Only JSON numbers are
+/// touched; a string is already a label, or an unlabelled raw passed through
+/// by the decoder, and both mean what they say.
+pub(crate) fn upgrade_legacy_values(fields: &[SF], settings: &mut Map<String, Value>) -> bool {
+    let mut changed = false;
+    for f in fields {
+        let Some(v) = settings.get_mut(f.key) else { continue };
+        let Value::Number(n) = v else { continue };
+        let Some(raw) = n.as_u64() else { continue };
+        let new = match &f.kind {
+            SK::Bool => Value::Bool(raw != 0),
+            SK::Enum { labels, .. } => match labels.iter().find(|(r, _)| u64::from(*r) == raw) {
+                Some((_, l)) => Value::from(*l),
+                // No label for it: keep the byte, as the decoder would show it.
+                None => Value::from(raw.to_string()),
+            },
+            _ => continue,
+        };
+        *v = new;
+        changed = true;
+    }
+    changed
+}
+
+/// Run [`upgrade_legacy_values`] over every stored AnyTone profile. Idempotent:
+/// a profile with nothing left to upgrade is not rewritten.
+pub async fn upgrade_anytone_profiles(pool: &sqlx::SqlitePool) -> Result<(), sqlx::Error> {
+    let rows: Vec<(i64, String, Option<String>)> = sqlx::query_as(
+        "SELECT p.id, m.driver_key, p.non_channel_settings FROM radio_profiles p \
+         JOIN radio_models m ON m.id = p.radio_model_id \
+         WHERE m.driver_key IN ('anytone_atd890uv', 'anytone_atd578uv', 'anytone_atd868uv')",
+    )
+    .fetch_all(pool)
+    .await?;
+    for (id, driver, json) in rows {
+        let fields: &[SF] = match driver.as_str() {
+            "anytone_atd890uv" => ANYTONE_SETTINGS_FIELDS,
+            "anytone_atd578uv" => crate::radios::anytone_atd578uv::settings::D578_SETTINGS_FIELDS,
+            _ => crate::radios::anytone_atd868uv::settings::D868_SETTINGS_FIELDS,
+        };
+        let Some(json) = json else { continue };
+        let Ok(Value::Object(mut map)) = serde_json::from_str::<Value>(&json) else { continue };
+        if upgrade_legacy_values(fields, &mut map) {
+            sqlx::query("UPDATE radio_profiles SET non_channel_settings = ? WHERE id = ?")
+                .bind(Value::Object(map).to_string())
+                .bind(id)
+                .execute(pool)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_numbers_become_labels_and_switches() {
+        const LABELS: &[(u32, &str)] = &[(0, "1"), (1, "2"), (2, "3")];
+        let fields = [
+            SF { key: "gain", base: 0, byte: 0, kind: SK::Enum { width: 1, labels: LABELS } },
+            SF { key: "flag", base: 0, byte: 1, kind: SK::Bool },
+            SF { key: "count", base: 0, byte: 2, kind: SK::Uint { width: 1 } },
+        ];
+        let mut m: Map<String, Value> = serde_json::from_str(
+            r#"{"gain": 2, "flag": 1, "count": 7, "other": 3}"#).unwrap();
+        assert!(upgrade_legacy_values(&fields, &mut m));
+        // byte 2 is the label "3", not "2"
+        assert_eq!(m["gain"], Value::from("3"));
+        assert_eq!(m["flag"], Value::Bool(true));
+        assert_eq!(m["count"], Value::from(7));
+        assert_eq!(m["other"], Value::from(3));
+        // a second pass finds nothing to do, and a label or unlabelled raw string is left alone
+        assert!(!upgrade_legacy_values(&fields, &mut m));
+        let mut m: Map<String, Value> = serde_json::from_str(r#"{"gain": "2", "flag": false}"#).unwrap();
+        assert!(!upgrade_legacy_values(&fields, &mut m));
+        let mut m: Map<String, Value> = serde_json::from_str(r#"{"gain": 9}"#).unwrap();
+        assert!(upgrade_legacy_values(&fields, &mut m));
+        assert_eq!(m["gain"], Value::from("9"));
+    }
 
     /// Raw settings image captured from a golden radio (freshly RT-Systems-
     /// flashed): a contiguous 0x03500000 window covering both the General
@@ -873,7 +959,8 @@ mod tests {
         vals["enable-gps"] = Value::from(false);
         vals["folk"] = Value::from(true);
         vals["language"] = Value::from("Russian");
-        vals["tot"] = Value::from(42u32);
+        vals["key-tone-volume"] = Value::from(42u32);
+        vals["tot"] = Value::from("120s");
         vals["vfo-scan-uhf-min-frequency"] = Value::from(43_000_000u32);
         vals["boot-password"] = Value::from("SECRET42");
         vals["boot-text-line-1"] = Value::from("HELLO");
@@ -885,7 +972,9 @@ mod tests {
         assert_eq!(decoded["enable-gps"], Value::from(false));
         assert_eq!(decoded["folk"], Value::from(true));
         assert_eq!(decoded["language"], Value::from("Russian"));
-        assert_eq!(decoded["tot"], Value::from(42u32));
+        assert_eq!(decoded["key-tone-volume"], Value::from(42u32));
+        // A CPS list: the label goes in, its position (4 = 120s) is the byte.
+        assert_eq!(decoded["tot"], Value::from("120s"));
         assert_eq!(decoded["vfo-scan-uhf-min-frequency"], Value::from(43_000_000u32));
         assert_eq!(decoded["boot-password"], Value::from("SECRET42"));
         assert_eq!(decoded["boot-text-line-1"], Value::from("HELLO"));
